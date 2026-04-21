@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,29 @@ import (
 	"github.com/xydac/ridgeline/manifest"
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
+
+// captureStdout swaps os.Stdout for a pipe, runs fn, and returns what
+// was written. It is not safe for t.Parallel callers.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	go func() {
+		io.Copy(&buf, r)
+		close(done)
+	}()
+	fn()
+	w.Close()
+	<-done
+	os.Stdout = old
+	return buf.String()
+}
 
 func TestRunSync_DryRun(t *testing.T) {
 	t.Parallel()
@@ -225,6 +250,59 @@ products:
 	}
 	if err := runSync(context.Background(), []string{"--config", cfgPath}); err == nil {
 		t.Fatal("expected error for unknown connector type")
+	}
+}
+
+func TestRunSync_Config_RunsConnectorsInDeclaredYAMLOrder(t *testing.T) {
+	// Regression for QA F-020: the pipeline sorted connectors by name
+	// before running them, so a config listing connectors in order
+	// "zulu, alpha, mike" would run alpha first, then mike, then zulu,
+	// and a rename could silently re-order the pipeline. The fix is to
+	// iterate product.Connectors in its declared slice order.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	dbPath := filepath.Join(dir, "state.db")
+	cfg := `
+version: 1
+state_path: ` + dbPath + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: zulu
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "z") + ` } }
+      - name: alpha
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "a") + ` } }
+      - name: mike
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "m") + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var err error
+	out := captureStdout(t, func() {
+		err = runSync(context.Background(), []string{"--config", cfgPath})
+	})
+	if err != nil {
+		t.Fatalf("runSync: %v", err)
+	}
+	want := []string{"myapp/zulu:", "myapp/alpha:", "myapp/mike:"}
+	var idx int
+	for _, w := range want {
+		pos := strings.Index(out[idx:], w)
+		if pos < 0 {
+			t.Fatalf("output missing %q in declared order; full output:\n%s", w, out)
+		}
+		idx += pos + len(w)
 	}
 }
 

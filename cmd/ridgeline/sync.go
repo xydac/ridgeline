@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/connectors"
@@ -106,12 +105,18 @@ func runDryRun(ctx context.Context, out string, records int) error {
 // runs each configured connector through its configured sink. Each
 // connector's state is keyed as "<product>/<connector>".
 //
+// Connectors inside a product run in the order the YAML file lists
+// them, so a reader of ridgeline.yaml can predict execution order
+// without cross-referencing names. Products themselves come from a
+// YAML map and are iterated by sorted product id so runs are
+// deterministic across Go releases; if top-level ordering ever needs
+// to match declaration order, the schema can switch to a list form.
+//
 // Before any connector runs, every configured connector's Validate
-// method is called in product + name order. If any Validate returns
-// an error the whole sync is aborted with a non-zero exit: it is
-// better to refuse a broken config up front than to have earlier
-// connectors write partial data before a later one trips over its
-// config at extract time.
+// method is called. If any Validate returns an error the whole sync
+// is aborted with a non-zero exit: it is better to refuse a broken
+// config up front than to have earlier connectors write partial data
+// before a later one trips over its config at extract time.
 func runConfigSync(ctx context.Context, cfgPath string) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -132,9 +137,7 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	var totalRecords int
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
-		instances := append([]config.ConnectorInstance(nil), product.Connectors...)
-		sort.Slice(instances, func(i, j int) bool { return instances[i].Name < instances[j].Name })
-		for _, inst := range instances {
+		for _, inst := range product.Connectors {
 			n, err := runConnectorInstance(ctx, store, pid, inst)
 			if err != nil {
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
@@ -150,13 +153,12 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 // its own config map before any sink is opened or record is written.
 // Connector types that are not registered are also reported here, so
 // the user does not have to wait for extract time to learn about the
-// typo.
+// typo. Validation walks products in sorted id order and connectors
+// in their declared YAML order so error messages are stable.
 func validateConnectors(ctx context.Context, cfg *config.File) error {
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
-		instances := append([]config.ConnectorInstance(nil), product.Connectors...)
-		sort.Slice(instances, func(i, j int) bool { return instances[i].Name < instances[j].Name })
-		for _, inst := range instances {
+		for _, inst := range product.Connectors {
 			conn, ok := connectors.Get(inst.Type)
 			if !ok {
 				return fmt.Errorf("product %s connector %s: type %q is not registered", pid, inst.Name, inst.Type)
