@@ -1,0 +1,201 @@
+package sqlite_test
+
+import (
+	"context"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	"github.com/xydac/ridgeline/connectors"
+	"github.com/xydac/ridgeline/state/sqlite"
+)
+
+func TestOpen_MemoryAndRoundTrip(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	got, err := s.Load(ctx, "never-saved")
+	if err != nil {
+		t.Fatalf("Load empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Load empty: want zero-length state, got %v", got)
+	}
+
+	want := connectors.State{"cursor": "2026-04-20", "page": float64(42)}
+	if err := s.Save(ctx, "myapp_gsc", want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err = s.Load(ctx, "myapp_gsc")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got["cursor"] != "2026-04-20" || got["page"] != float64(42) {
+		t.Fatalf("Load: got %v", got)
+	}
+}
+
+func TestSave_OverwritesExisting(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	if err := s.Save(ctx, "k", connectors.State{"v": 1.0}); err != nil {
+		t.Fatalf("Save1: %v", err)
+	}
+	if err := s.Save(ctx, "k", connectors.State{"v": 2.0}); err != nil {
+		t.Fatalf("Save2: %v", err)
+	}
+	got, err := s.Load(ctx, "k")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got["v"] != 2.0 {
+		t.Fatalf("Load after overwrite: want 2, got %v", got["v"])
+	}
+}
+
+func TestPersistsAcrossProcessRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ridgeline.db")
+	ctx := context.Background()
+
+	s1, err := sqlite.Open(path)
+	if err != nil {
+		t.Fatalf("Open1: %v", err)
+	}
+	if err := s1.Save(ctx, "persist", connectors.State{"cursor": "A"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatalf("Close1: %v", err)
+	}
+
+	s2, err := sqlite.Open(path)
+	if err != nil {
+		t.Fatalf("Open2: %v", err)
+	}
+	defer s2.Close()
+	got, err := s2.Load(ctx, "persist")
+	if err != nil {
+		t.Fatalf("Load after reopen: %v", err)
+	}
+	if got["cursor"] != "A" {
+		t.Fatalf("after reopen: want cursor=A, got %v", got)
+	}
+}
+
+func TestEmptyKeyRejected(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if _, err := s.Load(ctx, ""); err == nil {
+		t.Fatalf("Load empty key: want error")
+	}
+	if err := s.Save(ctx, "", connectors.State{}); err == nil {
+		t.Fatalf("Save empty key: want error")
+	}
+	if err := s.Delete(ctx, ""); err == nil {
+		t.Fatalf("Delete empty key: want error")
+	}
+}
+
+func TestDelete(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.Save(ctx, "k", connectors.State{"v": 1.0}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := s.Delete(ctx, "k"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	got, err := s.Load(ctx, "k")
+	if err != nil {
+		t.Fatalf("Load after delete: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Load after delete: want empty, got %v", got)
+	}
+	// Delete is idempotent.
+	if err := s.Delete(ctx, "k"); err != nil {
+		t.Fatalf("Delete missing: want no error, got %v", err)
+	}
+}
+
+func TestKeysSorted(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	for _, k := range []string{"c", "a", "b"} {
+		if err := s.Save(ctx, k, connectors.State{"v": 1.0}); err != nil {
+			t.Fatalf("Save %s: %v", k, err)
+		}
+	}
+	keys, err := s.Keys(ctx)
+	if err != nil {
+		t.Fatalf("Keys: %v", err)
+	}
+	want := []string{"a", "b", "c"}
+	if len(keys) != len(want) {
+		t.Fatalf("Keys: got %v", keys)
+	}
+	for i, k := range want {
+		if keys[i] != k {
+			t.Fatalf("Keys[%d]: want %s got %s", i, k, keys[i])
+		}
+	}
+}
+
+func TestConcurrentWrites(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := s.Save(ctx, "k", connectors.State{"i": float64(i)}); err != nil {
+				t.Errorf("concurrent Save %d: %v", i, err)
+			}
+			if _, err := s.Load(ctx, "k"); err != nil {
+				t.Errorf("concurrent Load %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestOpen_MigrationIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ridgeline.db")
+	for i := 0; i < 3; i++ {
+		s, err := sqlite.Open(path)
+		if err != nil {
+			t.Fatalf("Open iteration %d: %v", i, err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("Close iteration %d: %v", i, err)
+		}
+	}
+}
