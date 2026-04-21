@@ -79,7 +79,12 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 // knownConfigKeys enumerates every config key this connector reads.
 // Kept together so Validate's unknown-key check and the code that
 // actually consumes the values stay in sync.
-var knownConfigKeys = []string{"base_url", "website_id", "api_key", "page_size", "max_pages"}
+var knownConfigKeys = []string{
+	"base_url", "website_id", "page_size", "max_pages",
+	"auth",
+	"api_key",              // auth=api_key
+	"username", "password", // auth=login (populated via *_ref)
+}
 
 // Validate checks that the required fields are present and numeric
 // bounds make sense, and reports typo'd keys up front. It does not
@@ -94,8 +99,20 @@ func (c *Connector) Validate(_ context.Context, cfg connectors.ConnectorConfig) 
 	if strings.TrimSpace(cfg.String("website_id")) == "" {
 		return fmt.Errorf("umami: website_id must not be empty")
 	}
-	if strings.TrimSpace(cfg.String("api_key")) == "" {
-		return fmt.Errorf("umami: api_key must not be empty (set api_key_ref to a stored credential)")
+	switch mode := authMode(cfg); mode {
+	case authAPIKey:
+		if strings.TrimSpace(cfg.String("api_key")) == "" {
+			return fmt.Errorf("umami: api_key must not be empty (set api_key_ref to a stored credential)")
+		}
+	case authLogin:
+		if strings.TrimSpace(cfg.String("username")) == "" {
+			return fmt.Errorf("umami: auth=login requires username (set username_ref to a stored credential)")
+		}
+		if strings.TrimSpace(cfg.String("password")) == "" {
+			return fmt.Errorf("umami: auth=login requires password (set password_ref to a stored credential)")
+		}
+	default:
+		return fmt.Errorf("umami: auth must be %q or %q (got %q)", authAPIKey, authLogin, mode)
 	}
 	if ps := cfg.Int("page_size", DefaultPageSize); ps <= 0 || ps > MaxPageSize {
 		return fmt.Errorf("umami: page_size must be in 1..%d (got %d)", MaxPageSize, ps)

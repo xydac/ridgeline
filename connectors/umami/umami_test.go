@@ -65,6 +65,17 @@ func TestValidate(t *testing.T) {
 	if err := c.Validate(ctx, good); err != nil {
 		t.Errorf("valid cfg rejected: %v", err)
 	}
+
+	// auth=login requires username and password; api_key is not needed.
+	must(connectors.ConnectorConfig{"base_url": "x", "website_id": "y", "auth": "login"}, "username")
+	must(connectors.ConnectorConfig{"base_url": "x", "website_id": "y", "auth": "login", "username": "u"}, "password")
+	goodLogin := connectors.ConnectorConfig{"base_url": "x", "website_id": "y", "auth": "login", "username": "u", "password": "p"}
+	if err := c.Validate(ctx, goodLogin); err != nil {
+		t.Errorf("valid auth=login cfg rejected: %v", err)
+	}
+
+	// Unknown auth mode names must surface at validation time.
+	must(connectors.ConnectorConfig{"base_url": "x", "website_id": "y", "auth": "oauth2"}, `auth must be`)
 }
 
 // Extract against a fake server that returns two pages of synthetic
