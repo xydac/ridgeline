@@ -1,0 +1,144 @@
+package sinks
+
+import (
+	"context"
+	"reflect"
+	"sync/atomic"
+	"testing"
+
+	"github.com/xydac/ridgeline/connectors"
+)
+
+type fakeSink struct {
+	name    string
+	written atomic.Int64
+	flushed atomic.Int64
+	closed  atomic.Bool
+}
+
+func (f *fakeSink) Name() string                           { return f.name }
+func (f *fakeSink) Init(context.Context, SinkConfig) error { return nil }
+func (f *fakeSink) Write(_ context.Context, _ string, recs []connectors.Record) error {
+	f.written.Add(int64(len(recs)))
+	return nil
+}
+func (f *fakeSink) Flush(context.Context) error {
+	f.flushed.Add(1)
+	return nil
+}
+func (f *fakeSink) Close() error {
+	f.closed.Store(true)
+	return nil
+}
+
+func TestRegisterAndGet(t *testing.T) {
+	t.Cleanup(reset)
+	reset()
+
+	Register(&fakeSink{name: "alpha"})
+	Register(&fakeSink{name: "bravo"})
+
+	got, ok := Get("alpha")
+	if !ok || got.Name() != "alpha" {
+		t.Fatalf("Get(alpha) = (%v, %v); want sink alpha", got, ok)
+	}
+	if _, ok := Get("missing"); ok {
+		t.Fatalf("Get(missing) returned ok; want not found")
+	}
+	if want, got := []string{"alpha", "bravo"}, List(); !reflect.DeepEqual(want, got) {
+		t.Fatalf("List() = %v; want %v", got, want)
+	}
+}
+
+func TestRegisterDuplicatePanics(t *testing.T) {
+	t.Cleanup(reset)
+	reset()
+	Register(&fakeSink{name: "dup"})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic on duplicate Register")
+		}
+	}()
+	Register(&fakeSink{name: "dup"})
+}
+
+func TestRegisterNilPanics(t *testing.T) {
+	t.Cleanup(reset)
+	reset()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic on nil Register")
+		}
+	}()
+	Register(nil)
+}
+
+func TestRegisterEmptyNamePanics(t *testing.T) {
+	t.Cleanup(reset)
+	reset()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic on empty-name Register")
+		}
+	}()
+	Register(&fakeSink{name: ""})
+}
+
+func TestSinkConfigAccessors(t *testing.T) {
+	cfg := SinkConfig{
+		"path":     "./data",
+		"size":     float64(100),
+		"size_int": 25,
+		"enabled":  true,
+	}
+	if got := cfg.String("path"); got != "./data" {
+		t.Errorf("String(path) = %q; want ./data", got)
+	}
+	if got := cfg.String("missing"); got != "" {
+		t.Errorf("String(missing) = %q; want empty", got)
+	}
+	if got := cfg.Int("size", 0); got != 100 {
+		t.Errorf("Int(size) = %d; want 100", got)
+	}
+	if got := cfg.Int("size_int", 0); got != 25 {
+		t.Errorf("Int(size_int) = %d; want 25", got)
+	}
+	if got := cfg.Int("missing", 7); got != 7 {
+		t.Errorf("Int(missing, 7) = %d; want 7", got)
+	}
+	if got := cfg.Bool("enabled", false); !got {
+		t.Errorf("Bool(enabled) = %v; want true", got)
+	}
+	if got := cfg.Bool("missing", true); !got {
+		t.Errorf("Bool(missing, true) = %v; want true", got)
+	}
+}
+
+func TestFakeSinkLifecycle(t *testing.T) {
+	t.Cleanup(reset)
+	reset()
+	s := &fakeSink{name: "lifecycle"}
+	Register(s)
+	ctx := context.Background()
+	if err := s.Init(ctx, SinkConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(ctx, "events", []connectors.Record{{Stream: "events"}, {Stream: "events"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.written.Load(); got != 2 {
+		t.Errorf("written = %d; want 2", got)
+	}
+	if got := s.flushed.Load(); got != 1 {
+		t.Errorf("flushed = %d; want 1", got)
+	}
+	if !s.closed.Load() {
+		t.Errorf("closed = false; want true")
+	}
+}
