@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/manifest"
+	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
 
 func TestRunSync_DryRun(t *testing.T) {
@@ -40,11 +42,11 @@ func TestRunSync_DryRun(t *testing.T) {
 	}
 }
 
-func TestRunSync_RequiresDryRunToday(t *testing.T) {
+func TestRunSync_RequiresModeFlag(t *testing.T) {
 	t.Parallel()
 	err := runSync(context.Background(), []string{})
 	if err == nil {
-		t.Fatal("expected error when --dry-run is absent")
+		t.Fatal("expected error when neither --dry-run nor --config is set")
 	}
 }
 
@@ -53,5 +55,131 @@ func TestRunSync_UnknownFlag(t *testing.T) {
 	err := runSync(context.Background(), []string{"--nope"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestRunSync_ConfigAndDryRunMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+	err := runSync(context.Background(), []string{"--dry-run", "--config", "/tmp/x.yaml"})
+	if err == nil {
+		t.Fatal("expected mutual-exclusion error")
+	}
+}
+
+func TestRunSync_Config_PersistsStateAcrossRuns(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	outDir := filepath.Join(dir, "out")
+	dbPath := filepath.Join(dir, "ridgeline.db")
+	keyPath := filepath.Join(dir, "key")
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+
+	cfg := `
+version: 1
+state_path: ` + dbPath + `
+key_path: ` + keyPath + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config:
+          records: 2
+        streams: [pages, events]
+        sink:
+          type: jsonl
+          options:
+            dir: ` + outDir + `
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	// First run creates the DB, writes state.
+	if err := runSync(context.Background(), []string{"--config", cfgPath}); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("state db not created: %v", err)
+	}
+
+	store, err := sqlitestate.Open(dbPath)
+	if err != nil {
+		t.Fatalf("reopen state: %v", err)
+	}
+	keys, err := store.Keys(context.Background())
+	if err != nil {
+		t.Fatalf("keys: %v", err)
+	}
+	want := config.StateKey("myapp", "demo")
+	if len(keys) != 1 || keys[0] != want {
+		t.Fatalf("keys after run 1: got %v, want [%s]", keys, want)
+	}
+	store.Close()
+
+	// Second run reuses the same state file without error.
+	if err := runSync(context.Background(), []string{"--config", cfgPath}); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+
+	// Manifest captures partitions from both runs.
+	m, err := manifest.NewStore(filepath.Join(outDir, "manifest.json")).Load()
+	if err != nil {
+		t.Fatalf("manifest load: %v", err)
+	}
+	if len(m.Partitions) != 4 {
+		t.Fatalf("partitions = %d, want 4 (2 streams x 2 runs)", len(m.Partitions))
+	}
+}
+
+func TestRunSync_Config_MissingFile(t *testing.T) {
+	t.Parallel()
+	err := runSync(context.Background(), []string{"--config", "/tmp/definitely-not-a-config.yaml"})
+	if err == nil {
+		t.Fatal("expected error for missing config file")
+	}
+}
+
+func TestRunSync_Config_UnknownConnectorType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: not-a-real-connector
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "out") + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := runSync(context.Background(), []string{"--config", cfgPath}); err == nil {
+		t.Fatal("expected error for unknown connector type")
+	}
+}
+
+func TestRunSync_Config_UnknownSinkType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        sink: { type: parquet }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := runSync(context.Background(), []string{"--config", cfgPath}); err == nil {
+		t.Fatal("expected error for unknown sink type")
 	}
 }

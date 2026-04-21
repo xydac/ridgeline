@@ -5,6 +5,9 @@
 //	version                 print the build version
 //	sync --dry-run          run the pipeline against the built-in testsrc
 //	                        connector and the jsonl sink, into a temp dir
+//	sync --config PATH      run every connector configured in PATH against
+//	                        its configured sink, persisting state to the
+//	                        SQLite file at config.state_path
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -29,6 +32,7 @@ func main() {
 		fmt.Println("Usage:")
 		fmt.Println("  ridgeline version")
 		fmt.Println("  ridgeline sync --dry-run [--records N] [--out DIR]")
+		fmt.Println("  ridgeline sync --config PATH")
 		return
 	}
 	switch os.Args[1] {
