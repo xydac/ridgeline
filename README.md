@@ -36,7 +36,6 @@ Write a `ridgeline.yaml`:
 ```yaml
 version: 1
 state_path: ./ridgeline.db
-key_path: ./ridgeline.key
 products:
   myapp:
     connectors:
@@ -66,9 +65,12 @@ created on first run). A second invocation reuses the same database,
 so connector checkpoints survive process restarts.
 
 Credentials live in the same file under the `credentials` table,
-sealed with AES-256-GCM. The 32-byte key is read from `key_path` (hex
-encoded). For now credentials are wired programmatically via the
-`creds` package; a `ridgeline creds` CLI is on the roadmap.
+sealed with AES-256-GCM. The 32-byte key is loaded from the optional
+`key_path` field (hex encoded; defaults to `~/.ridgeline/key`) when
+a connector actually reads a credential. Today credentials are wired
+programmatically via the `creds` package; the CLI never opens the key
+file on its own, so `key_path` can be omitted from a sync-only config.
+A `ridgeline creds` command is on the roadmap.
 
 ### Pulling real Hacker News data
 
@@ -78,7 +80,6 @@ no auth required. Drop this into a `ridgeline.yaml`:
 ```yaml
 version: 1
 state_path: ./ridgeline.db
-key_path: ./ridgeline.key
 products:
   myapp:
     connectors:
@@ -122,7 +123,6 @@ under [`examples/external/`](examples/external/); the wiring looks like:
 ```yaml
 version: 1
 state_path: ./ridgeline.db
-key_path: ./ridgeline.key
 products:
   myapp:
     connectors:
