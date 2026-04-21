@@ -19,7 +19,9 @@
 - [x] Credential store (SQLite + AES-256-GCM encryption)
 - [ ] Parquet sink (default)
 - [ ] DuckDB integration (go-duckdb, static linked)
-- [ ] First native connectors: GSC, Umami, Hacker News
+- [x] Native connector: Hacker News (Algolia public API)
+- [ ] Native connector: Umami (self-hosted analytics)
+- [ ] Native connector: Google Search Console (OAuth 2.0)
 - [ ] First external connector in Python
 - [ ] `ridgeline status`, `ridgeline query`, `ridgeline creds` CLI commands
 - [ ] TUI shell (Bubble Tea): products view, health bars, keybindings

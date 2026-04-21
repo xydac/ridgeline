@@ -7,8 +7,9 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 
 > **Status: early bootstrap.** The ETL core runs end-to-end from a
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
-> an AES-256-GCM credential store, and a JSON-lines sink. Next up is
-> the first real native connector and a Parquet sink. See
+> an AES-256-GCM credential store, a JSON-lines sink, and the first
+> real native connector (Hacker News, via the public Algolia search
+> API). Next up are more native connectors and a Parquet sink. See
 > [ROADMAP.md](ROADMAP.md). Built in public.
 
 ## Try it now
@@ -67,6 +68,49 @@ sealed with AES-256-GCM. The 32-byte key is read from `key_path` (hex
 encoded). For now credentials are wired programmatically via the
 `creds` package; a `ridgeline creds` CLI is on the roadmap.
 
+### Pulling real Hacker News data
+
+The `hackernews` connector queries the public Algolia HN search API,
+no auth required. Drop this into a `ridgeline.yaml`:
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+key_path: ./ridgeline.key
+products:
+  myapp:
+    connectors:
+      - name: hn
+        type: hackernews
+        config:
+          query: golang        # any Algolia search query
+          hits_per_page: 50    # default 50, max 1000
+          max_pages: 1         # raise this for a backfill sync
+        streams: [stories]     # also: comments
+        sink:
+          type: jsonl
+          options:
+            dir: ./hn-out
+```
+
+```sh
+./ridgeline sync --config ridgeline.yaml
+# loaded ridgeline.yaml
+# state: ./ridgeline.db
+# myapp/hn: 50 records, 1 states saved
+# done: 50 records total
+
+./ridgeline sync --config ridgeline.yaml
+# loaded ridgeline.yaml
+# state: ./ridgeline.db
+# myapp/hn: 0 records, 1 states saved      # cursor sees no new items yet
+# done: 0 records total
+```
+
+Each sync persists a `created_at_i` high-water mark per stream into
+the SQLite state store, so re-runs only fetch records strictly newer
+than the last one seen.
+
 Run the test suite:
 
 ```sh
@@ -79,6 +123,7 @@ go test ./...
 |-----------------------------|--------------------------------------------------------------------------|
 | `connectors`                | `Connector` interface, types, message variants, init-time registry.      |
 | `connectors/testsrc`        | Synthetic source used by `sync --dry-run`.                               |
+| `connectors/hackernews`     | Incremental Algolia-backed Hacker News search (stories, comments).       |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
 | `enrichers`                 | `Enricher` interface, `EnrichConfig` accessors, init-time registry.      |
@@ -95,14 +140,13 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: the first real native
-connectors (GSC, Umami, Hacker News), the Parquet sink, and DuckDB
-integration.
+See [ROADMAP.md](ROADMAP.md). Next up: more native connectors
+(GSC, Umami), the Parquet sink, and DuckDB integration.
 
 ## Install
 
-A `brew install` release ships once the first real connector is wired
-up end-to-end.
+A `brew install` release ships once the Parquet sink lands; for now
+`go build ./cmd/ridgeline` is the install path.
 
 ## Contributing
 
