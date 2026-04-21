@@ -7,12 +7,13 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 
 > **Status: early bootstrap.** The ETL core runs end-to-end from a
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
-> an AES-256-GCM credential store, JSON-lines and Parquet sinks,
-> the first real native connector (Hacker News, via the public Algolia
-> search API), an external runner that lets you wire any executable
-> that speaks JSON-lines as a connector, and an in-process DuckDB
-> `ridgeline query` command. Next up are more native connectors. See
-> [ROADMAP.md](ROADMAP.md). Built in public.
+> an AES-256-GCM credential store with a `ridgeline creds` CLI, JSON-lines
+> and Parquet sinks, native connectors for Hacker News (Algolia public
+> API) and Umami (self-hosted analytics, API-key auth), an external
+> runner that lets you wire any executable that speaks JSON-lines as a
+> connector, and an in-process DuckDB `ridgeline query` command. Next up
+> are more native connectors. See [ROADMAP.md](ROADMAP.md). Built in
+> public.
 
 ## Try it now
 
@@ -88,11 +89,67 @@ removal is visible without inspecting the database by hand.
 
 Credentials live in the same file under the `credentials` table,
 sealed with AES-256-GCM. The 32-byte key is loaded from the optional
-`key_path` field (hex encoded; defaults to `~/.ridgeline/key`) when
-a connector actually reads a credential. Today credentials are wired
-programmatically via the `creds` package; the CLI never opens the key
-file on its own, so `key_path` can be omitted from a sync-only config.
-A `ridgeline creds` command is on the roadmap.
+`key_path` field (hex encoded; defaults to `~/.ridgeline/key`). The
+`ridgeline creds` subcommand (below) creates the key file on first
+use, so no pre-setup is required.
+
+### Managing credentials
+
+`ridgeline creds` owns the encrypted credential store: `put` to write a
+secret, `get` to read it back, `list` to enumerate names, `rm` to
+delete:
+
+```sh
+echo "my-umami-api-key" | ./ridgeline creds put --config ridgeline.yaml umami_main
+# stored credential "umami_main" (16 bytes)
+
+./ridgeline creds list --config ridgeline.yaml
+# umami_main
+
+./ridgeline creds get --config ridgeline.yaml umami_main
+# my-umami-api-key
+
+./ridgeline creds rm --config ridgeline.yaml umami_main
+```
+
+Any connector config that declares a key ending in `_ref` pulls its
+value from this store at sync time. `api_key_ref: umami_main` on a
+connector resolves to `api_key: <plaintext>` before Validate runs, so
+the YAML file never carries the secret on disk.
+
+### Pulling Umami analytics
+
+The `umami` connector reads the events feed from a self-hosted Umami
+install via the `x-umami-api-key` header. Create an API key in the
+Umami UI (Settings -> API Keys), store it with `ridgeline creds put`,
+then reference it from the config:
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+key_path: ./ridgeline.key
+products:
+  myapp:
+    connectors:
+      - name: web
+        type: umami
+        config:
+          base_url: https://stats.example.com
+          website_id: 00000000-0000-0000-0000-000000000000
+          api_key_ref: umami_main     # resolves via the creds store
+          page_size: 100              # optional, default 100, max 1000
+          max_pages: 10               # optional, default 10
+        streams: [events]
+        sink:
+          type: parquet
+          options:
+            dir: ./umami-out
+```
+
+The incremental cursor is the RFC 3339 `createdAt` high-water mark
+(key `last_created_at` in the state entry), so re-runs only fetch
+events strictly newer than the last one seen. First sync falls back to
+a 30-day lookback.
 
 ### Pulling real Hacker News data
 
@@ -236,6 +293,7 @@ go test ./...
 | `connectors`                | `Connector` interface, types, message variants, init-time registry.      |
 | `connectors/testsrc`        | Synthetic source used by `sync --dry-run`.                               |
 | `connectors/hackernews`     | Incremental Algolia-backed Hacker News search (stories, comments).       |
+| `connectors/umami`          | Incremental Umami events feed; API-key auth via the credential store.    |
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
@@ -248,15 +306,16 @@ go test ./...
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `status`, `query`.                            |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `status`, `query`, `creds`.                   |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: more native connectors
-(GSC, Umami), a `ridgeline creds` CLI, and goreleaser binaries.
+See [ROADMAP.md](ROADMAP.md). Next up: the Google Search Console
+connector, partition pruning on re-run, goreleaser + Homebrew, and a
+Bubble Tea TUI shell.
 
 ## Install
 
