@@ -9,9 +9,9 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
 > an AES-256-GCM credential store, JSON-lines and Parquet sinks,
 > the first real native connector (Hacker News, via the public Algolia
-> search API), and an external runner that lets you wire any
-> executable that speaks JSON-lines as a connector. Next up are more
-> native connectors and DuckDB-backed query. See
+> search API), an external runner that lets you wire any executable
+> that speaks JSON-lines as a connector, and an in-process DuckDB
+> `ridgeline query` command. Next up are more native connectors. See
 > [ROADMAP.md](ROADMAP.md). Built in public.
 
 ## Try it now
@@ -197,16 +197,31 @@ Each file has a fixed three-column schema:
 
 Storing the record body as a JSON column keeps the sink usable for
 every connector without a per-stream schema declaration. Typed-column
-Parquet inference is on the roadmap. DuckDB reads the files directly:
+Parquet inference is on the roadmap.
+
+### Querying with `ridgeline query`
+
+`ridgeline query <SQL>` runs a SQL statement against an in-process
+DuckDB and prints the result as an aligned text table. DuckDB reads
+Parquet, CSV, JSON, and SQLite files directly through its built-in
+table functions, so a single command can query any prior sync's output
+without a separate load step:
 
 ```sh
-duckdb -c "select count(*), stream from read_parquet('./pq-out/*/*.parquet') group by stream;"
+./ridgeline query "SELECT stream, count(*) AS n FROM read_parquet('./pq-out/*/*.parquet') GROUP BY stream ORDER BY stream"
+# stream  n
+# ------  -
+# events  4
+# pages   4
+# (2 rows)
 
 # field-level query via JSON extraction
-duckdb -c "select json_extract(data_json, '\$.id') as id, count(*) from read_parquet('./pq-out/*/pages.parquet') group by id;"
+./ridgeline query "SELECT json_extract(data_json, '\$.id') AS id, stream FROM read_parquet('./pq-out/*/*.parquet') ORDER BY stream, id"
 ```
 
-pandas and pyarrow read the same files with no translation layer.
+pandas, pyarrow, and the external `duckdb` CLI read the same files
+with no translation layer, so `ridgeline query` is one convenient
+option rather than the only option.
 
 Run the test suite:
 
@@ -232,7 +247,8 @@ go test ./...
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `cmd/ridgeline`             | Binary. `version`, `sync --dry-run`, `sync --config`, `status --config`. |
+| `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `status`, `query`.                            |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
@@ -240,12 +256,11 @@ is specified in [docs/protocol.md](docs/protocol.md).
 ## What is coming
 
 See [ROADMAP.md](ROADMAP.md). Next up: more native connectors
-(GSC, Umami), DuckDB integration, and a `ridgeline query` command
-backed by it.
+(GSC, Umami), a `ridgeline creds` CLI, and goreleaser binaries.
 
 ## Install
 
-A `brew install` release ships once the query path lands; for now
+A `brew install` release is in progress; for now
 `go build ./cmd/ridgeline` is the install path.
 
 ## Contributing
