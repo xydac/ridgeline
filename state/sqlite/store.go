@@ -182,3 +182,50 @@ func (s *Store) Keys(ctx context.Context) ([]string, error) {
 	}
 	return out, nil
 }
+
+// Entry is a single row from the state table. UpdatedAt is the RFC
+// 3339 millisecond UTC timestamp recorded by Save.
+type Entry struct {
+	Key       string
+	State     connectors.State
+	UpdatedAt string
+}
+
+// List returns every state entry with its deserialized value and the
+// wall-clock timestamp of the last Save, sorted by key. Entries with
+// malformed JSON payloads are surfaced with a nil State rather than
+// aborting the whole listing; a diagnostic tool should still be able
+// to show which keys exist when one of them is corrupt.
+func (s *Store) List(ctx context.Context) ([]Entry, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, data, updated_at FROM state ORDER BY key`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: List: %w", err)
+	}
+	defer rows.Close()
+	var out []Entry
+	for rows.Next() {
+		var e Entry
+		var raw []byte
+		if err := rows.Scan(&e.Key, &raw, &e.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("sqlite: List scan: %w", err)
+		}
+		if len(raw) == 0 {
+			e.State = connectors.State{}
+		} else if err := json.Unmarshal(raw, &e.State); err != nil {
+			// Malformed payload: show the key in the listing but
+			// leave State nil so callers can signal "corrupt".
+			e.State = nil
+		}
+		// A JSON "null" payload unmarshals into a nil map; treat
+		// that as an empty state so callers can distinguish it
+		// from the malformed case above.
+		if e.State == nil && len(raw) > 0 && string(raw) == "null" {
+			e.State = connectors.State{}
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: List rows: %w", err)
+	}
+	return out, nil
+}

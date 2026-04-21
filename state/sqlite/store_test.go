@@ -186,6 +186,73 @@ func TestConcurrentWrites(t *testing.T) {
 	wg.Wait()
 }
 
+func TestList_ReturnsEntriesSortedWithUpdatedAt(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	want := map[string]connectors.State{
+		"myapp/gsc":  {"cursor": "2026-04-20"},
+		"myapp/hn":   {"created_at_i": float64(1776758411)},
+		"blog/umami": nil,
+	}
+	for _, k := range []string{"myapp/hn", "myapp/gsc", "blog/umami"} {
+		if err := s.Save(ctx, k, want[k]); err != nil {
+			t.Fatalf("Save %s: %v", k, err)
+		}
+	}
+
+	entries, err := s.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	gotKeys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		gotKeys = append(gotKeys, e.Key)
+	}
+	wantKeys := []string{"blog/umami", "myapp/gsc", "myapp/hn"}
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("List keys: got %v want %v", gotKeys, wantKeys)
+	}
+	for i, k := range wantKeys {
+		if gotKeys[i] != k {
+			t.Fatalf("List keys[%d]: got %s want %s", i, gotKeys[i], k)
+		}
+	}
+	for _, e := range entries {
+		if e.UpdatedAt == "" {
+			t.Errorf("UpdatedAt empty for %s", e.Key)
+		}
+		if e.State == nil {
+			t.Errorf("State nil for %s (want empty map at minimum)", e.Key)
+		}
+	}
+	// Cursor value round-trips.
+	for _, e := range entries {
+		if e.Key == "myapp/hn" && e.State["created_at_i"] != float64(1776758411) {
+			t.Fatalf("List hn cursor: got %v", e.State["created_at_i"])
+		}
+	}
+}
+
+func TestList_EmptyStoreReturnsEmpty(t *testing.T) {
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	got, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("List empty: got %v", got)
+	}
+}
+
 func TestOpen_MigrationIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ridgeline.db")
