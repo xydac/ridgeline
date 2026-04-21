@@ -59,6 +59,17 @@ func TestRunSync_UnknownFlag(t *testing.T) {
 	}
 }
 
+func TestRunSync_DryRun_RejectsEmptyOut(t *testing.T) {
+	t.Parallel()
+	err := runSync(context.Background(), []string{"--dry-run", "--out", ""})
+	if err == nil {
+		t.Fatal("expected error for explicit empty --out")
+	}
+	if !strings.Contains(err.Error(), "--out must not be empty") {
+		t.Errorf("got %q, want substring '--out must not be empty'", err.Error())
+	}
+}
+
 func TestRunSync_ConfigAndDryRunMutuallyExclusive(t *testing.T) {
 	t.Parallel()
 	err := runSync(context.Background(), []string{"--dry-run", "--config", "/tmp/x.yaml"})

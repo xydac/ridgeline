@@ -38,6 +38,18 @@ func runSync(ctx context.Context, args []string) error {
 	if *cfgPath != "" && *dryRun {
 		return fmt.Errorf("--config and --dry-run are mutually exclusive")
 	}
+	// Explicit --out "" almost always means the caller passed an unset
+	// shell variable. Refuse it so the bug surfaces here instead of
+	// silently writing to the default temp dir.
+	outSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "out" {
+			outSet = true
+		}
+	})
+	if outSet && *out == "" {
+		return fmt.Errorf("--out must not be empty")
+	}
 	if *cfgPath != "" {
 		return runConfigSync(ctx, *cfgPath)
 	}
