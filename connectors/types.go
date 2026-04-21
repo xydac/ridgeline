@@ -1,5 +1,7 @@
 package connectors
 
+import "fmt"
+
 // AuthType enumerates the authentication mechanisms a connector supports.
 type AuthType int
 
@@ -234,4 +236,89 @@ func (c ConnectorConfig) Int(key string, fallback int) int {
 		return int(v)
 	}
 	return fallback
+}
+
+// CheckUnknownKeys returns an error describing any key present in cfg
+// that is not listed in known. It is intended for use in Validate to
+// turn typo'd config keys into a fail-fast error at load time instead
+// of the less-actionable "required field X is missing" downstream.
+// The error includes a did-you-mean suggestion when an unknown key is
+// within edit distance 2 of a known key.
+//
+// Connector authors should prefer calling this at the top of Validate
+// so the user sees the most specific error first.
+func CheckUnknownKeys(cfg ConnectorConfig, known ...string) error {
+	if len(cfg) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(known))
+	for _, k := range known {
+		set[k] = struct{}{}
+	}
+	for k := range cfg {
+		if _, ok := set[k]; ok {
+			continue
+		}
+		if suggest := nearestKey(k, known); suggest != "" {
+			return fmt.Errorf("unknown config key %q (did you mean %q?)", k, suggest)
+		}
+		return fmt.Errorf("unknown config key %q (known: %v)", k, known)
+	}
+	return nil
+}
+
+// nearestKey returns the entry in candidates with the smallest edit
+// distance to query, provided that distance is at most 2. It returns ""
+// when no candidate is close enough.
+func nearestKey(query string, candidates []string) string {
+	best := ""
+	bestDist := 3
+	for _, c := range candidates {
+		d := editDistance(query, c)
+		if d < bestDist {
+			best = c
+			bestDist = d
+		}
+	}
+	return best
+}
+
+// editDistance is the Levenshtein distance between a and b. It is used
+// only for user-facing "did you mean" hints, so clarity beats speed.
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	la, lb := len(ra), len(rb)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			curr[j] = minInt(del, minInt(ins, sub))
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

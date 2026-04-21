@@ -1,6 +1,9 @@
 package connectors
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAuthTypeString(t *testing.T) {
 	cases := map[AuthType]string{
@@ -97,5 +100,31 @@ func TestConnectorConfigAccessors(t *testing.T) {
 	}
 	if got := cfg.Int("missing", 99); got != 99 {
 		t.Errorf("Int(missing, 99) = %d; want 99", got)
+	}
+}
+
+func TestCheckUnknownKeys(t *testing.T) {
+	known := []string{"query", "hits_per_page", "max_pages", "base_url"}
+	cases := []struct {
+		name    string
+		cfg     ConnectorConfig
+		wantErr bool
+		wantSub string
+	}{
+		{"empty", ConnectorConfig{}, false, ""},
+		{"all-known", ConnectorConfig{"query": "go", "max_pages": 2}, false, ""},
+		{"typo-suggestion", ConnectorConfig{"quer": "go"}, true, `"query"`},
+		{"far-typo", ConnectorConfig{"completely_unknown": 1}, true, "known:"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckUnknownKeys(tc.cfg, known...)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("CheckUnknownKeys err=%v, wantErr=%v", err, tc.wantErr)
+			}
+			if err != nil && tc.wantSub != "" && !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("err %q does not contain %q", err.Error(), tc.wantSub)
+			}
+		})
 	}
 }
