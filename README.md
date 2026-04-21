@@ -7,11 +7,12 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 
 > **Status: early bootstrap.** The ETL core runs end-to-end from a
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
-> an AES-256-GCM credential store, a JSON-lines sink, the first real
-> native connector (Hacker News, via the public Algolia search API),
-> and an external runner that lets you wire any executable that speaks
-> JSON-lines as a connector. Next up are more native connectors and a
-> Parquet sink. See [ROADMAP.md](ROADMAP.md). Built in public.
+> an AES-256-GCM credential store, JSON-lines and Parquet sinks,
+> the first real native connector (Hacker News, via the public Algolia
+> search API), and an external runner that lets you wire any
+> executable that speaks JSON-lines as a connector. Next up are more
+> native connectors and DuckDB-backed query. See
+> [ROADMAP.md](ROADMAP.md). Built in public.
 
 ## Try it now
 
@@ -152,6 +153,39 @@ the child writes to stderr is surfaced as a warn-level log.
 Cancelling the parent kills the child, so a stuck connector cannot
 block the orchestrator.
 
+### Writing Parquet
+
+Swap `type: jsonl` for `type: parquet` on any sink block to write
+Apache Parquet files instead of JSON-lines:
+
+```yaml
+sink:
+  type: parquet
+  options:
+    dir: ./pq-out
+```
+
+Each file has a fixed three-column schema:
+
+| Column      | Type           | Meaning                                    |
+|-------------|----------------|--------------------------------------------|
+| `stream`    | UTF8           | Stream name (also encoded in the filename) |
+| `timestamp` | INT64          | Record timestamp, unix microseconds, UTC   |
+| `data_json` | UTF8           | Record body encoded as JSON                |
+
+Storing the record body as a JSON column keeps the sink usable for
+every connector without a per-stream schema declaration. Typed-column
+Parquet inference is on the roadmap. DuckDB reads the files directly:
+
+```sh
+duckdb -c "select count(*), stream from read_parquet('./pq-out/*/*.parquet') group by stream;"
+
+# field-level query via JSON extraction
+duckdb -c "select json_extract(data_json, '\$.url') as url, count(*) from read_parquet('./pq-out/*/pages.parquet') group by url;"
+```
+
+pandas and pyarrow read the same files with no translation layer.
+
 Run the test suite:
 
 ```sh
@@ -168,6 +202,7 @@ go test ./...
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
+| `sinks/parquet`             | Apache Parquet file sink with a `{stream, timestamp, data_json}` schema. |
 | `enrichers`                 | `Enricher` interface, `EnrichConfig` accessors, init-time registry.      |
 | `protocol`                  | JSON-lines `Encoder`/`Decoder` for external plugins.                     |
 | `pipeline`                  | ETL lifecycle: Connector -> batch -> Sink -> Flush -> StateStore.Save.   |
@@ -183,11 +218,12 @@ is specified in [docs/protocol.md](docs/protocol.md).
 ## What is coming
 
 See [ROADMAP.md](ROADMAP.md). Next up: more native connectors
-(GSC, Umami), the Parquet sink, and DuckDB integration.
+(GSC, Umami), DuckDB integration, and a `ridgeline query` command
+backed by it.
 
 ## Install
 
-A `brew install` release ships once the Parquet sink lands; for now
+A `brew install` release ships once the query path lands; for now
 `go build ./cmd/ridgeline` is the install path.
 
 ## Contributing
