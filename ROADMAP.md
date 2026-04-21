@@ -26,6 +26,16 @@
 - [ ] `ridgeline status`, `ridgeline query`, `ridgeline creds` CLI commands
 - [ ] TUI shell (Bubble Tea): products view, health bars, keybindings
 
+## Discovered in review
+
+- External connector failures should surface as non-zero exit, matching native connector behavior
+- Strict YAML decoding for per-connector `config:` sub-maps so typo'd keys fail fast
+- Route all CLI output through one formatter so warn lines stop carrying the stdlib `log` prefix
+- Validate per-connector config at load time instead of at first extract
+- Factory registry for sinks, replacing the hand-rolled switch in the sync command
+- Defer partition-directory creation until the first record lands, avoiding empty dirs on zero-record runs
+- `sync --help` exits 0 with usage, not 1 with a `flag: help requested` line
+
 ## Phase 2+
 
 Further phases are tracked privately during bootstrap and will be published here once Phase 1 ships.
