@@ -20,7 +20,7 @@
 - [x] Parquet sink (writes `{stream, timestamp, data_json}` files; typed-column inference is a follow-up)
 - [x] DuckDB integration (in-process, via go-duckdb/v2)
 - [x] Native connector: Hacker News (Algolia public API)
-- [x] Native connector: Umami (self-hosted analytics, API-key auth)
+- [x] Native connector: Umami (self-hosted analytics, API key or username/password login)
 - [ ] Native connector: Google Search Console (OAuth 2.0)
 - [x] First external connector in Python (worked example under `examples/external/`)
 - [x] `ridgeline status` CLI command (per-connector cursor and last-sync time)

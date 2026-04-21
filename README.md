@@ -9,7 +9,8 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
 > an AES-256-GCM credential store with a `ridgeline creds` CLI, JSON-lines
 > and Parquet sinks, native connectors for Hacker News (Algolia public
-> API) and Umami (self-hosted analytics, API-key auth), an external
+> API) and Umami (self-hosted analytics, API key or username/password
+> login), an external
 > runner that lets you wire any executable that speaks JSON-lines as a
 > connector, and an in-process DuckDB `ridgeline query` command. Next up
 > are more native connectors. See [ROADMAP.md](ROADMAP.md). Built in
@@ -120,9 +121,13 @@ the YAML file never carries the secret on disk.
 ### Pulling Umami analytics
 
 The `umami` connector reads the events feed from a self-hosted Umami
-install via the `x-umami-api-key` header. Create an API key in the
-Umami UI (Settings -> API Keys), store it with `ridgeline creds put`,
-then reference it from the config:
+install. It supports two auth modes: an API key (Umami v2 cloud or any
+install that exposes Settings -> API Keys) and username/password login
+(the default for most self-hosted installs, which POSTs to
+`/api/auth/login` and caches the returned JWT).
+
+**API key mode** (default). Create the key in the Umami UI, store it,
+reference it from the config:
 
 ```yaml
 version: 1
@@ -145,6 +150,35 @@ products:
           options:
             dir: ./umami-out
 ```
+
+**Login mode**. Store the username and password with `ridgeline creds put`,
+then declare `auth: login` plus `username_ref` and `password_ref`:
+
+```sh
+echo "alice" | ./ridgeline creds put --config ridgeline.yaml umami_user
+echo "hunter2" | ./ridgeline creds put --config ridgeline.yaml umami_pass
+```
+
+```yaml
+- name: web
+  type: umami
+  config:
+    base_url: https://stats.example.com
+    website_id: 00000000-0000-0000-0000-000000000000
+    auth: login
+    username_ref: umami_user
+    password_ref: umami_pass
+  streams: [events]
+  sink:
+    type: parquet
+    options:
+      dir: ./umami-out
+```
+
+The JWT is cached in the SQLite state store under `auth_token` so a
+typical sync makes one bearer request; on 401 the connector re-logs in
+once and retries. A fresh token is persisted immediately after login,
+so a crash mid-sync still saves the new credential for the next run.
 
 The incremental cursor is the RFC 3339 `createdAt` high-water mark
 (key `last_created_at` in the state entry), so re-runs only fetch
@@ -293,7 +327,7 @@ go test ./...
 | `connectors`                | `Connector` interface, types, message variants, init-time registry.      |
 | `connectors/testsrc`        | Synthetic source used by `sync --dry-run`.                               |
 | `connectors/hackernews`     | Incremental Algolia-backed Hacker News search (stories, comments).       |
-| `connectors/umami`          | Incremental Umami events feed; API-key auth via the credential store.    |
+| `connectors/umami`          | Incremental Umami events feed; API-key or login (username/password) auth.|
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
