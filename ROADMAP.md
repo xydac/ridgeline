@@ -2,12 +2,16 @@
 
 ## Phase 1: Framework + Core Pipeline
 
-- [ ] Go module scaffold, goreleaser config, Homebrew tap stub
+- [x] Go module scaffold and CI (ubuntu + macOS, Go 1.25 + 1.26)
+- [ ] goreleaser config and Homebrew tap stub
 - [x] Config parser (YAML to Go structs)
-- [x] Connector interface + protocol (native Go + external JSON-lines runner)
+- [x] Connector interface (native Go)
+- [x] JSON-lines protocol spec and codec for external connectors
+- [ ] External JSON-lines runner that spawns and drives child processes
 - [x] Sink interface
 - [x] ETL lifecycle manager (extract, transform, load, checkpoint)
-- [x] Manifest file writer (partition pruning)
+- [x] Manifest file writer with time-range metadata
+- [ ] Partition pruning on re-run (today the manifest grows unbounded)
 - [x] In-memory state store
 - [x] `ridgeline sync --dry-run` against a built-in test source
 - [x] `ridgeline sync --config` against a ridgeline.yaml
