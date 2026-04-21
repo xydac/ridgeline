@@ -156,13 +156,13 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 	if maxPages <= 0 {
 		return nil, fmt.Errorf("umami: max_pages must be > 0 (got %d)", maxPages)
 	}
-	auth, err := newAuthorizer(cfg)
-	if err != nil {
-		return nil, err
-	}
 	now := c.Now
 	if now == nil {
 		now = time.Now
+	}
+	auth, err := newAuthorizer(cfg, state, c.Client, now)
+	if err != nil {
+		return nil, err
 	}
 
 	ch := make(chan connectors.Message, 64)
@@ -180,6 +180,14 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 			startAt := sinceForRequest(since)
 			for page := 1; page <= maxPages; page++ {
 				events, err := c.fetchPage(ctx, baseURL, websiteID, auth, startAt, endAt, page, pageSize)
+				if auth.consumeDirty() {
+					// A fresh token was just acquired. Persist it now
+					// so a crash before end-of-stream still saves the
+					// credential the next sync will reuse.
+					if !sendMessage(ctx, ch, connectors.StateMessage(stateWithAuth(auth, highWater))) {
+						return
+					}
+				}
 				if err != nil {
 					sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError,
 						fmt.Sprintf("umami %s: %v", s.Name, err)))
@@ -224,13 +232,20 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 					break
 				}
 			}
-			next := connectors.State{cursorKey: highWater.UTC().Format(time.RFC3339Nano)}
-			if !sendMessage(ctx, ch, connectors.StateMessage(next)) {
+			if !sendMessage(ctx, ch, connectors.StateMessage(stateWithAuth(auth, highWater))) {
 				return
 			}
 		}
 	}()
 	return ch, nil
+}
+
+// stateWithAuth builds a connector state map carrying the current
+// cursor plus any auth-managed fields the authorizer wants to keep.
+func stateWithAuth(auth authorizer, highWater time.Time) connectors.State {
+	s := connectors.State{cursorKey: highWater.UTC().Format(time.RFC3339Nano)}
+	auth.applyTo(s)
+	return s
 }
 
 // parseCursor decodes the persisted RFC 3339 timestamp. A missing or
@@ -264,6 +279,12 @@ func sinceForRequest(since time.Time) time.Time {
 // fetchPage issues one GET against /api/websites/{id}/events and
 // returns the raw events on the page. The caller detects a short page
 // by comparing len(events) to the requested pageSize.
+//
+// A 401 response is handled with exactly one re-authentication: the
+// authorizer is asked to refresh, then the request is retried once. A
+// second 401 surfaces the body of the first 401 (the directive: do
+// not loop on auth failures). An authorizer that cannot refresh, for
+// example the static api-key one, falls through to the first 401.
 func (c *Connector) fetchPage(ctx context.Context, baseURL, websiteID string, auth authorizer, startAt, endAt time.Time, page, pageSize int) ([]map[string]any, error) {
 	u, err := url.Parse(baseURL + "/api/websites/" + url.PathEscape(websiteID) + "/events")
 	if err != nil {
@@ -277,23 +298,42 @@ func (c *Connector) fetchPage(ctx context.Context, baseURL, websiteID string, au
 	q.Set("orderBy", "createdAt")
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	if err := auth.decorate(req); err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "ridgeline/0.0.0-dev (+https://github.com/xydac/ridgeline)")
-
 	client := c.Client
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(req)
+	do := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := auth.decorate(req); err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "ridgeline/0.0.0-dev (+https://github.com/xydac/ridgeline)")
+		return client.Do(req)
+	}
+
+	resp, err := do()
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		origStatus := resp.Status
+		origBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if rerr := auth.reauth(ctx); rerr != nil {
+			return nil, fmt.Errorf("umami %s: %s", origStatus, strings.TrimSpace(string(origBody)))
+		}
+		resp, err = do()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			resp.Body.Close()
+			return nil, fmt.Errorf("umami %s: %s", origStatus, strings.TrimSpace(string(origBody)))
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
