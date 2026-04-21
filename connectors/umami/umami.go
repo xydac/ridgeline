@@ -128,17 +128,20 @@ func (c *Connector) Discover(_ context.Context, _ connectors.ConnectorConfig) (*
 func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig, streams []connectors.Stream, state connectors.State) (<-chan connectors.Message, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.String("base_url")), "/")
 	websiteID := strings.TrimSpace(cfg.String("website_id"))
-	apiKey := strings.TrimSpace(cfg.String("api_key"))
 	pageSize := cfg.Int("page_size", DefaultPageSize)
 	maxPages := cfg.Int("max_pages", DefaultMaxPages)
-	if baseURL == "" || websiteID == "" || apiKey == "" {
-		return nil, fmt.Errorf("umami: base_url, website_id, and api_key are required")
+	if baseURL == "" || websiteID == "" {
+		return nil, fmt.Errorf("umami: base_url and website_id are required")
 	}
 	if pageSize <= 0 || pageSize > MaxPageSize {
 		return nil, fmt.Errorf("umami: page_size out of range: %d", pageSize)
 	}
 	if maxPages <= 0 {
 		return nil, fmt.Errorf("umami: max_pages must be > 0 (got %d)", maxPages)
+	}
+	auth, err := newAuthorizer(cfg)
+	if err != nil {
+		return nil, err
 	}
 	now := c.Now
 	if now == nil {
@@ -159,7 +162,7 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 			endAt := now().UTC()
 			startAt := sinceForRequest(since)
 			for page := 1; page <= maxPages; page++ {
-				events, err := c.fetchPage(ctx, baseURL, websiteID, apiKey, startAt, endAt, page, pageSize)
+				events, err := c.fetchPage(ctx, baseURL, websiteID, auth, startAt, endAt, page, pageSize)
 				if err != nil {
 					sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError,
 						fmt.Sprintf("umami %s: %v", s.Name, err)))
@@ -244,7 +247,7 @@ func sinceForRequest(since time.Time) time.Time {
 // fetchPage issues one GET against /api/websites/{id}/events and
 // returns the raw events on the page. The caller detects a short page
 // by comparing len(events) to the requested pageSize.
-func (c *Connector) fetchPage(ctx context.Context, baseURL, websiteID, apiKey string, startAt, endAt time.Time, page, pageSize int) ([]map[string]any, error) {
+func (c *Connector) fetchPage(ctx context.Context, baseURL, websiteID string, auth authorizer, startAt, endAt time.Time, page, pageSize int) ([]map[string]any, error) {
 	u, err := url.Parse(baseURL + "/api/websites/" + url.PathEscape(websiteID) + "/events")
 	if err != nil {
 		return nil, fmt.Errorf("parse base_url: %w", err)
@@ -261,7 +264,9 @@ func (c *Connector) fetchPage(ctx context.Context, baseURL, websiteID, apiKey st
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set(APIKeyHeader, apiKey)
+	if err := auth.decorate(req); err != nil {
+		return nil, err
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "ridgeline/0.0.0-dev (+https://github.com/xydac/ridgeline)")
 
