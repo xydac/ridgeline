@@ -11,15 +11,16 @@ import (
 )
 
 // SchemaVersion is the currently supported top-level version field.
-// Configs without a version default to SchemaVersion; configs with a
-// higher version are rejected at Load.
+// Every ridgeline.yaml must declare it explicitly; Load rejects
+// missing, zero, and non-equal values.
 const SchemaVersion = 1
 
 // File is the in-memory shape of a parsed ridgeline.yaml.
 type File struct {
 	// Version is the schema version the file was written against.
-	// Zero is treated as SchemaVersion for forward-compatibility with
-	// older configs that predate the field.
+	// It must equal SchemaVersion. A missing or zero value is rejected
+	// at Load so a future v2 binary can break compatibility cleanly
+	// instead of silently accepting today's unversioned configs.
 	Version int `yaml:"version"`
 
 	// StatePath points at the SQLite file that holds pipeline state
@@ -60,8 +61,10 @@ type ConnectorInstance struct {
 	// every connector can validate it against its own schema.
 	Config map[string]any `yaml:"config"`
 
-	// Streams is the list of stream names to pull. Empty means pull
-	// every stream the connector publishes.
+	// Streams is the list of stream names to pull. Must be non-empty;
+	// a connector that processes zero streams is almost always a typo.
+	// Discovery-driven "pull every stream" semantics are not yet
+	// supported and will be gated behind an explicit keyword when added.
 	Streams []string `yaml:"streams"`
 
 	// Sink is the destination for records emitted by this connector.
@@ -117,8 +120,8 @@ func Parse(b []byte) (*File, error) {
 // does not apply defaults, so callers constructing a File directly
 // must also call applyDefaults (unexported) or supply all fields.
 func (f *File) Validate() error {
-	if f.Version != 0 && f.Version != SchemaVersion {
-		return fmt.Errorf("config: unsupported version %d (this binary understands %d)", f.Version, SchemaVersion)
+	if f.Version != SchemaVersion {
+		return fmt.Errorf("config: version must be %d (got %d); add 'version: %d' at the top of the file", SchemaVersion, f.Version, SchemaVersion)
 	}
 	if len(f.Products) == 0 {
 		return fmt.Errorf("config: at least one product is required under products:")
@@ -145,6 +148,9 @@ func (f *File) Validate() error {
 			seen[c.Name] = struct{}{}
 			if c.Type == "" {
 				return fmt.Errorf("config: %s (%q): type is required", where, c.Name)
+			}
+			if len(c.Streams) == 0 {
+				return fmt.Errorf("config: %s (%q): streams must not be empty", where, c.Name)
 			}
 			if c.Sink.Type == "" {
 				return fmt.Errorf("config: %s (%q): sink.type is required", where, c.Name)
@@ -174,9 +180,6 @@ func (f *File) ProductIDs() []string {
 // applyDefaults fills in empty optional fields with their documented
 // defaults and expands leading ~/ in path-valued fields.
 func (f *File) applyDefaults() error {
-	if f.Version == 0 {
-		f.Version = SchemaVersion
-	}
 	home, _ := os.UserHomeDir()
 	expand := func(p string) string {
 		if p == "" || home == "" {

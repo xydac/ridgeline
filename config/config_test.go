@@ -58,11 +58,13 @@ func TestParse_ExpandsHomePaths(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	src := `
+version: 1
 products:
   myapp:
     connectors:
       - name: demo
         type: testsrc
+        streams: [pages]
         sink:
           type: jsonl
 `
@@ -84,6 +86,7 @@ func TestParse_ExplicitTildePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	src := `
+version: 1
 state_path: ~/custom.db
 key_path: ~/custom.key
 products:
@@ -91,6 +94,7 @@ products:
     connectors:
       - name: demo
         type: testsrc
+        streams: [pages]
         sink:
           type: jsonl
 `
@@ -133,12 +137,48 @@ products:
     connectors:
       - name: demo
         type: testsrc
+        streams: [pages]
         sink:
           type: jsonl
 `
 	_, err := config.Parse([]byte(src))
-	if err == nil || !strings.Contains(err.Error(), "unsupported version") {
-		t.Fatalf("expected unsupported version error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "version must be") {
+		t.Fatalf("expected version error, got %v", err)
+	}
+}
+
+func TestParse_RejectsMissingVersion(t *testing.T) {
+	src := `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        streams: [pages]
+        sink:
+          type: jsonl
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "version must be") {
+		t.Fatalf("expected version error, got %v", err)
+	}
+}
+
+func TestParse_RejectsZeroVersion(t *testing.T) {
+	src := `
+version: 0
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        streams: [pages]
+        sink:
+          type: jsonl
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "version must be") {
+		t.Fatalf("expected version error, got %v", err)
 	}
 }
 
@@ -152,10 +192,12 @@ func TestParse_RejectsNoProducts(t *testing.T) {
 
 func TestParse_RejectsConnectorMissingType(t *testing.T) {
 	src := `
+version: 1
 products:
   myapp:
     connectors:
       - name: demo
+        streams: [pages]
         sink:
           type: jsonl
 `
@@ -167,11 +209,13 @@ products:
 
 func TestParse_RejectsSinkMissingType(t *testing.T) {
 	src := `
+version: 1
 products:
   myapp:
     connectors:
       - name: demo
         type: testsrc
+        streams: [pages]
 `
 	_, err := config.Parse([]byte(src))
 	if err == nil || !strings.Contains(err.Error(), "sink.type is required") {
@@ -179,16 +223,52 @@ products:
 	}
 }
 
-func TestParse_RejectsDuplicateConnectorNames(t *testing.T) {
+func TestParse_RejectsEmptyStreams(t *testing.T) {
 	src := `
+version: 1
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        streams: []
+        sink: { type: jsonl }
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "streams must not be empty") {
+		t.Fatalf("expected empty-streams error, got %v", err)
+	}
+}
+
+func TestParse_RejectsMissingStreams(t *testing.T) {
+	src := `
+version: 1
 products:
   myapp:
     connectors:
       - name: demo
         type: testsrc
         sink: { type: jsonl }
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "streams must not be empty") {
+		t.Fatalf("expected empty-streams error, got %v", err)
+	}
+}
+
+func TestParse_RejectsDuplicateConnectorNames(t *testing.T) {
+	src := `
+version: 1
+products:
+  myapp:
+    connectors:
       - name: demo
         type: testsrc
+        streams: [pages]
+        sink: { type: jsonl }
+      - name: demo
+        type: testsrc
+        streams: [pages]
         sink: { type: jsonl }
 `
 	_, err := config.Parse([]byte(src))
@@ -199,11 +279,13 @@ products:
 
 func TestParse_RejectsBadProductID(t *testing.T) {
 	src := `
+version: 1
 products:
   "my app":
     connectors:
       - name: demo
         type: testsrc
+        streams: [pages]
         sink: { type: jsonl }
 `
 	_, err := config.Parse([]byte(src))
