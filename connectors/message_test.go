@@ -1,6 +1,7 @@
 package connectors
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -35,6 +36,17 @@ func TestSchemaMessage(t *testing.T) {
 	m := SchemaMessage("events", s)
 	if m.Type != SchemaMsg || m.Stream != "events" || m.Schema == nil || len(m.Schema.Columns) != 1 {
 		t.Fatalf("SchemaMessage round-trip failed: %+v", m)
+	}
+}
+
+func TestErrorMessage(t *testing.T) {
+	want := errors.New("connector gave up")
+	m := ErrorMessage(want)
+	if m.Type != ErrorMsg {
+		t.Fatalf("Type = %v; want ErrorMsg", m.Type)
+	}
+	if m.Err != want {
+		t.Fatalf("Err = %v; want %v", m.Err, want)
 	}
 }
 

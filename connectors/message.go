@@ -17,6 +17,13 @@ const (
 	LogMsg
 	// SchemaMsg carries a schema declaration or change for a stream.
 	SchemaMsg
+	// ErrorMsg carries a fatal connector error. The pipeline treats the
+	// first ErrorMsg on the channel as terminal: it stops consuming,
+	// discards any uncommitted buffered records, does not persist any
+	// pending state, and returns the error to its caller. Use ErrorMsg
+	// when a connector has decided it cannot continue. Non-fatal
+	// conditions belong in LogMsg at an appropriate level.
+	ErrorMsg
 )
 
 // LogLevel categorizes LogEntry severity.
@@ -68,6 +75,8 @@ type Message struct {
 	State  *State
 	Log    *LogEntry
 	Schema *Schema
+	// Err carries the fatal error when Type == ErrorMsg.
+	Err error
 	// Stream names the stream this Schema applies to. Only meaningful
 	// when Type == SchemaMsg.
 	Stream string
@@ -92,4 +101,11 @@ func LogMessage(level LogLevel, msg string) Message {
 // SchemaMessage builds a Message announcing the schema for a stream.
 func SchemaMessage(stream string, schema Schema) Message {
 	return Message{Type: SchemaMsg, Stream: stream, Schema: &schema}
+}
+
+// ErrorMessage builds a Message wrapping a fatal connector error. The
+// pipeline treats this as terminal: no further messages will be consumed,
+// buffered records are discarded, and err is returned to the caller.
+func ErrorMessage(err error) Message {
+	return Message{Type: ErrorMsg, Err: err}
 }
