@@ -1,0 +1,25 @@
+# Go build artifacts
+/ridgeline
+/dist/
+/vendor/
+*.test
+*.out
+
+# Data / runtime
+*.parquet
+*.duckdb
+*.duckdb.wal
+/data/
+
+# Credentials
+/credentials.db
+
+# OS / editors
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Env
+.env
