@@ -2,11 +2,11 @@
 // configuration file that describes which products a user tracks and
 // which connectors and sinks each product uses.
 //
-// The schema intentionally starts small. Cycle 3 ships enough to run
-// a dry-run pipeline against the in-repo testsrc connector with a
-// JSON-lines sink, driven entirely by config. Future cycles will
-// extend the schema to cover enrichers, transforms, schedules, and
-// external connectors.
+// The schema intentionally starts small. It covers enough today to
+// run a pipeline against the in-repo testsrc connector with a
+// JSON-lines sink, driven entirely by config. The schema will grow
+// to cover enrichers, transforms, schedules, and external connectors
+// as those subsystems land.
 //
 // Example:
 //

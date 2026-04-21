@@ -65,7 +65,7 @@ so connector checkpoints survive process restarts.
 Credentials live in the same file under the `credentials` table,
 sealed with AES-256-GCM. The 32-byte key is read from `key_path` (hex
 encoded). For now credentials are wired programmatically via the
-`creds` package; a `ridgeline creds` CLI ships in a later cycle.
+`creds` package; a `ridgeline creds` CLI is on the roadmap.
 
 Run the test suite:
 
