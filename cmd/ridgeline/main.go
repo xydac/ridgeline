@@ -12,6 +12,8 @@
 //	                        recorded in the SQLite file at config.state_path
 //	query <SQL>             run SQL against an in-process DuckDB and
 //	                        print results as an aligned text table
+//	creds list|put|get|rm   manage credentials in the AES-256-GCM
+//	                        credential store backing the *_ref config keys
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -63,6 +65,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "query: %v\n", err)
 			os.Exit(1)
 		}
+	case "creds":
+		if err := runCreds(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintf(os.Stderr, "creds: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -78,5 +85,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline sync --config PATH")
 	fmt.Fprintln(w, "  ridgeline status --config PATH")
 	fmt.Fprintln(w, "  ridgeline query <SQL>")
+	fmt.Fprintln(w, "  ridgeline creds list|put|get|rm --config PATH [NAME]")
 	fmt.Fprintln(w, "  ridgeline help")
 }
