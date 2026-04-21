@@ -162,6 +162,50 @@ func TestRunSync_Config_MissingFile(t *testing.T) {
 	}
 }
 
+func TestRunSync_Config_InvalidConnectorConfigFailsBeforeAnyIO(t *testing.T) {
+	t.Parallel()
+	// A healthy connector ("ok") paired with a misconfigured external
+	// connector ("bad") that omits the required command field. The run
+	// must refuse at load time, before "ok" writes anything to its sink.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	okOut := filepath.Join(dir, "ok-out")
+	badOut := filepath.Join(dir, "bad-out")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: aok
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + okOut + ` } }
+      - name: bbad
+        type: external
+        config: { command: "" }
+        streams: [events]
+        sink: { type: jsonl, options: { dir: ` + badOut + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath})
+	if err == nil {
+		t.Fatal("expected load-time validation error")
+	}
+	if !strings.Contains(err.Error(), "bbad") {
+		t.Errorf("err = %v, want to mention the bbad connector", err)
+	}
+	// The healthy connector must not have produced any output, since
+	// validation failed before the extract loop ran.
+	if _, statErr := os.Stat(okOut); statErr == nil {
+		t.Error("aok wrote output; load-time validation should have aborted before any IO")
+	}
+}
+
 func TestRunSync_Config_UnknownConnectorType(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

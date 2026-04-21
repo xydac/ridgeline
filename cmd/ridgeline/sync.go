@@ -105,9 +105,19 @@ func runDryRun(ctx context.Context, out string, records int) error {
 // runConfigSync loads cfgPath, opens the durable state store, and
 // runs each configured connector through its configured sink. Each
 // connector's state is keyed as "<product>/<connector>".
+//
+// Before any connector runs, every configured connector's Validate
+// method is called in product + name order. If any Validate returns
+// an error the whole sync is aborted with a non-zero exit: it is
+// better to refuse a broken config up front than to have earlier
+// connectors write partial data before a later one trips over its
+// config at extract time.
 func runConfigSync(ctx context.Context, cfgPath string) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
+		return err
+	}
+	if err := validateConnectors(ctx, cfg); err != nil {
 		return err
 	}
 	store, err := sqlitestate.Open(cfg.StatePath)
@@ -133,6 +143,33 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 		}
 	}
 	fmt.Printf("done: %d records total\n", totalRecords)
+	return nil
+}
+
+// validateConnectors asks every registered connector in cfg to check
+// its own config map before any sink is opened or record is written.
+// Connector types that are not registered are also reported here, so
+// the user does not have to wait for extract time to learn about the
+// typo.
+func validateConnectors(ctx context.Context, cfg *config.File) error {
+	for _, pid := range cfg.ProductIDs() {
+		product := cfg.Products[pid]
+		instances := append([]config.ConnectorInstance(nil), product.Connectors...)
+		sort.Slice(instances, func(i, j int) bool { return instances[i].Name < instances[j].Name })
+		for _, inst := range instances {
+			conn, ok := connectors.Get(inst.Type)
+			if !ok {
+				return fmt.Errorf("product %s connector %s: type %q is not registered", pid, inst.Name, inst.Type)
+			}
+			connCfg := connectors.ConnectorConfig{}
+			for k, v := range inst.Config {
+				connCfg[k] = v
+			}
+			if err := conn.Validate(ctx, connCfg); err != nil {
+				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
+			}
+		}
+	}
 	return nil
 }
 
