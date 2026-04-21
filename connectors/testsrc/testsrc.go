@@ -41,8 +41,15 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 	}
 }
 
-// Validate always succeeds; this connector has no external dependency.
-func (c *Connector) Validate(context.Context, connectors.ConnectorConfig) error { return nil }
+// Validate rejects unknown config keys. The only recognized field is
+// records, an integer count; the connector has no external dependency
+// to check.
+func (c *Connector) Validate(_ context.Context, cfg connectors.ConnectorConfig) error {
+	if err := connectors.CheckUnknownKeys(cfg, "records"); err != nil {
+		return fmt.Errorf("testsrc: %w", err)
+	}
+	return nil
+}
 
 // Discover returns both streams as available.
 func (c *Connector) Discover(_ context.Context, _ connectors.ConnectorConfig) (*connectors.Catalog, error) {

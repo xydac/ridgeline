@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -52,6 +53,18 @@ func TestValidate(t *testing.T) {
 	}
 	if err := c.Validate(context.Background(), connectors.ConnectorConfig{"query": "golang"}); err != nil {
 		t.Errorf("valid query rejected: %v", err)
+	}
+	// Typo'd keys must not be silently dropped.
+	err := c.Validate(context.Background(), connectors.ConnectorConfig{"query": "golang", "quer": "other"})
+	if err == nil {
+		t.Fatal("expected error for typo'd config key")
+	}
+	if !strings.Contains(err.Error(), "quer") {
+		t.Errorf("err %q should mention the typo'd key", err)
+	}
+	// Out-of-range hits_per_page must be rejected at Validate time.
+	if err := c.Validate(context.Background(), connectors.ConnectorConfig{"query": "go", "hits_per_page": 5000}); err == nil {
+		t.Error("expected error for hits_per_page > max")
 	}
 }
 

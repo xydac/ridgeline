@@ -42,16 +42,27 @@ func TestValidate(t *testing.T) {
 		name    string
 		cfg     connectors.ConnectorConfig
 		wantErr bool
+		wantSub string
 	}{
-		{"empty", connectors.ConnectorConfig{}, true},
-		{"whitespace-command", connectors.ConnectorConfig{"command": "   "}, true},
-		{"valid", connectors.ConnectorConfig{"command": "/bin/echo"}, false},
+		{"empty", connectors.ConnectorConfig{}, true, "command"},
+		{"whitespace-command", connectors.ConnectorConfig{"command": "   "}, true, "command"},
+		{"valid", connectors.ConnectorConfig{"command": "/bin/echo"}, false, ""},
+		{"typo-commad", connectors.ConnectorConfig{"commad": "/bin/echo"}, true, "command"},
+		{"valid-all-fields", connectors.ConnectorConfig{
+			"command": "/bin/echo",
+			"args":    []any{"hi"},
+			"env":     map[string]any{"K": "V"},
+			"dir":     "/tmp",
+		}, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := c.Validate(context.Background(), tc.cfg)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("Validate(%v) err=%v, wantErr=%v", tc.cfg, err, tc.wantErr)
+			}
+			if err != nil && tc.wantSub != "" && !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("err %q does not contain %q", err.Error(), tc.wantSub)
 			}
 		})
 	}

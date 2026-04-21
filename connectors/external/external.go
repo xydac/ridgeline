@@ -49,11 +49,18 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 	}
 }
 
-// Validate checks that a command is configured. It does not invoke the
+// knownConfigKeys enumerates every config key this connector reads.
+var knownConfigKeys = []string{"command", "args", "env", "dir"}
+
+// Validate checks that a command is configured and that every supplied
+// config key is one the runner recognizes. It does not invoke the
 // child process; reachability of the underlying source is the child's
 // responsibility, and a "command exists" check would not be meaningful
 // (the user might have a virtualenv-relative or PATH-relative entry).
 func (c *Connector) Validate(_ context.Context, cfg connectors.ConnectorConfig) error {
+	if err := connectors.CheckUnknownKeys(cfg, knownConfigKeys...); err != nil {
+		return fmt.Errorf("external: %w", err)
+	}
 	if strings.TrimSpace(cfg.String("command")) == "" {
 		return fmt.Errorf("external: command must not be empty")
 	}

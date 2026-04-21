@@ -84,12 +84,27 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 	}
 }
 
-// Validate checks that a query is configured. It does not reach out to
-// the API; the Algolia endpoint is public and has no credential to
-// verify here.
+// knownConfigKeys enumerates every config key this connector reads.
+// Kept together so Validate's unknown-key check and the code that
+// actually consumes the values stay in sync.
+var knownConfigKeys = []string{"query", "hits_per_page", "max_pages", "base_url"}
+
+// Validate checks that a query is configured, that numeric bounds make
+// sense, and that every supplied config key is one the connector
+// recognizes. It does not reach out to the API; the Algolia endpoint
+// is public and has no credential to verify here.
 func (c *Connector) Validate(_ context.Context, cfg connectors.ConnectorConfig) error {
+	if err := connectors.CheckUnknownKeys(cfg, knownConfigKeys...); err != nil {
+		return fmt.Errorf("hackernews: %w", err)
+	}
 	if strings.TrimSpace(cfg.String("query")) == "" {
 		return fmt.Errorf("hackernews: query must not be empty")
+	}
+	if hpp := cfg.Int("hits_per_page", DefaultHitsPerPage); hpp <= 0 || hpp > MaxHitsPerPage {
+		return fmt.Errorf("hackernews: hits_per_page must be in 1..%d (got %d)", MaxHitsPerPage, hpp)
+	}
+	if mp := cfg.Int("max_pages", DefaultMaxPages); mp <= 0 {
+		return fmt.Errorf("hackernews: max_pages must be > 0 (got %d)", mp)
 	}
 	return nil
 }
