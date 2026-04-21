@@ -203,7 +203,7 @@ Parquet inference is on the roadmap. DuckDB reads the files directly:
 duckdb -c "select count(*), stream from read_parquet('./pq-out/*/*.parquet') group by stream;"
 
 # field-level query via JSON extraction
-duckdb -c "select json_extract(data_json, '\$.url') as url, count(*) from read_parquet('./pq-out/*/pages.parquet') group by url;"
+duckdb -c "select json_extract(data_json, '\$.id') as id, count(*) from read_parquet('./pq-out/*/pages.parquet') group by id;"
 ```
 
 pandas and pyarrow read the same files with no translation layer.
