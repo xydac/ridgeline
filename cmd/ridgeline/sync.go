@@ -14,6 +14,7 @@ import (
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 	"github.com/xydac/ridgeline/sinks/jsonl"
+	"github.com/xydac/ridgeline/sinks/parquet"
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
 
@@ -185,8 +186,10 @@ func newSink(typ string) (sinks.Sink, error) {
 	switch typ {
 	case jsonl.Name:
 		return jsonl.New(), nil
+	case parquet.Name:
+		return parquet.New(), nil
 	}
 	return nil, fmt.Errorf("sink type %q is not supported (known: %v)", typ, knownSinkTypes())
 }
 
-func knownSinkTypes() []string { return []string{jsonl.Name} }
+func knownSinkTypes() []string { return []string{jsonl.Name, parquet.Name} }

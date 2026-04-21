@@ -23,6 +23,7 @@ import (
 	_ "github.com/xydac/ridgeline/connectors/hackernews"
 	_ "github.com/xydac/ridgeline/connectors/testsrc"
 	_ "github.com/xydac/ridgeline/sinks/jsonl"
+	_ "github.com/xydac/ridgeline/sinks/parquet"
 )
 
 // Version is the build version. Overridden at release time via -ldflags.
