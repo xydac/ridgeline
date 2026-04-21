@@ -23,7 +23,8 @@
 - [ ] Native connector: Umami (self-hosted analytics)
 - [ ] Native connector: Google Search Console (OAuth 2.0)
 - [x] First external connector in Python (worked example under `examples/external/`)
-- [ ] `ridgeline status`, `ridgeline query`, `ridgeline creds` CLI commands
+- [x] `ridgeline status` CLI command (per-connector cursor and last-sync time)
+- [ ] `ridgeline query`, `ridgeline creds` CLI commands
 - [ ] TUI shell (Bubble Tea): products view, health bars, keybindings
 
 ## Discovered in review

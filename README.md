@@ -64,6 +64,28 @@ State lives in `./ridgeline.db` (SQLite, 0600 permissions, schema
 created on first run). A second invocation reuses the same database,
 so connector checkpoints survive process restarts.
 
+### Inspecting state
+
+`ridgeline status` reads the same `ridgeline.yaml` and prints each
+configured connector alongside its stored cursor and the last-sync
+wall-clock time, without opening a Parquet viewer or the SQLite file:
+
+```sh
+./ridgeline status --config ridgeline.yaml
+# loaded ridgeline.yaml
+# state: ./ridgeline.db
+# myapp/demo (testsrc)
+#   streams: [pages events]
+#   last sync: 2026-04-21T11:29:26.366Z
+#   cursor: {"count":2,"last_stream":"events"}
+```
+
+Status is read-only: if `state_path` does not exist yet, the command
+reports every connector as `never synced` without creating an empty
+database. State entries that no longer map to a configured connector
+are listed under an `orphan state entries` footer so a rename or
+removal is visible without inspecting the database by hand.
+
 Credentials live in the same file under the `credentials` table,
 sealed with AES-256-GCM. The 32-byte key is loaded from the optional
 `key_path` field (hex encoded; defaults to `~/.ridgeline/key`) when
@@ -210,7 +232,7 @@ go test ./...
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `cmd/ridgeline`             | Binary. `ridgeline version`, `sync --dry-run`, `sync --config`.          |
+| `cmd/ridgeline`             | Binary. `version`, `sync --dry-run`, `sync --config`, `status --config`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
