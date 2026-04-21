@@ -181,6 +181,31 @@ func TestSink_EmptyStreamRejected(t *testing.T) {
 	}
 }
 
+func TestSink_Init_RejectsUnknownOption(t *testing.T) {
+	t.Parallel()
+	s := jsonl.New()
+	err := s.Init(context.Background(), sinks.SinkConfig{"dirr": t.TempDir()})
+	if err == nil {
+		t.Fatal("expected error for typo'd option key")
+	}
+	// The did-you-mean hint must name the typo and the suggestion.
+	if !strings.Contains(err.Error(), `"dirr"`) || !strings.Contains(err.Error(), `"dir"`) {
+		t.Errorf("got %q, want did-you-mean for dirr -> dir", err)
+	}
+}
+
+func TestSink_Init_RejectsUnrelatedUnknownOption(t *testing.T) {
+	t.Parallel()
+	s := jsonl.New()
+	err := s.Init(context.Background(), sinks.SinkConfig{"dir": t.TempDir(), "totally_unknown": 42})
+	if err == nil {
+		t.Fatal("expected error for unknown option key")
+	}
+	if !strings.Contains(err.Error(), "totally_unknown") {
+		t.Errorf("got %q, want mention of the unknown key", err)
+	}
+}
+
 func TestSink_RegisteredInRegistry(t *testing.T) {
 	t.Parallel()
 	// The init func in jsonl.go should have registered "jsonl".
