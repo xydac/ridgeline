@@ -67,7 +67,7 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	}
 	runDir := filepath.Join(dir, runID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return fmt.Errorf("jsonl: mkdir %s: %w", runDir, err)
+		return fmt.Errorf("jsonl: %w", err)
 	}
 	s.dir = dir
 	s.runID = runID
@@ -139,11 +139,11 @@ func (s *Sink) streamFileLocked(stream string) (*streamFile, error) {
 	rel := filepath.Join(s.runID, stream+".jsonl")
 	abs := filepath.Join(s.dir, rel)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return nil, fmt.Errorf("jsonl: mkdir for %s: %w", stream, err)
+		return nil, fmt.Errorf("jsonl: stream %s: %w", stream, err)
 	}
 	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("jsonl: open %s: %w", abs, err)
+		return nil, fmt.Errorf("jsonl: stream %s: %w", stream, err)
 	}
 	sf := &streamFile{path: rel, file: f, writer: bufio.NewWriter(f)}
 	s.streams[stream] = sf

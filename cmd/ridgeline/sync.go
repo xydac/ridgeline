@@ -55,7 +55,8 @@ func runDryRun(ctx context.Context, out string, records int) error {
 		dir = filepath.Join(os.TempDir(), "ridgeline-dryrun")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+		// os.MkdirAll already reports the path; don't double-wrap.
+		return fmt.Errorf("create out dir: %w", err)
 	}
 
 	conn, ok := connectors.Get(testsrc.Name)

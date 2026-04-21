@@ -38,7 +38,7 @@ func Open(path string) (*Store, error) {
 	if path != ":memory:" {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("sqlite: mkdir %s: %w", dir, err)
+			return nil, fmt.Errorf("sqlite: %w", err)
 		}
 	}
 
@@ -73,7 +73,7 @@ func Open(path string) (*Store, error) {
 	if path != ":memory:" {
 		if err := os.Chmod(path, 0o600); err != nil {
 			_ = db.Close()
-			return nil, fmt.Errorf("sqlite: chmod %s: %w", path, err)
+			return nil, fmt.Errorf("sqlite: %w", err)
 		}
 	}
 

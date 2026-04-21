@@ -89,7 +89,7 @@ func (s *Store) loadLocked() (Manifest, error) {
 		return Manifest{Version: Version}, nil
 	}
 	if err != nil {
-		return Manifest{}, fmt.Errorf("manifest: read %s: %w", s.Path, err)
+		return Manifest{}, fmt.Errorf("manifest: %w", err)
 	}
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {

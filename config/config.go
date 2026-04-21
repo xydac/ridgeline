@@ -87,7 +87,8 @@ func Load(path string) (*File, error) {
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("config: read %s: %w", path, err)
+		// os.ReadFile already includes the path; don't double-wrap.
+		return nil, fmt.Errorf("config: %w", err)
 	}
 	return Parse(raw)
 }

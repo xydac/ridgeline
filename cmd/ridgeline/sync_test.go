@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xydac/ridgeline/config"
@@ -137,6 +138,16 @@ func TestRunSync_Config_MissingFile(t *testing.T) {
 	err := runSync(context.Background(), []string{"--config", "/tmp/definitely-not-a-config.yaml"})
 	if err == nil {
 		t.Fatal("expected error for missing config file")
+	}
+	// Regression for QA F-008: the path must appear at most once and
+	// the os.* error verb (open/read) must not be wrapped by another
+	// matching verb.
+	msg := err.Error()
+	if strings.Count(msg, "/tmp/definitely-not-a-config.yaml") != 1 {
+		t.Errorf("path should appear exactly once in %q", msg)
+	}
+	if strings.Count(msg, "open ") > 1 || strings.Contains(msg, "read ") && strings.Contains(msg, "open ") {
+		t.Errorf("doubled os-verb prefix in %q", msg)
 	}
 }
 

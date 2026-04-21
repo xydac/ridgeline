@@ -29,13 +29,13 @@ func WriteKeyFile(path string, key []byte) error {
 		return fmt.Errorf("creds: WriteKeyFile: key must be %d bytes, got %d", KeySize, len(key))
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("creds: mkdir %s: %w", filepath.Dir(path), err)
+		return fmt.Errorf("creds: %w", err)
 	}
 	enc := make([]byte, hex.EncodedLen(KeySize)+1)
 	hex.Encode(enc, key)
 	enc[len(enc)-1] = '\n'
 	if err := os.WriteFile(path, enc, 0o600); err != nil {
-		return fmt.Errorf("creds: write %s: %w", path, err)
+		return fmt.Errorf("creds: %w", err)
 	}
 	return nil
 }
@@ -46,7 +46,7 @@ func WriteKeyFile(path string, key []byte) error {
 func KeyFromFile(path string) ([]byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("creds: read key %s: %w", path, err)
+		return nil, fmt.Errorf("creds: %w", err)
 	}
 	// Strip trailing whitespace (newline, CRLF, stray spaces) so a
 	// hand-edited file still decodes.
