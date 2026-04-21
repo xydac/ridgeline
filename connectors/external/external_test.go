@@ -83,7 +83,7 @@ func helperConfig(mode string) connectors.ConnectorConfig {
 	}
 }
 
-func collect(ch <-chan connectors.Message) (records []connectors.Record, states []connectors.State, logs []connectors.LogEntry) {
+func collect(ch <-chan connectors.Message) (records []connectors.Record, states []connectors.State, logs []connectors.LogEntry, errs []error) {
 	for m := range ch {
 		switch m.Type {
 		case connectors.RecordMsg:
@@ -92,6 +92,8 @@ func collect(ch <-chan connectors.Message) (records []connectors.Record, states 
 			states = append(states, *m.State)
 		case connectors.LogMsg:
 			logs = append(logs, *m.Log)
+		case connectors.ErrorMsg:
+			errs = append(errs, m.Err)
 		}
 	}
 	return
@@ -107,7 +109,7 @@ func TestExtractRecordsAndState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	records, states, _ := collect(ch)
+	records, states, _, _ := collect(ch)
 	if len(records) != 3 {
 		t.Errorf("records = %d, want 3", len(records))
 	}
@@ -137,13 +139,13 @@ func TestExtractDoneEndsStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	records, _, _ := collect(ch)
+	records, _, _, _ := collect(ch)
 	if len(records) != 1 {
 		t.Errorf("records = %d, want 1 (DONE should stop the stream before the second record)", len(records))
 	}
 }
 
-func TestExtractErrorMessageEmitsLog(t *testing.T) {
+func TestExtractProtocolErrorEmitsErrorMsg(t *testing.T) {
 	t.Parallel()
 	c := external.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -153,15 +155,15 @@ func TestExtractErrorMessageEmitsLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	_, _, logs := collect(ch)
-	var sawError bool
-	for _, l := range logs {
-		if l.Level == connectors.LevelError && strings.Contains(l.Message, "boom") {
-			sawError = true
-		}
+	records, _, _, errs := collect(ch)
+	if len(records) != 1 {
+		t.Errorf("records = %d, want 1 (the RECORD before the ERROR)", len(records))
 	}
-	if !sawError {
-		t.Errorf("expected an error-level log mentioning boom; got logs=%v", logs)
+	if len(errs) == 0 {
+		t.Fatal("expected an ErrorMsg carrying the child's protocol error")
+	}
+	if !strings.Contains(errs[0].Error(), "boom") {
+		t.Errorf("ErrorMsg err = %v, want it to mention boom", errs[0])
 	}
 }
 
@@ -176,7 +178,7 @@ func TestExtractContextCancelKillsChild(t *testing.T) {
 	}
 	cancel()
 	done := make(chan struct{})
-	go func() { _, _, _ = collect(ch); close(done) }()
+	go func() { _, _, _, _ = collect(ch); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -184,7 +186,7 @@ func TestExtractContextCancelKillsChild(t *testing.T) {
 	}
 }
 
-func TestExtractCommandNotFoundEmitsErrorLog(t *testing.T) {
+func TestExtractCommandNotFoundEmitsErrorMsg(t *testing.T) {
 	t.Parallel()
 	c := external.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -195,12 +197,58 @@ func TestExtractCommandNotFoundEmitsErrorLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	_, _, logs := collect(ch)
-	if len(logs) == 0 {
-		t.Fatal("expected at least one log message reporting the spawn failure")
+	_, _, _, errs := collect(ch)
+	if len(errs) == 0 {
+		t.Fatal("expected at least one ErrorMsg reporting the spawn failure")
 	}
-	if logs[0].Level != connectors.LevelError {
-		t.Errorf("first log level = %v, want error", logs[0].Level)
+	if !strings.Contains(errs[0].Error(), "start") {
+		t.Errorf("err = %v, want to mention start", errs[0])
+	}
+}
+
+func TestExtractChildNonZeroExitEmitsErrorMsg(t *testing.T) {
+	t.Parallel()
+	c := external.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	streams := []connectors.Stream{{Name: "events", Mode: connectors.FullRefresh}}
+	// /bin/sh -c 'exit 42' prints nothing and exits non-zero.
+	cfg := connectors.ConnectorConfig{
+		"command": "/bin/sh",
+		"args":    []any{"-c", "exit 42"},
+	}
+	ch, err := c.Extract(ctx, cfg, streams, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	_, _, _, errs := collect(ch)
+	if len(errs) == 0 {
+		t.Fatal("expected an ErrorMsg when child exits non-zero")
+	}
+	if !strings.Contains(errs[0].Error(), "exit") {
+		t.Errorf("err = %v, want to mention exit", errs[0])
+	}
+}
+
+func TestExtractDecodeErrorEmitsErrorMsgAndDropsPartialState(t *testing.T) {
+	t.Parallel()
+	c := external.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	streams := []connectors.Stream{{Name: "events", Mode: connectors.Incremental}}
+	ch, err := c.Extract(ctx, helperConfig("record-garbage-state"), streams, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	records, states, _, errs := collect(ch)
+	if len(records) != 1 {
+		t.Errorf("records = %d, want 1 (the RECORD before the garbage)", len(records))
+	}
+	if len(states) != 0 {
+		t.Errorf("states = %d, want 0 (STATE after the garbage must not leak through)", len(states))
+	}
+	if len(errs) == 0 {
+		t.Fatal("expected an ErrorMsg for the mid-stream decode failure")
 	}
 }
 
@@ -218,7 +266,7 @@ func TestExtractStdinCarriesStreamsAndState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	_, _, logs := collect(ch)
+	_, _, logs, _ := collect(ch)
 	if len(logs) == 0 {
 		t.Fatal("expected at least one info log echoing stdin")
 	}
@@ -260,6 +308,14 @@ func TestHelperProcess(t *testing.T) {
 			outRecord("events", map[string]any{"i": 1}),
 			protocol.Output{Type: protocol.MsgError, Error: "boom"},
 		)
+	case "record-garbage-state":
+		// Emit one valid RECORD, one garbage line that will break
+		// the JSON decoder, then one valid STATE that the decoder
+		// will never reach. Exercises the "partial batch must be
+		// dropped" path.
+		writeOutputs(outRecord("events", map[string]any{"i": 1}))
+		os.Stdout.Write([]byte("not-json-garbage-line\n"))
+		writeOutputs(outState(map[string]any{"cursor": "ghost"}))
 	case "hang":
 		// Drain stdin so the parent's writes do not SIGPIPE us, then
 		// block until killed.

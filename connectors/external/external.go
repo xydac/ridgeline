@@ -76,10 +76,11 @@ func (c *Connector) Discover(_ context.Context, _ connectors.ConnectorConfig) (*
 // child sends a DONE or ERROR message, or when ctx is cancelled.
 //
 // Errors that occur before the channel is even returned (config
-// validation, pipe creation) are returned synchronously. Errors that
-// arise mid-stream (spawn failure, decode failure, child exit code)
-// are forwarded to the caller as LogMessages so the pipeline can keep
-// running and persist the partial state already received.
+// validation, pipe creation) are returned synchronously. Fatal errors
+// that arise mid-stream (spawn failure, decode failure, child exit
+// code, child ERROR message) are forwarded as a final ErrorMessage so
+// the pipeline aborts the sync with a non-zero exit; stderr noise and
+// other non-fatal output still surface as warn-level LogMessages.
 func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig, streams []connectors.Stream, state connectors.State) (<-chan connectors.Message, error) {
 	command := strings.TrimSpace(cfg.String("command"))
 	if command == "" {
@@ -107,22 +108,22 @@ func run(ctx context.Context, ch chan<- connectors.Message, command string, args
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: stdin pipe: %v", err))
+		emitError(ctx, ch, fmt.Errorf("external: stdin pipe: %w", err))
 		return
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: stdout pipe: %v", err))
+		emitError(ctx, ch, fmt.Errorf("external: stdout pipe: %w", err))
 		return
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: stderr pipe: %v", err))
+		emitError(ctx, ch, fmt.Errorf("external: stderr pipe: %w", err))
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
-		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: start %q: %v", command, err))
+		emitError(ctx, ch, fmt.Errorf("external: start %q: %w", command, err))
 		return
 	}
 
@@ -134,9 +135,10 @@ func run(ctx context.Context, ch chan<- connectors.Message, command string, args
 		drainStderr(ctx, ch, stderr)
 	}()
 
-	// Send the extract command on stdin and close it. Any failure here
-	// is reported as a log; we still try to read whatever the child
-	// produces so partial output is not lost.
+	// Send the extract command on stdin and close it. writeExtractCommand
+	// failure is reported as a log for now, because we still want to read
+	// whatever the child managed to produce; the terminal error (if any)
+	// is raised downstream from decode or wait.
 	if err := writeExtractCommand(stdin, streams, state); err != nil {
 		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: write extract command: %v", err))
 	}
@@ -148,13 +150,22 @@ func run(ctx context.Context, ch chan<- connectors.Message, command string, args
 	// are emitted in order.
 	<-stderrDone
 	waitErr := cmd.Wait()
-	if waitErr != nil && !errors.Is(waitErr, context.Canceled) && ctx.Err() == nil {
-		// Only surface the wait error if the child exited unexpectedly;
-		// a context cancel triggers a kill that returns a benign error.
-		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: child %q exited: %v", command, waitErr))
+
+	// Context cancel is not a failure; everything else might be.
+	if ctx.Err() != nil {
+		return
 	}
-	if decodeErr != nil && !errors.Is(decodeErr, io.EOF) && !errors.Is(decodeErr, context.Canceled) {
-		emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: decode stdout: %v", decodeErr))
+
+	// decodeOutputs surfaces an ERROR protocol message by returning
+	// protocolError; everything else (malformed JSON, truncated stream)
+	// is a decode failure. Both are fatal.
+	if decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
+		emitError(ctx, ch, fmt.Errorf("external: %w", decodeErr))
+		return
+	}
+	if waitErr != nil {
+		emitError(ctx, ch, fmt.Errorf("external: child %q exited: %w", command, waitErr))
+		return
 	}
 }
 
@@ -222,8 +233,11 @@ func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reade
 				return ctx.Err()
 			}
 		case protocol.MsgError:
-			emitLog(ctx, ch, connectors.LevelError, fmt.Sprintf("external: child error: %s", out.Error))
-			return nil
+			// Protocol ERROR messages are the child telling us it
+			// has given up. Surface them as a fatal decode error so
+			// the run-loop turns them into an ErrorMsg on the
+			// channel.
+			return &protocolError{msg: out.Error}
 		case protocol.MsgDone:
 			return nil
 		default:
@@ -325,6 +339,20 @@ func send(ctx context.Context, ch chan<- connectors.Message, m connectors.Messag
 func emitLog(ctx context.Context, ch chan<- connectors.Message, level connectors.LogLevel, msg string) {
 	send(ctx, ch, connectors.LogMessage(level, msg))
 }
+
+// emitError sends err to the pipeline as a fatal ErrorMsg. Callers
+// should return immediately after emitError; the pipeline will stop
+// consuming the channel once it sees the ErrorMsg.
+func emitError(ctx context.Context, ch chan<- connectors.Message, err error) {
+	send(ctx, ch, connectors.ErrorMessage(err))
+}
+
+// protocolError wraps a child-emitted ERROR message so the run-loop
+// can distinguish "child told us it failed" from "we failed to decode
+// the child's output". Both are fatal.
+type protocolError struct{ msg string }
+
+func (p *protocolError) Error() string { return "child error: " + p.msg }
 
 // stringMap coerces an arbitrary value (typically the YAML-decoded
 // `env:` map) into map[string]string. Unsupported shapes yield nil.
