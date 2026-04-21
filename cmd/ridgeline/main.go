@@ -26,6 +26,7 @@ import (
 	_ "github.com/xydac/ridgeline/connectors/external"
 	_ "github.com/xydac/ridgeline/connectors/hackernews"
 	_ "github.com/xydac/ridgeline/connectors/testsrc"
+	_ "github.com/xydac/ridgeline/connectors/umami"
 	_ "github.com/xydac/ridgeline/sinks/jsonl"
 	_ "github.com/xydac/ridgeline/sinks/parquet"
 )
