@@ -28,16 +28,14 @@ var Version = "0.0.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Printf("ridgeline %s\n", Version)
-		fmt.Println("Usage:")
-		fmt.Println("  ridgeline version")
-		fmt.Println("  ridgeline sync --dry-run [--records N] [--out DIR]")
-		fmt.Println("  ridgeline sync --config PATH")
+		printUsage(os.Stdout)
 		return
 	}
 	switch os.Args[1] {
 	case "version", "--version", "-v":
 		fmt.Println(Version)
+	case "help", "--help", "-h":
+		printUsage(os.Stdout)
 	case "sync":
 		if err := runSync(context.Background(), os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "sync: %v\n", err)
@@ -45,6 +43,16 @@ func main() {
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
+		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
 		os.Exit(2)
 	}
+}
+
+func printUsage(w *os.File) {
+	fmt.Fprintf(w, "ridgeline %s\n", Version)
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ridgeline version")
+	fmt.Fprintln(w, "  ridgeline sync --dry-run [--records N] [--out DIR]")
+	fmt.Fprintln(w, "  ridgeline sync --config PATH")
+	fmt.Fprintln(w, "  ridgeline help")
 }
