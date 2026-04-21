@@ -74,6 +74,10 @@ func (s SyncMode) String() string {
 // physical Parquet type is chosen by the sink.
 type ColumnType int
 
+// ColumnType values, covering the logical types a stream schema can
+// declare. Int is a 64-bit signed integer; Float is IEEE-754 double
+// precision; Timestamp is a UTC instant; JSON carries opaque nested
+// structure that sinks store as an encoded JSON string.
 const (
 	String ColumnType = iota
 	Int

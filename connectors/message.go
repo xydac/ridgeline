@@ -22,6 +22,7 @@ const (
 // LogLevel categorizes LogEntry severity.
 type LogLevel int
 
+// LogLevel values, from least to most severe.
 const (
 	LevelDebug LogLevel = iota
 	LevelInfo
