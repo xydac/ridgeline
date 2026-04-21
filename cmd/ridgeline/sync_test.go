@@ -306,6 +306,42 @@ products:
 	}
 }
 
+func TestRunSync_Config_TypoInSinkOptionsFailsFast(t *testing.T) {
+	t.Parallel()
+	// Regression for QA F-018: typo'd sink options keys were silently
+	// dropped by the YAML decoder, so the user saw a misleading
+	// "dir is required" instead of a hint pointing at the typo.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink:
+          type: jsonl
+          options:
+            dirr: ` + filepath.Join(dir, "out") + `
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath})
+	if err == nil {
+		t.Fatal("expected error for typo'd sink option")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `"dirr"`) || !strings.Contains(msg, `"dir"`) {
+		t.Errorf("got %q, want did-you-mean for dirr -> dir", msg)
+	}
+}
+
 func TestRunSync_Config_UnknownSinkType(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
