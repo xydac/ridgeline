@@ -27,7 +27,7 @@
 - [ ] `ridgeline query`, `ridgeline creds` CLI commands
 - [ ] TUI shell (Bubble Tea): products view, health bars, keybindings
 
-## Discovered in review
+## Known gaps
 
 - Route all CLI output through one formatter so warn lines stop carrying the stdlib `log` prefix
 - Factory registry for sinks, replacing the hand-rolled switch in the sync command
