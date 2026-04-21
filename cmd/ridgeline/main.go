@@ -1,25 +1,46 @@
 // Command ridgeline is the self-hosted intelligence platform binary.
 //
-// In cycle 1 this is a placeholder that prints version information.
-// Subcommands (sync, status, query, daemon) ship in later cycles.
+// Subcommands:
+//
+//	version                 print the build version
+//	sync --dry-run          run the pipeline against the built-in testsrc
+//	                        connector and the jsonl sink, into a temp dir
+//
+// Cobra will replace the hand-rolled argv dispatch once the command
+// surface grows; for now flag + switch keeps the binary dep-free.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+
+	// Side-effect imports register built-in connectors and sinks.
+	_ "github.com/xydac/ridgeline/connectors/testsrc"
+	_ "github.com/xydac/ridgeline/sinks/jsonl"
 )
 
 // Version is the build version. Overridden at release time via -ldflags.
 var Version = "0.0.0-dev"
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version", "--version", "-v":
-			fmt.Println(Version)
-			return
-		}
+	if len(os.Args) < 2 {
+		fmt.Printf("ridgeline %s\n", Version)
+		fmt.Println("Usage:")
+		fmt.Println("  ridgeline version")
+		fmt.Println("  ridgeline sync --dry-run [--records N] [--out DIR]")
+		return
 	}
-	fmt.Printf("ridgeline %s\n", Version)
-	fmt.Println("Self-hosted intelligence platform. Subcommands coming soon.")
+	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Println(Version)
+	case "sync":
+		if err := runSync(context.Background(), os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "sync: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
+		os.Exit(2)
+	}
 }
