@@ -10,6 +10,8 @@
 //	                        SQLite file at config.state_path
 //	status --config PATH    show per-connector state and last-sync time
 //	                        recorded in the SQLite file at config.state_path
+//	query <SQL>             run SQL against an in-process DuckDB and
+//	                        print results as an aligned text table
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -55,6 +57,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "status: %v\n", err)
 			os.Exit(1)
 		}
+	case "query":
+		if err := runQuery(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "query: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -69,5 +76,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline sync --dry-run [--records N] [--out DIR]")
 	fmt.Fprintln(w, "  ridgeline sync --config PATH")
 	fmt.Fprintln(w, "  ridgeline status --config PATH")
+	fmt.Fprintln(w, "  ridgeline query <SQL>")
 	fmt.Fprintln(w, "  ridgeline help")
 }
