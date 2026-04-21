@@ -40,6 +40,19 @@ func (c SinkConfig) Bool(key string, fallback bool) bool {
 	return fallback
 }
 
+// CheckUnknownKeys returns an error describing any key present in cfg
+// that is not listed in known. It is the sink-side analogue of
+// connectors.CheckUnknownKeys and exists so sink authors can reject
+// typo'd option keys at Init with a did-you-mean hint, instead of
+// falling through to a less-actionable "required key X is missing"
+// error.
+//
+// Sink authors should prefer calling this at the top of Init before
+// reading any option, so the user sees the most specific error first.
+func CheckUnknownKeys(cfg SinkConfig, known ...string) error {
+	return connectors.CheckUnknownKeys(connectors.ConnectorConfig(cfg), known...)
+}
+
 // Sink is the contract every storage backend implements.
 //
 // Lifecycle:

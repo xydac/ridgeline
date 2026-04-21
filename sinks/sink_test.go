@@ -3,6 +3,7 @@ package sinks
 import (
 	"context"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -111,6 +112,29 @@ func TestSinkConfigAccessors(t *testing.T) {
 	}
 	if got := cfg.Bool("missing", true); !got {
 		t.Errorf("Bool(missing, true) = %v; want true", got)
+	}
+}
+
+func TestCheckUnknownKeys(t *testing.T) {
+	if err := CheckUnknownKeys(SinkConfig{"dir": "/tmp"}, "dir", "run_id"); err != nil {
+		t.Fatalf("known-only keys should pass, got %v", err)
+	}
+	if err := CheckUnknownKeys(nil, "dir"); err != nil {
+		t.Fatalf("nil cfg should pass, got %v", err)
+	}
+	err := CheckUnknownKeys(SinkConfig{"dirr": "/tmp"}, "dir", "run_id")
+	if err == nil {
+		t.Fatal("typo must be rejected")
+	}
+	if !strings.Contains(err.Error(), `"dir"`) || !strings.Contains(err.Error(), `"dirr"`) {
+		t.Errorf("missing did-you-mean hint: %v", err)
+	}
+	err = CheckUnknownKeys(SinkConfig{"zzzzzz": "x"}, "dir", "run_id")
+	if err == nil {
+		t.Fatal("unknown key must be rejected")
+	}
+	if strings.Contains(err.Error(), "did you mean") {
+		t.Errorf("unrelated key should not carry a suggestion: %v", err)
 	}
 }
 
