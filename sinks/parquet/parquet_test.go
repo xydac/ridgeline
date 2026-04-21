@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -219,6 +220,30 @@ func TestSink_CloseIsIdempotent(t *testing.T) {
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close 2: %v", err)
+	}
+}
+
+func TestSink_Init_RejectsUnknownOption(t *testing.T) {
+	t.Parallel()
+	s := pqsink.New()
+	err := s.Init(context.Background(), sinks.SinkConfig{"dirr": t.TempDir()})
+	if err == nil {
+		t.Fatal("expected error for typo'd option key")
+	}
+	if !strings.Contains(err.Error(), `"dirr"`) || !strings.Contains(err.Error(), `"dir"`) {
+		t.Errorf("got %q, want did-you-mean for dirr -> dir", err)
+	}
+}
+
+func TestSink_Init_RejectsUnrelatedUnknownOption(t *testing.T) {
+	t.Parallel()
+	s := pqsink.New()
+	err := s.Init(context.Background(), sinks.SinkConfig{"dir": t.TempDir(), "totally_unknown": 42})
+	if err == nil {
+		t.Fatal("expected error for unknown option key")
+	}
+	if !strings.Contains(err.Error(), "totally_unknown") {
+		t.Errorf("got %q, want mention of the unknown key", err)
 	}
 }
 
