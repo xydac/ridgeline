@@ -7,10 +7,11 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 
 > **Status: early bootstrap.** The ETL core runs end-to-end from a
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
-> an AES-256-GCM credential store, a JSON-lines sink, and the first
-> real native connector (Hacker News, via the public Algolia search
-> API). Next up are more native connectors and a Parquet sink. See
-> [ROADMAP.md](ROADMAP.md). Built in public.
+> an AES-256-GCM credential store, a JSON-lines sink, the first real
+> native connector (Hacker News, via the public Algolia search API),
+> and an external runner that lets you wire any executable that speaks
+> JSON-lines as a connector. Next up are more native connectors and a
+> Parquet sink. See [ROADMAP.md](ROADMAP.md). Built in public.
 
 ## Try it now
 
@@ -111,6 +112,46 @@ Each sync persists a `created_at_i` high-water mark per stream into
 the SQLite state store, so re-runs only fetch records strictly newer
 than the last one seen.
 
+### Wiring an external connector (any language)
+
+The `external` connector type spawns any executable that speaks the
+JSON-lines protocol on stdin and stdout. A worked Python example lives
+under [`examples/external/`](examples/external/); the wiring looks like:
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+key_path: ./ridgeline.key
+products:
+  myapp:
+    connectors:
+      - name: pydemo
+        type: external
+        config:
+          command: python3
+          args: ["./examples/external/myconnector.py"]
+        streams: [events]
+        sink:
+          type: jsonl
+          options:
+            dir: ./py-out
+```
+
+```sh
+./ridgeline sync --config ridgeline.yaml
+# loaded ridgeline.yaml
+# state: ./ridgeline.db
+# myapp/pydemo: 3 records, 1 states saved
+# done: 3 records total
+```
+
+The runner sends one `extract` command on the child's stdin (with the
+configured streams and the persisted incremental state) and reads
+RECORD, STATE, LOG, SCHEMA, ERROR, and DONE messages back. Anything
+the child writes to stderr is surfaced as a warn-level log.
+Cancelling the parent kills the child, so a stuck connector cannot
+block the orchestrator.
+
 Run the test suite:
 
 ```sh
@@ -124,6 +165,7 @@ go test ./...
 | `connectors`                | `Connector` interface, types, message variants, init-time registry.      |
 | `connectors/testsrc`        | Synthetic source used by `sync --dry-run`.                               |
 | `connectors/hackernews`     | Incremental Algolia-backed Hacker News search (stories, comments).       |
+| `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
 | `enrichers`                 | `Enricher` interface, `EnrichConfig` accessors, init-time registry.      |

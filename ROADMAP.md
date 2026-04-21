@@ -7,7 +7,7 @@
 - [x] Config parser (YAML to Go structs)
 - [x] Connector interface (native Go)
 - [x] JSON-lines protocol spec and codec for external connectors
-- [ ] External JSON-lines runner that spawns and drives child processes
+- [x] External JSON-lines runner that spawns and drives child processes
 - [x] Sink interface
 - [x] ETL lifecycle manager (extract, transform, load, checkpoint)
 - [x] Manifest file writer with time-range metadata
@@ -22,7 +22,7 @@
 - [x] Native connector: Hacker News (Algolia public API)
 - [ ] Native connector: Umami (self-hosted analytics)
 - [ ] Native connector: Google Search Console (OAuth 2.0)
-- [ ] First external connector in Python
+- [x] First external connector in Python (worked example under `examples/external/`)
 - [ ] `ridgeline status`, `ridgeline query`, `ridgeline creds` CLI commands
 - [ ] TUI shell (Bubble Tea): products view, health bars, keybindings
 

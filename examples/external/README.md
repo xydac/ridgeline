@@ -45,8 +45,8 @@ Then:
 
 The three records land as JSON lines under `./py-out/`. Re-running with
 the same state reuses the cursor: the script reads `state.since` from
-its stdin command and starts from there, so the second run emits zero
-records.
+its stdin command and starts numbering from there, so the second run
+emits records 4 through 6 with the cursor advancing on every run.
 
 ## Writing your own
 
