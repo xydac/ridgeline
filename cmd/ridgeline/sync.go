@@ -4,12 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/connectors"
 	"github.com/xydac/ridgeline/connectors/testsrc"
+	"github.com/xydac/ridgeline/creds"
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 	"github.com/xydac/ridgeline/sinks/jsonl"
@@ -122,14 +125,18 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateConnectors(ctx, cfg); err != nil {
-		return err
-	}
 	store, err := sqlitestate.Open(cfg.StatePath)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+
+	if err := resolveConfigRefs(ctx, cfg, store, os.Stderr); err != nil {
+		return err
+	}
+	if err := validateConnectors(ctx, cfg); err != nil {
+		return err
+	}
 
 	fmt.Printf("loaded %s\n", cfgPath)
 	fmt.Printf("state: %s\n", cfg.StatePath)
@@ -147,6 +154,74 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	}
 	fmt.Printf("done: %d records total\n", totalRecords)
 	return nil
+}
+
+// resolveConfigRefs rewrites every `*_ref` connector-config entry into
+// the plaintext credential it names. Connectors see only the resolved
+// key (for example `api_key`), never the `_ref` pointer, so they do
+// not need to know about the credential store.
+//
+// The credential store is opened lazily: if no connector uses a ref,
+// the key file is never touched. A missing credential fails the whole
+// sync before any sink is opened or records are written. Collisions
+// where both `api_key` and `api_key_ref` are present are logged to
+// stderr and the ref wins.
+func resolveConfigRefs(ctx context.Context, cfg *config.File, store *sqlitestate.Store, stderr io.Writer) error {
+	if !needsCreds(cfg) {
+		return nil
+	}
+	cs, err := openCredStore(cfg, store)
+	if err != nil {
+		return err
+	}
+	for _, pid := range cfg.ProductIDs() {
+		product := cfg.Products[pid]
+		for i := range product.Connectors {
+			inst := &product.Connectors[i]
+			warns, err := creds.ResolveRefs(ctx, cs, inst.Config)
+			if err != nil {
+				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
+			}
+			for _, w := range warns {
+				fmt.Fprintf(stderr, "warn: product %s connector %s: %s\n", pid, inst.Name, w)
+			}
+		}
+	}
+	return nil
+}
+
+// needsCreds reports whether any connector config in cfg contains a
+// key ending in creds.RefSuffix, so we can skip opening the key file
+// entirely for sync runs that have no secrets.
+func needsCreds(cfg *config.File) bool {
+	for _, p := range cfg.Products {
+		for _, inst := range p.Connectors {
+			for k := range inst.Config {
+				if k != creds.RefSuffix && strings.HasSuffix(k, creds.RefSuffix) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// openCredStore loads the AES key at cfg.KeyPath and constructs a
+// credential store sharing the same SQLite handle as state. Errors
+// name the key path so a user missing the file knows where to put it.
+func openCredStore(cfg *config.File, store *sqlitestate.Store) (*creds.Store, error) {
+	if cfg.KeyPath == "" {
+		return nil, fmt.Errorf("key_path must be set in the config to resolve *_ref credentials")
+	}
+	key, err := creds.KeyFromFile(cfg.KeyPath)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := creds.New(store.DB(), key)
+	if err != nil {
+		return nil, err
+	}
+	return cs, nil
 }
 
 // validateConnectors asks every registered connector in cfg to check

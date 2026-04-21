@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/xydac/ridgeline/config"
+	"github.com/xydac/ridgeline/creds"
 	"github.com/xydac/ridgeline/manifest"
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
@@ -339,6 +340,140 @@ products:
 	msg := err.Error()
 	if !strings.Contains(msg, `"dirr"`) || !strings.Contains(msg, `"dir"`) {
 		t.Errorf("got %q, want did-you-mean for dirr -> dir", msg)
+	}
+}
+
+func TestResolveConfigRefs_ReplacesRefs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	keyPath := filepath.Join(dir, "key")
+
+	key, err := creds.NewRandomKey()
+	if err != nil {
+		t.Fatalf("NewRandomKey: %v", err)
+	}
+	if err := creds.WriteKeyFile(keyPath, key); err != nil {
+		t.Fatalf("WriteKeyFile: %v", err)
+	}
+	store, err := sqlitestate.Open(dbPath)
+	if err != nil {
+		t.Fatalf("sqlite.Open: %v", err)
+	}
+	defer store.Close()
+	cs, err := creds.New(store.DB(), key)
+	if err != nil {
+		t.Fatalf("creds.New: %v", err)
+	}
+	if err := cs.Put(context.Background(), "umami_main", []byte("stored-plaintext")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	cfg := &config.File{
+		Version:   1,
+		StatePath: dbPath,
+		KeyPath:   keyPath,
+		Products: map[string]config.Product{
+			"myapp": {Connectors: []config.ConnectorInstance{{
+				Name:    "umami",
+				Type:    "umami",
+				Config:  map[string]any{"api_key_ref": "umami_main", "website_id": "abc"},
+				Streams: []string{"events"},
+				Sink:    config.SinkRef{Type: "jsonl", Options: map[string]any{"dir": filepath.Join(dir, "o")}},
+			}}},
+		},
+	}
+	var stderr bytes.Buffer
+	if err := resolveConfigRefs(context.Background(), cfg, store, &stderr); err != nil {
+		t.Fatalf("resolveConfigRefs: %v", err)
+	}
+	got := cfg.Products["myapp"].Connectors[0].Config
+	if got["api_key"] != "stored-plaintext" {
+		t.Fatalf("api_key = %v, want stored-plaintext", got["api_key"])
+	}
+	if _, still := got["api_key_ref"]; still {
+		t.Fatalf("api_key_ref should have been removed: %v", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr output: %q", stderr.String())
+	}
+}
+
+func TestResolveConfigRefs_NoRefsSkipsCredsOpen(t *testing.T) {
+	// When no connector declares a *_ref, the helper must NOT try to
+	// open the key file. The key_path in this cfg points at a file that
+	// does not exist, and resolveConfigRefs should still succeed.
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	store, err := sqlitestate.Open(dbPath)
+	if err != nil {
+		t.Fatalf("sqlite.Open: %v", err)
+	}
+	defer store.Close()
+
+	cfg := &config.File{
+		Version:   1,
+		StatePath: dbPath,
+		KeyPath:   filepath.Join(dir, "does-not-exist"),
+		Products: map[string]config.Product{
+			"myapp": {Connectors: []config.ConnectorInstance{{
+				Name: "demo", Type: "testsrc",
+				Config:  map[string]any{"records": 1},
+				Streams: []string{"pages"},
+				Sink:    config.SinkRef{Type: "jsonl", Options: map[string]any{"dir": filepath.Join(dir, "o")}},
+			}}},
+		},
+	}
+	var stderr bytes.Buffer
+	if err := resolveConfigRefs(context.Background(), cfg, store, &stderr); err != nil {
+		t.Fatalf("unexpected error without refs: %v", err)
+	}
+}
+
+func TestRunSync_Config_RefResolutionFailsForMissingCred(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	dbPath := filepath.Join(dir, "state.db")
+	keyPath := filepath.Join(dir, "key")
+
+	// Write a key file but DO NOT store the credential the config refers to.
+	key, err := creds.NewRandomKey()
+	if err != nil {
+		t.Fatalf("NewRandomKey: %v", err)
+	}
+	if err := creds.WriteKeyFile(keyPath, key); err != nil {
+		t.Fatalf("WriteKeyFile: %v", err)
+	}
+
+	cfg := `
+version: 1
+state_path: ` + dbPath + `
+key_path: ` + keyPath + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config:
+          records: 1
+          api_key_ref: not_in_store
+        streams: [pages]
+        sink:
+          type: jsonl
+          options:
+            dir: ` + filepath.Join(dir, "out") + `
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err = runSync(context.Background(), []string{"--config", cfgPath})
+	if err == nil {
+		t.Fatal("expected error for missing credential")
+	}
+	if !strings.Contains(err.Error(), "not_in_store") {
+		t.Errorf("err = %v, want to name missing credential", err)
 	}
 }
 
