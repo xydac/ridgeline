@@ -143,13 +143,15 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 			since := sinceFromState(state, s.Name)
 			highWater := since
 			pages := 0
-			// cursor is the exclusive upper bound for the next page.
+			// upper is the exclusive upper bound for the next page.
 			// Zero means "no upper bound" so the first request pulls
-			// the freshest items; the cursor advances backward in time
-			// as we walk pages.
-			var cursor int64
+			// the freshest items; it advances backward in time as we
+			// walk pages. The lower bound (since) is always applied
+			// when non-zero, so re-runs do not re-fetch already-seen
+			// records.
+			var upper int64
 			for pages < maxPages {
-				hits, err := c.fetchPage(ctx, baseURL, query, tag, cursor, hitsPerPage)
+				hits, err := c.fetchPage(ctx, baseURL, query, tag, since, upper, hitsPerPage)
 				if err != nil {
 					sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError, fmt.Sprintf("hackernews %s: %v", s.Name, err)))
 					break
@@ -177,12 +179,16 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 				// Algolia sorts newest-first, so the last hit carries
 				// the oldest timestamp on the page. Walk backwards by
 				// using that as the exclusive upper bound for the next
-				// page (created_at_i < oldestOnPage).
+				// page (created_at_i < oldestOnPage). The since lower
+				// bound is re-applied on every call so we never cross
+				// back into already-seen territory; we still stop early
+				// when the page is fully older than since to spare the
+				// API a guaranteed-empty round trip.
 				oldest := oldestCreatedAt(hits)
-				if oldest <= since {
+				if since > 0 && oldest <= since {
 					break
 				}
-				cursor = oldest
+				upper = oldest
 			}
 			next := connectors.State{cursorKey(s.Name): highWater}
 			if !sendMessage(ctx, ch, connectors.StateMessage(next)) {
@@ -237,11 +243,12 @@ func sinceFromState(state connectors.State, stream string) int64 {
 	return 0
 }
 
-// fetchPage issues one search_by_date call. The upperExclusive value
-// asks Algolia for items strictly older than a timestamp; pass 0 to
-// drop that filter. The since filter (strictly newer than the
-// persisted cursor) is always applied if non-zero.
-func (c *Connector) fetchPage(ctx context.Context, baseURL, query, tag string, upperExclusive int64, hitsPerPage int) ([]map[string]any, error) {
+// fetchPage issues one search_by_date call. The lowerExclusive bound
+// (created_at_i>since) is always applied when non-zero so re-runs
+// never re-fetch already-seen records. The upperExclusive bound
+// (created_at_i<upper) is applied when non-zero to walk pages
+// backwards in time.
+func (c *Connector) fetchPage(ctx context.Context, baseURL, query, tag string, lowerExclusive, upperExclusive int64, hitsPerPage int) ([]map[string]any, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/search_by_date")
 	if err != nil {
 		return nil, fmt.Errorf("parse base_url: %w", err)
@@ -250,8 +257,15 @@ func (c *Connector) fetchPage(ctx context.Context, baseURL, query, tag string, u
 	q.Set("query", query)
 	q.Set("tags", tag)
 	q.Set("hitsPerPage", strconv.Itoa(hitsPerPage))
+	var filters []string
+	if lowerExclusive > 0 {
+		filters = append(filters, "created_at_i>"+strconv.FormatInt(lowerExclusive, 10))
+	}
 	if upperExclusive > 0 {
-		q.Set("numericFilters", "created_at_i<"+strconv.FormatInt(upperExclusive, 10))
+		filters = append(filters, "created_at_i<"+strconv.FormatInt(upperExclusive, 10))
+	}
+	if len(filters) > 0 {
+		q.Set("numericFilters", strings.Join(filters, ","))
 	}
 	u.RawQuery = q.Encode()
 

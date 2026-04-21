@@ -168,7 +168,7 @@ func TestExtract_SinglePageStories(t *testing.T) {
 	}
 }
 
-func TestExtract_AppliesIncrementalCursor(t *testing.T) {
+func TestExtract_AppliesIncrementalCursorAsLowerBound(t *testing.T) {
 	t.Parallel()
 	var seenFilter string
 	mux := http.NewServeMux()
@@ -196,15 +196,35 @@ func TestExtract_AppliesIncrementalCursor(t *testing.T) {
 	if len(recs) != 1 {
 		t.Fatalf("records = %d, want 1", len(recs))
 	}
-	// On the initial call we *do* want the upper-exclusive filter to be
-	// empty: the first page should pull the freshest items; the since
-	// cursor is used to decide when pagination can stop early, not to
-	// cap the first request. So seenFilter should be "".
-	if seenFilter != "" {
-		t.Errorf("first-call numericFilters = %q, want empty", seenFilter)
+	// The cursor must be sent to Algolia as a strict lower bound so
+	// re-runs do not re-fetch already-seen records; otherwise the
+	// cursor only stops pagination *after* duplicates have been
+	// emitted.
+	if got, want := seenFilter, "created_at_i>1700000300"; got != want {
+		t.Errorf("first-call numericFilters = %q, want %q", got, want)
 	}
 	if got := states[0]["since_stories"]; got != int64(1700000400) {
 		t.Errorf("cursor = %v, want 1700000400", got)
+	}
+}
+
+func TestExtract_FirstRunNoCursorOmitsFilter(t *testing.T) {
+	t.Parallel()
+	var seenFilter string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/search_by_date", func(w http.ResponseWriter, r *http.Request) {
+		seenFilter = r.URL.Query().Get("numericFilters")
+		_ = json.NewEncoder(w).Encode(map[string]any{"hits": []map[string]any{}})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := hackernews.New()
+	cfg := connectors.ConnectorConfig{"query": "x", "base_url": srv.URL, "hits_per_page": 10}
+	ch, _ := c.Extract(context.Background(), cfg, []connectors.Stream{{Name: hackernews.StreamStories}}, nil)
+	collect(ch)
+	if seenFilter != "" {
+		t.Errorf("first-run numericFilters = %q, want empty", seenFilter)
 	}
 }
 
