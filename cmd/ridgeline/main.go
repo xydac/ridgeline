@@ -8,6 +8,8 @@
 //	sync --config PATH      run every connector configured in PATH against
 //	                        its configured sink, persisting state to the
 //	                        SQLite file at config.state_path
+//	status --config PATH    show per-connector state and last-sync time
+//	                        recorded in the SQLite file at config.state_path
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -48,6 +50,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "sync: %v\n", err)
 			os.Exit(1)
 		}
+	case "status":
+		if err := runStatus(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "status: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -61,5 +68,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline version")
 	fmt.Fprintln(w, "  ridgeline sync --dry-run [--records N] [--out DIR]")
 	fmt.Fprintln(w, "  ridgeline sync --config PATH")
+	fmt.Fprintln(w, "  ridgeline status --config PATH")
 	fmt.Fprintln(w, "  ridgeline help")
 }
