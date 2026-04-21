@@ -18,13 +18,14 @@
 - [x] State and checkpoint store (SQLite, persistent)
 - [x] Credential store (SQLite + AES-256-GCM encryption)
 - [x] Parquet sink (writes `{stream, timestamp, data_json}` files; typed-column inference is a follow-up)
-- [ ] DuckDB integration (go-duckdb, static linked)
+- [x] DuckDB integration (in-process, via go-duckdb/v2)
 - [x] Native connector: Hacker News (Algolia public API)
 - [ ] Native connector: Umami (self-hosted analytics)
 - [ ] Native connector: Google Search Console (OAuth 2.0)
 - [x] First external connector in Python (worked example under `examples/external/`)
 - [x] `ridgeline status` CLI command (per-connector cursor and last-sync time)
-- [ ] `ridgeline query`, `ridgeline creds` CLI commands
+- [x] `ridgeline query` CLI command (runs SQL against DuckDB)
+- [ ] `ridgeline creds` CLI command
 - [ ] TUI shell (Bubble Tea): products view, health bars, keybindings
 
 ## Known gaps
