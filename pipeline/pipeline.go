@@ -167,6 +167,17 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 				}
 			case connectors.SchemaMsg:
 				result.SchemaMessages++
+			case connectors.ErrorMsg:
+				// Terminal: discard any records still in memory,
+				// do not flush, do not save state, surface the
+				// error to the caller. Records already written
+				// by prior flushes stay written; STATE messages
+				// committed before this error stay committed.
+				err := msg.Err
+				if err == nil {
+					err = fmt.Errorf("pipeline: ErrorMsg with nil Err")
+				}
+				return result, err
 			}
 		}
 	}

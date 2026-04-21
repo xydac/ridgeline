@@ -257,6 +257,49 @@ func TestRun_WriteError(t *testing.T) {
 	}
 }
 
+func TestRun_ErrorMsgTerminates(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("external: boom")
+	// Emit one record, then a fatal ErrorMsg, then a STATE that should
+	// be ignored. The pipeline should return boom, not save state, and
+	// not flush the buffered record.
+	msgs := []connectors.Message{
+		rec("s", "1"),
+		connectors.ErrorMessage(boom),
+		connectors.StateMessage(connectors.State{"cursor": "should-not-persist"}),
+	}
+	conn := &fakeConnector{msgs: msgs}
+	sink := newRecordingSink()
+	store := pipeline.NewMemoryStateStore()
+
+	res, err := pipeline.Run(context.Background(), conn, sink, store, pipeline.Request{Key: "fake"})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want to wrap boom", err)
+	}
+	if res.Records != 0 {
+		t.Errorf("Records = %d, want 0 (buffered record must not count as written)", res.Records)
+	}
+	if sink.totalRecords("s") != 0 {
+		t.Errorf("sink got %d records, want 0 (buffered record must not be flushed after ErrorMsg)", sink.totalRecords("s"))
+	}
+	if res.States != 0 {
+		t.Errorf("States = %d, want 0 (STATE after ErrorMsg must be ignored)", res.States)
+	}
+	got, _ := store.Load(context.Background(), "fake")
+	if len(got) != 0 {
+		t.Errorf("persisted state = %v, want empty (STATE after ErrorMsg must not be saved)", got)
+	}
+}
+
+func TestRun_ErrorMsgNilErr(t *testing.T) {
+	t.Parallel()
+	conn := &fakeConnector{msgs: []connectors.Message{{Type: connectors.ErrorMsg}}}
+	_, err := pipeline.Run(context.Background(), conn, newRecordingSink(), pipeline.NewMemoryStateStore(), pipeline.Request{Key: "fake"})
+	if err == nil {
+		t.Fatal("expected error for ErrorMsg with nil Err, got nil")
+	}
+}
+
 func TestRun_RequiresKey(t *testing.T) {
 	t.Parallel()
 	_, err := pipeline.Run(context.Background(), &fakeConnector{}, newRecordingSink(), pipeline.NewMemoryStateStore(), pipeline.Request{})
