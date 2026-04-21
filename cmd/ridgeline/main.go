@@ -33,6 +33,10 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "version", "--version", "-v":
+		if extra := os.Args[2:]; len(extra) > 0 {
+			fmt.Fprintf(os.Stderr, "version: unexpected argument %q\n", extra[0])
+			os.Exit(2)
+		}
 		fmt.Println(Version)
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)

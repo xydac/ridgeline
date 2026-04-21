@@ -57,6 +57,32 @@ func TestCLI_NoArgs_PrintsUsage(t *testing.T) {
 	}
 }
 
+func TestCLI_Version_RejectsExtraArgs(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	cmd := exec.Command(bin, "version", "--extra-flag", "foo")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got: %s", out)
+	}
+	if !strings.Contains(string(out), "unexpected argument") {
+		t.Errorf("output missing 'unexpected argument': %s", out)
+	}
+}
+
+func TestCLI_Version_BareSucceeds(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	cmd := exec.Command(bin, "version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("version: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != Version {
+		t.Errorf("got %q, want %q", string(out), Version)
+	}
+}
+
 func TestCLI_UnknownSubcommand_PointsAtHelp(t *testing.T) {
 	t.Parallel()
 	bin := buildRidgeline(t)
