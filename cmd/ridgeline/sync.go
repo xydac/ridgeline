@@ -180,8 +180,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 // newSink resolves a sink type name to a fresh Sink instance. The
 // init-time registry in package sinks holds one singleton per type,
 // which the lifecycle cannot reuse across multiple Init calls, so we
-// construct fresh instances here. This hand-written switch will be
-// replaced with a factory registry once a second sink type lands.
+// construct fresh instances here.
 func newSink(typ string) (sinks.Sink, error) {
 	switch typ {
 	case jsonl.Name:
