@@ -36,9 +36,6 @@
   The subcommand should enforce a read-only statement surface by default
   and open attached SQLite databases read-only, with an explicit opt-in
   flag for write access.
-- `ridgeline creds rm` exits 0 when the named credential does not exist,
-  so a typo looks like a successful delete. It should report a miss
-  with a non-zero exit.
 - `ridgeline creds put` silently overwrites an existing value. It
   should either refuse without an explicit overwrite flag, or print a
   visible "replaced" line so the previous value is not lost unnoticed.
