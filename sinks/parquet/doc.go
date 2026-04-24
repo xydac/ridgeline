@@ -20,6 +20,6 @@
 //	run_id   (optional): identifier for this run. Default is the
 //	                     sink's initialization unix-nano timestamp.
 //
-// The sink registers itself with sinks.Register under the name
+// The sink registers a factory with sinks.Register under the name
 // "parquet" on package import.
 package parquet

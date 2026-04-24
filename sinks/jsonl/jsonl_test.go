@@ -209,8 +209,12 @@ func TestSink_Init_RejectsUnrelatedUnknownOption(t *testing.T) {
 func TestSink_RegisteredInRegistry(t *testing.T) {
 	t.Parallel()
 	// The init func in jsonl.go should have registered "jsonl".
-	if _, ok := sinks.Get(jsonl.Name); !ok {
-		t.Errorf("jsonl sink not registered")
+	s, err := sinks.New(jsonl.Name)
+	if err != nil {
+		t.Fatalf("sinks.New(%q): %v", jsonl.Name, err)
+	}
+	if s.Name() != jsonl.Name {
+		t.Errorf("Name() = %q, want %q", s.Name(), jsonl.Name)
 	}
 }
 

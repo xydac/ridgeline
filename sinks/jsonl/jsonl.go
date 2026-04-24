@@ -20,7 +20,7 @@ import (
 const Name = "jsonl"
 
 func init() {
-	sinks.Register(New())
+	sinks.Register(Name, func() sinks.Sink { return New() })
 }
 
 // New returns an uninitialized Sink. Call Init before Write.

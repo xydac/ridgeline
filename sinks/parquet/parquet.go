@@ -21,7 +21,7 @@ import (
 const Name = "parquet"
 
 func init() {
-	sinks.Register(New())
+	sinks.Register(Name, func() sinks.Sink { return New() })
 }
 
 // Row is the fixed Parquet schema used by this sink. It is exported so

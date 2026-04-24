@@ -32,5 +32,5 @@
 //	func (s *Sink) Flush(context.Context) error { return nil }
 //	func (s *Sink) Close() error                { return nil }
 //
-//	func init() { sinks.Register(&Sink{}) }
+//	func init() { sinks.Register("counter", func() sinks.Sink { return &Sink{} }) }
 package sinks

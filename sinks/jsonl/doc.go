@@ -14,6 +14,6 @@
 //	run_id   (optional): identifier for this run. Default is the
 //	                     sink's initialization unix-nano timestamp.
 //
-// The sink registers itself with sinks.Register under the name "jsonl"
-// on package import.
+// The sink registers a factory with sinks.Register under the name
+// "jsonl" on package import.
 package jsonl

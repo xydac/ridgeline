@@ -32,19 +32,27 @@ func (f *fakeSink) Close() error {
 	return nil
 }
 
-func TestRegisterAndGet(t *testing.T) {
+func TestRegisterAndNew(t *testing.T) {
 	t.Cleanup(reset)
 	reset()
 
-	Register(&fakeSink{name: "alpha"})
-	Register(&fakeSink{name: "bravo"})
+	Register("alpha", func() Sink { return &fakeSink{name: "alpha"} })
+	Register("bravo", func() Sink { return &fakeSink{name: "bravo"} })
 
-	got, ok := Get("alpha")
-	if !ok || got.Name() != "alpha" {
-		t.Fatalf("Get(alpha) = (%v, %v); want sink alpha", got, ok)
+	got, err := New("alpha")
+	if err != nil || got.Name() != "alpha" {
+		t.Fatalf("New(alpha) = (%v, %v); want sink alpha", got, err)
 	}
-	if _, ok := Get("missing"); ok {
-		t.Fatalf("Get(missing) returned ok; want not found")
+	// Each New call must return a fresh instance.
+	other, err := New("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == other {
+		t.Fatalf("New(alpha) returned the same pointer twice; want fresh instances")
+	}
+	if _, err := New("missing"); err == nil {
+		t.Fatalf("New(missing) returned nil error; want not-registered error")
 	}
 	if want, got := []string{"alpha", "bravo"}, List(); !reflect.DeepEqual(want, got) {
 		t.Fatalf("List() = %v; want %v", got, want)
@@ -54,24 +62,24 @@ func TestRegisterAndGet(t *testing.T) {
 func TestRegisterDuplicatePanics(t *testing.T) {
 	t.Cleanup(reset)
 	reset()
-	Register(&fakeSink{name: "dup"})
+	Register("dup", func() Sink { return &fakeSink{name: "dup"} })
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatalf("expected panic on duplicate Register")
 		}
 	}()
-	Register(&fakeSink{name: "dup"})
+	Register("dup", func() Sink { return &fakeSink{name: "dup"} })
 }
 
-func TestRegisterNilPanics(t *testing.T) {
+func TestRegisterNilFactoryPanics(t *testing.T) {
 	t.Cleanup(reset)
 	reset()
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatalf("expected panic on nil Register")
+			t.Fatalf("expected panic on nil factory")
 		}
 	}()
-	Register(nil)
+	Register("x", nil)
 }
 
 func TestRegisterEmptyNamePanics(t *testing.T) {
@@ -82,7 +90,7 @@ func TestRegisterEmptyNamePanics(t *testing.T) {
 			t.Fatalf("expected panic on empty-name Register")
 		}
 	}()
-	Register(&fakeSink{name: ""})
+	Register("", func() Sink { return &fakeSink{name: "x"} })
 }
 
 func TestSinkConfigAccessors(t *testing.T) {
@@ -142,7 +150,7 @@ func TestFakeSinkLifecycle(t *testing.T) {
 	t.Cleanup(reset)
 	reset()
 	s := &fakeSink{name: "lifecycle"}
-	Register(s)
+	Register("lifecycle", func() Sink { return s })
 	ctx := context.Background()
 	if err := s.Init(ctx, SinkConfig{}); err != nil {
 		t.Fatal(err)

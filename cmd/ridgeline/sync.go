@@ -16,7 +16,7 @@ import (
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 	"github.com/xydac/ridgeline/sinks/jsonl"
-	"github.com/xydac/ridgeline/sinks/parquet"
+	_ "github.com/xydac/ridgeline/sinks/parquet" // register parquet sink factory
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
 
@@ -266,7 +266,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	if !ok {
 		return 0, fmt.Errorf("connector type %q is not registered", inst.Type)
 	}
-	sink, err := newSink(inst.Sink.Type)
+	sink, err := sinks.New(inst.Sink.Type)
 	if err != nil {
 		return 0, err
 	}
@@ -299,19 +299,3 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved\n", pid, inst.Name, res.Records, res.States)
 	return res.Records, nil
 }
-
-// newSink resolves a sink type name to a fresh Sink instance. The
-// init-time registry in package sinks holds one singleton per type,
-// which the lifecycle cannot reuse across multiple Init calls, so we
-// construct fresh instances here.
-func newSink(typ string) (sinks.Sink, error) {
-	switch typ {
-	case jsonl.Name:
-		return jsonl.New(), nil
-	case parquet.Name:
-		return parquet.New(), nil
-	}
-	return nil, fmt.Errorf("sink type %q is not supported (known: %v)", typ, knownSinkTypes())
-}
-
-func knownSinkTypes() []string { return []string{jsonl.Name, parquet.Name} }

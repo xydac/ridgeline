@@ -249,9 +249,9 @@ func TestSink_Init_RejectsUnrelatedUnknownOption(t *testing.T) {
 
 func TestSink_RegisteredInRegistry(t *testing.T) {
 	t.Parallel()
-	s, ok := sinks.Get("parquet")
-	if !ok {
-		t.Fatal("sinks.Get(\"parquet\"): not registered")
+	s, err := sinks.New("parquet")
+	if err != nil {
+		t.Fatalf("sinks.New(\"parquet\"): %v", err)
 	}
 	if s.Name() != "parquet" {
 		t.Errorf("Name() = %q, want parquet", s.Name())
