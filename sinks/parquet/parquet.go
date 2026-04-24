@@ -82,10 +82,9 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	if runID == "" {
 		runID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
-	runDir := filepath.Join(dir, runID)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return fmt.Errorf("parquet: %w", err)
-	}
+	// The per-run directory is created lazily on the first Write that
+	// survives partition pruning, so a fully-pruned re-run leaves no
+	// empty timestamped directory behind.
 	s.dir = dir
 	s.runID = runID
 	s.manifest = manifest.NewStore(filepath.Join(dir, "manifest.json"))

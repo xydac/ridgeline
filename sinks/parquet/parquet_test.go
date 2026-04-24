@@ -304,6 +304,9 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "run2", "pages.parquet")); !os.IsNotExist(err) {
 		t.Errorf("run2/pages.parquet should not exist, stat err = %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "run2")); !os.IsNotExist(err) {
+		t.Errorf("run2 dir should not exist on fully-pruned re-run, stat err = %v", err)
+	}
 	store := manifest.NewStore(manifestPath)
 	m, err := store.Load()
 	if err != nil {

@@ -130,6 +130,51 @@ func TestSink_NoRecordsNoManifestEntry(t *testing.T) {
 	if len(m.Partitions) != 0 {
 		t.Errorf("Partitions = %d, want 0", len(m.Partitions))
 	}
+	// An Init+Close with no Writes must not leave a timestamped
+	// run directory behind.
+	if _, err := os.Stat(filepath.Join(dir, "run1")); !os.IsNotExist(err) {
+		t.Errorf("run dir exists after zero-record run: err=%v", err)
+	}
+}
+
+func TestSink_AllRecordsPrunedLeavesNoRunDir(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+	t0 := time.Unix(1000, 0).UTC()
+
+	// First run lands one record and creates a partition.
+	s1 := jsonl.New()
+	if err := s1.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run1"}); err != nil {
+		t.Fatalf("Init 1: %v", err)
+	}
+	if err := s1.Write(ctx, "pages", []connectors.Record{
+		{Stream: "pages", Timestamp: t0, Data: map[string]any{"url": "/a"}},
+	}); err != nil {
+		t.Fatalf("Write 1: %v", err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatalf("Close 1: %v", err)
+	}
+
+	// Second run rewrites the same timestamp; partition pruning drops
+	// every record, and the second run must not create an empty run2
+	// directory.
+	s2 := jsonl.New()
+	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2"}); err != nil {
+		t.Fatalf("Init 2: %v", err)
+	}
+	if err := s2.Write(ctx, "pages", []connectors.Record{
+		{Stream: "pages", Timestamp: t0, Data: map[string]any{"url": "/a"}},
+	}); err != nil {
+		t.Fatalf("Write 2: %v", err)
+	}
+	if err := s2.Close(); err != nil {
+		t.Fatalf("Close 2: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "run2")); !os.IsNotExist(err) {
+		t.Errorf("run2 dir exists after fully-pruned re-run: err=%v", err)
+	}
 }
 
 func TestSink_Init_MissingDir(t *testing.T) {
@@ -264,6 +309,9 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 		t.Fatalf("Close 2: %v", err)
 	}
 
+	if _, err := os.Stat(filepath.Join(dir, "run2")); !os.IsNotExist(err) {
+		t.Errorf("run2 dir should not exist on fully-pruned re-run, stat err = %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "run2", "pages.jsonl")); !os.IsNotExist(err) {
 		t.Errorf("run2/pages.jsonl should not exist, stat err = %v", err)
 	}
