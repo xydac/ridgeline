@@ -221,7 +221,7 @@ func runTUI(ctx context.Context, args []string, stdout io.Writer) error {
 	if help {
 		return nil
 	}
-	if err := rejectExtraArgs("tui", fs); err != nil {
+	if err := rejectExtraArgs(fs); err != nil {
 		return err
 	}
 	if *cfgPath == "" {

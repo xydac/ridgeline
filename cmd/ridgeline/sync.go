@@ -42,7 +42,7 @@ func runSync(ctx context.Context, args []string) error {
 	if help {
 		return nil
 	}
-	if err := rejectExtraArgs("sync", fs); err != nil {
+	if err := rejectExtraArgs(fs); err != nil {
 		return err
 	}
 	if *cfgPath != "" && *dryRun {

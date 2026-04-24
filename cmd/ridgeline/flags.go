@@ -31,10 +31,11 @@ func parseSubcommandFlags(fs *flag.FlagSet, args []string) (helpRequested bool, 
 // rejectExtraArgs returns a descriptive error if fs has any positional
 // arguments left after Parse. Most subcommands use flags only; this keeps
 // typos like `ridgeline status --config x.yaml extra garbage` from being
-// silently ignored.
-func rejectExtraArgs(subcommand string, fs *flag.FlagSet) error {
+// silently ignored. The returned error carries no subcommand prefix
+// because main.go already wraps the result with one.
+func rejectExtraArgs(fs *flag.FlagSet) error {
 	if fs.NArg() == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s: unexpected argument %q", subcommand, fs.Arg(0))
+	return fmt.Errorf("unexpected argument %q", fs.Arg(0))
 }
