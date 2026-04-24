@@ -30,10 +30,8 @@
 
 ## Known gaps
 
-- Route all CLI output through one formatter so warn lines stop carrying the stdlib `log` prefix
 - Factory registry for sinks, replacing the hand-rolled switch in the sync command
 - Defer partition-directory creation until the first record lands, avoiding empty dirs on zero-record runs
-- `sync --help` exits 0 with usage, not 1 with a `flag: help requested` line
 
 ## Phase 2+
 
