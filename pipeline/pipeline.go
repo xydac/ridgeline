@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/xydac/ridgeline/connectors"
 	"github.com/xydac/ridgeline/sinks"
 )
+
+// defaultLogger writes connector log messages to stderr without the
+// stdlib "YYYY/MM/DD HH:MM:SS" prefix, so a `warn: [key] level: msg`
+// line lines up with the rest of the CLI's plain output instead of
+// standing out as the only timestamped line on the terminal.
+var defaultLogger = log.New(os.Stderr, "", 0)
 
 // DefaultBatchSize is used when Request.BatchSize is zero.
 const DefaultBatchSize = 500
@@ -26,7 +33,9 @@ type Request struct {
 	// single call. Zero means DefaultBatchSize.
 	BatchSize int
 	// Logger receives log messages emitted by the connector and the
-	// pipeline itself. Nil means log.Default().
+	// pipeline itself. Nil means a prefix-free stderr logger so warn
+	// lines match the CLI's plain output instead of carrying the stdlib
+	// date/time prefix.
 	Logger *log.Logger
 }
 
@@ -72,7 +81,7 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 
 	logger := req.Logger
 	if logger == nil {
-		logger = log.Default()
+		logger = defaultLogger
 	}
 	batchSize := req.BatchSize
 	if batchSize <= 0 {
@@ -170,7 +179,7 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 				result.States++
 			case connectors.LogMsg:
 				if msg.Log != nil {
-					logger.Printf("[%s] %s: %s", req.Key, msg.Log.Level, msg.Log.Message)
+					logger.Printf("%s: [%s] %s", msg.Log.Level, req.Key, msg.Log.Message)
 				}
 			case connectors.SchemaMsg:
 				result.SchemaMessages++

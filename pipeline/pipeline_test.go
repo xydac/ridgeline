@@ -1,10 +1,12 @@
 package pipeline_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -232,6 +234,31 @@ func TestRun_LogAndSchemaMessages(t *testing.T) {
 	}
 	if res.Records != 1 {
 		t.Errorf("Records = %d, want 1", res.Records)
+	}
+}
+
+// TestRun_LogFormat_NoStdlibPrefix pins the warn-line format at
+// `level: [key] message`, with no leading YYYY/MM/DD HH:MM:SS from the
+// stdlib logger. Regressing this turns every sync terminal into a
+// grep-unfriendly timestamp stream (F-014).
+func TestRun_LogFormat_NoStdlibPrefix(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+	msgs := []connectors.Message{
+		connectors.LogMessage(connectors.LevelWarn, "hackernews: unknown stream \"bogus\""),
+	}
+	_, err := pipeline.Run(context.Background(),
+		&fakeConnector{msgs: msgs}, newRecordingSink(),
+		pipeline.NewMemoryStateStore(),
+		pipeline.Request{Key: "myapp/hn", Logger: logger})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := strings.TrimRight(buf.String(), "\n")
+	want := "warn: [myapp/hn] hackernews: unknown stream \"bogus\""
+	if got != want {
+		t.Errorf("log line\n got:  %q\n want: %q", got, want)
 	}
 }
 
