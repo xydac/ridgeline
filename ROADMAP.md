@@ -11,7 +11,7 @@
 - [x] Sink interface
 - [x] ETL lifecycle manager (extract, transform, load, checkpoint)
 - [x] Manifest file writer with time-range metadata
-- [ ] Partition pruning on re-run (today the manifest grows unbounded)
+- [x] Partition pruning on re-run (sinks drop records whose timestamps are already covered by a manifest partition, so a no-op re-run adds no file and no manifest entry)
 - [x] In-memory state store
 - [x] `ridgeline sync --dry-run` against a built-in test source
 - [x] `ridgeline sync --config` against a ridgeline.yaml
