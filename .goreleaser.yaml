@@ -1,0 +1,96 @@
+version: 2
+project_name: ridgeline
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ridgeline-linux-amd64
+    main: ./cmd/ridgeline
+    binary: ridgeline
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-linux-gnu-gcc
+    goos: [linux]
+    goarch: [amd64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+  - id: ridgeline-darwin-amd64
+    main: ./cmd/ridgeline
+    binary: ridgeline
+    env:
+      - CGO_ENABLED=1
+      - CC=o64-clang
+      - CXX=o64-clang++
+    goos: [darwin]
+    goarch: [amd64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+  - id: ridgeline-darwin-arm64
+    main: ./cmd/ridgeline
+    binary: ridgeline
+    env:
+      - CGO_ENABLED=1
+      - CC=oa64-clang
+      - CXX=oa64-clang++
+    goos: [darwin]
+    goarch: [arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+archives:
+  - id: default
+    ids:
+      - ridgeline-linux-amd64
+      - ridgeline-darwin-amd64
+      - ridgeline-darwin-arm64
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github-native
+
+brews:
+  - name: ridgeline
+    repository:
+      owner: xydac
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/xydac/ridgeline"
+    description: "Self-hosted intelligence platform for indie developers"
+    license: "MIT"
+    commit_author:
+      name: ridgeline-release-bot
+      email: github@mail.xydac.com
+    install: |
+      bin.install "ridgeline"
+    test: |
+      system "#{bin}/ridgeline", "version"
+    skip_upload: auto
+
+release:
+  github:
+    owner: xydac
+    name: ridgeline
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"
