@@ -16,10 +16,12 @@ import (
 
 // runCreds implements `ridgeline creds` with four verbs:
 //
-//	list              list stored credential names, one per line
-//	put   NAME        read a secret from stdin, encrypt, store it
-//	get   NAME        decrypt and print the secret to stdout
-//	rm    NAME        delete the credential (no-op if missing)
+//	list                 list stored credential names, one per line
+//	put   NAME           read a secret from stdin, encrypt, store it
+//	get   NAME           decrypt and print the secret to stdout
+//	rm    NAME           delete the credential (no-op if missing)
+//	oauth PROVIDER ...   run the provider's OAuth browser flow and store
+//	                     the resulting credentials
 //
 // Every verb takes --config PATH, which resolves state_path and
 // key_path. Both files are created on first use: the SQLite database
@@ -44,16 +46,19 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 		return credsGet(ctx, rest, stdout)
 	case "rm":
 		return credsRm(ctx, rest)
+	case "oauth":
+		return credsOAuth(ctx, rest, stdout, stderr)
 	}
-	return fmt.Errorf("unknown creds verb %q (known: list, put, get, rm)", verb)
+	return fmt.Errorf("unknown creds verb %q (known: list, put, get, rm, oauth)", verb)
 }
 
 func credsUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  ridgeline creds list --config PATH")
-	fmt.Fprintln(w, "  ridgeline creds put  --config PATH NAME        # reads secret from stdin")
-	fmt.Fprintln(w, "  ridgeline creds get  --config PATH NAME        # writes plaintext to stdout")
-	fmt.Fprintln(w, "  ridgeline creds rm   --config PATH NAME")
+	fmt.Fprintln(w, "  ridgeline creds list  --config PATH")
+	fmt.Fprintln(w, "  ridgeline creds put   --config PATH NAME        # reads secret from stdin")
+	fmt.Fprintln(w, "  ridgeline creds get   --config PATH NAME        # writes plaintext to stdout")
+	fmt.Fprintln(w, "  ridgeline creds rm    --config PATH NAME")
+	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID --client-secret SEC [--name PREFIX]")
 }
 
 // credsFlags parses --config out of args and returns the loaded config
