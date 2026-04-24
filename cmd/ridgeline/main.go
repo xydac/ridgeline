@@ -14,6 +14,8 @@
 //	                        print results as an aligned text table
 //	creds list|put|get|rm   manage credentials in the AES-256-GCM
 //	                        credential store backing the *_ref config keys
+//	tui --config PATH       interactive Bubble Tea view of configured
+//	                        streams with last-sync and record counts
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -71,6 +73,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "creds: %v\n", err)
 			os.Exit(1)
 		}
+	case "tui":
+		if err := runTUI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "tui: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -87,5 +94,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline status --config PATH")
 	fmt.Fprintln(w, "  ridgeline query <SQL>")
 	fmt.Fprintln(w, "  ridgeline creds list|put|get|rm --config PATH [NAME]")
+	fmt.Fprintln(w, "  ridgeline tui --config PATH [--render-once]")
 	fmt.Fprintln(w, "  ridgeline help")
 }
