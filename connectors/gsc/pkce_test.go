@@ -109,13 +109,14 @@ func TestRunPKCEFlow_Success(t *testing.T) {
 		Timeout:      3 * time.Second,
 		OnAuthURL: func(authURL string) {
 			go func() {
-				req, _ := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
-				resp, err := hc.Do(req)
-				if err != nil {
-					t.Errorf("driver: auth url: %v", err)
-					return
+				// Detached from ctx: once RunPKCEFlow returns, the
+				// outer ctx is cancelled and the in-flight GET would
+				// error out racily; all we care about is that the
+				// callback fires before the flow's own timeout.
+				req, _ := http.NewRequest(http.MethodGet, authURL, nil)
+				if resp, err := hc.Do(req); err == nil {
+					resp.Body.Close()
 				}
-				resp.Body.Close()
 			}()
 		},
 	})
@@ -173,9 +174,8 @@ func TestRunPKCEFlow_StateMismatchFails(t *testing.T) {
 		Timeout:      2 * time.Second,
 		OnAuthURL: func(authURL string) {
 			go func() {
-				req, _ := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
-				resp, err := hc.Do(req)
-				if err == nil {
+				req, _ := http.NewRequest(http.MethodGet, authURL, nil)
+				if resp, err := hc.Do(req); err == nil {
 					resp.Body.Close()
 				}
 			}()
