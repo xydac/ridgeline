@@ -160,13 +160,16 @@ products:
 		t.Fatalf("second sync: %v", err)
 	}
 
-	// Manifest captures partitions from both runs.
+	// Manifest captures only the first run's partitions. The second
+	// run emits the same deterministic records, so every timestamp is
+	// already covered by a partition on disk and the sink drops the
+	// whole batch without appending a new manifest entry.
 	m, err := manifest.NewStore(filepath.Join(outDir, "manifest.json")).Load()
 	if err != nil {
 		t.Fatalf("manifest load: %v", err)
 	}
-	if len(m.Partitions) != 4 {
-		t.Fatalf("partitions = %d, want 4 (2 streams x 2 runs)", len(m.Partitions))
+	if len(m.Partitions) != 2 {
+		t.Fatalf("partitions = %d, want 2 (2 streams, second run pruned)", len(m.Partitions))
 	}
 }
 
