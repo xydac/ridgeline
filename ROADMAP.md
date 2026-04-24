@@ -30,8 +30,7 @@
 
 ## Known gaps
 
-- Factory registry for sinks, replacing the hand-rolled switch in the sync command
-- Defer partition-directory creation until the first record lands, avoiding empty dirs on zero-record runs
+None open for Phase 1.
 
 ## Phase 2+
 
