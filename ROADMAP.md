@@ -30,7 +30,37 @@
 
 ## Known gaps
 
-None open for Phase 1.
+- `ridgeline query` is a full DuckDB session with write access to the filesystem
+  and to any `ATTACH`'d SQLite database. An `ATTACH ...; DELETE FROM state`
+  on the state DB succeeds silently; a `COPY ... TO '/path'` writes files.
+  The subcommand should enforce a read-only statement surface by default
+  and open attached SQLite databases read-only, with an explicit opt-in
+  flag for write access.
+- `ridgeline creds rm` exits 0 when the named credential does not exist,
+  so a typo looks like a successful delete. It should report a miss
+  with a non-zero exit.
+- `ridgeline creds put` silently overwrites an existing value. It
+  should either refuse without an explicit overwrite flag, or print a
+  visible "replaced" line so the previous value is not lost unnoticed.
+- `ridgeline creds put` strips a single trailing newline from stdin,
+  which is friendly for `echo "secret" | creds put` but silently
+  mutates a secret whose bytes really do end with a newline. The
+  strip should be opt-in, or a raw-bytes mode should be offered.
+- `creds oauth gsc --client-secret VALUE` takes the secret on the
+  command line and therefore leaks it to shell history. An
+  alternative that reads the secret from stdin or a file is needed.
+- Output lines from the sync pipeline's warning path carry the Go
+  stdlib log prefix (`2026/04/21 01:00:38 ...`); info and done lines
+  print without a prefix. Output should go through one formatter.
+- YAML decode errors surface the Go destination type
+  (`map[string]config.Product`) and yaml tags (`!!str`) in error
+  messages. SQLite driver errors surface numeric errnos like `(14)`
+  and `(26)`. Both should be translated into Ridgeline vocabulary at
+  the CLI boundary.
+- A `sync` that produces zero records still creates an empty
+  timestamped partition directory under the sink's output root.
+  Repeated idempotent runs accumulate empty directories. The mkdir
+  should be deferred until the first partition is actually written.
 
 ## Phase 2+
 
