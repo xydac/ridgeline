@@ -83,6 +83,79 @@ func TestCLI_Version_BareSucceeds(t *testing.T) {
 	}
 }
 
+func TestCLI_Version_HelpFlags(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	for _, arg := range []string{"--help", "-h", "help"} {
+		arg := arg
+		t.Run(arg, func(t *testing.T) {
+			t.Parallel()
+			cmd := exec.Command(bin, "version", arg)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("version %s: exit %v\n%s", arg, err, out)
+			}
+			if !strings.Contains(string(out), "Usage: ridgeline version") {
+				t.Errorf("version %s: usage missing: %s", arg, out)
+			}
+		})
+	}
+}
+
+func TestCLI_SubcommandHelpFlags_ExitZero(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	cases := [][]string{
+		{"sync", "--help"},
+		{"sync", "-h"},
+		{"status", "--help"},
+		{"query", "--help"},
+		{"creds", "list", "--help"},
+		{"tui", "--help"},
+	}
+	for _, args := range cases {
+		args := args
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			cmd := exec.Command(bin, args...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v: expected exit 0, got %v\n%s", args, err, out)
+			}
+			got := string(out)
+			if strings.Contains(got, "flag: help requested") {
+				t.Errorf("%v: leaked 'flag: help requested' to user: %s", args, got)
+			}
+		})
+	}
+}
+
+func TestCLI_SyncExtras_Rejected(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	cmd := exec.Command(bin, "sync", "--dry-run", "surprise")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got: %s", out)
+	}
+	if !strings.Contains(string(out), "unexpected argument") {
+		t.Errorf("output missing 'unexpected argument': %s", out)
+	}
+}
+
+func TestCLI_StatusExtras_Rejected(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	cmd := exec.Command(bin, "status", "--config", "nonexistent.yaml", "extra")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero exit, got: %s", out)
+	}
+	if !strings.Contains(string(out), "unexpected argument") {
+		t.Errorf("output missing 'unexpected argument': %s", out)
+	}
+}
+
 func TestCLI_UnknownSubcommand_PointsAtHelp(t *testing.T) {
 	t.Parallel()
 	bin := buildRidgeline(t)

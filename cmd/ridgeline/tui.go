@@ -214,7 +214,14 @@ func runTUI(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	renderOnce := fs.Bool("render-once", false, "render the current view to stdout and exit")
-	if err := fs.Parse(args); err != nil {
+	help, err := parseSubcommandFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if help {
+		return nil
+	}
+	if err := rejectExtraArgs("tui", fs); err != nil {
 		return err
 	}
 	if *cfgPath == "" {

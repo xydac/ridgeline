@@ -59,20 +59,24 @@ func credsUsage(w io.Writer) {
 // credsFlags parses --config out of args and returns the loaded config
 // alongside the remaining positional arguments. Errors here are the
 // same flavor as runSync: missing --config is a hard error.
-func credsFlags(verb string, args []string) (*config.File, []string, error) {
+func credsFlags(verb string, args []string) (*config.File, []string, bool, error) {
 	fs := flag.NewFlagSet("creds "+verb, flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
-	if err := fs.Parse(args); err != nil {
-		return nil, nil, err
+	help, err := parseSubcommandFlags(fs, args)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if help {
+		return nil, nil, true, nil
 	}
 	if *cfgPath == "" {
-		return nil, nil, fmt.Errorf("--config PATH is required")
+		return nil, nil, false, fmt.Errorf("--config PATH is required")
 	}
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	return cfg, fs.Args(), nil
+	return cfg, fs.Args(), false, nil
 }
 
 // openCreds opens (or creates) the state db and the key file, and
@@ -109,9 +113,12 @@ func openCreds(cfg *config.File) (*creds.Store, *sqlitestate.Store, error) {
 }
 
 func credsList(ctx context.Context, args []string, stdout io.Writer) error {
-	cfg, rest, err := credsFlags("list", args)
+	cfg, rest, help, err := credsFlags("list", args)
 	if err != nil {
 		return err
+	}
+	if help {
+		return nil
 	}
 	if len(rest) != 0 {
 		return fmt.Errorf("creds list: unexpected argument %q", rest[0])
@@ -132,9 +139,12 @@ func credsList(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer) error {
-	cfg, rest, err := credsFlags("put", args)
+	cfg, rest, help, err := credsFlags("put", args)
 	if err != nil {
 		return err
+	}
+	if help {
+		return nil
 	}
 	if len(rest) != 1 {
 		return fmt.Errorf("creds put: exactly one NAME argument is required")
@@ -169,9 +179,12 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Wri
 }
 
 func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
-	cfg, rest, err := credsFlags("get", args)
+	cfg, rest, help, err := credsFlags("get", args)
 	if err != nil {
 		return err
+	}
+	if help {
+		return nil
 	}
 	if len(rest) != 1 {
 		return fmt.Errorf("creds get: exactly one NAME argument is required")
@@ -199,9 +212,12 @@ func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 func credsRm(ctx context.Context, args []string) error {
-	cfg, rest, err := credsFlags("rm", args)
+	cfg, rest, help, err := credsFlags("rm", args)
 	if err != nil {
 		return err
+	}
+	if help {
+		return nil
 	}
 	if len(rest) != 1 {
 		return fmt.Errorf("creds rm: exactly one NAME argument is required")

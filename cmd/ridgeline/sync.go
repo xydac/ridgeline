@@ -35,7 +35,14 @@ func runSync(ctx context.Context, args []string) error {
 	records := fs.Int("records", testsrc.DefaultRecords, "records per stream for dry-run")
 	out := fs.String("out", "", "output directory (default: $TMPDIR/ridgeline-dryrun)")
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
-	if err := fs.Parse(args); err != nil {
+	help, err := parseSubcommandFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if help {
+		return nil
+	}
+	if err := rejectExtraArgs("sync", fs); err != nil {
 		return err
 	}
 	if *cfgPath != "" && *dryRun {

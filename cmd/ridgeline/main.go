@@ -46,7 +46,14 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "version", "--version", "-v":
-		if extra := os.Args[2:]; len(extra) > 0 {
+		extra := os.Args[2:]
+		if len(extra) == 1 && (extra[0] == "--help" || extra[0] == "-h" || extra[0] == "help") {
+			fmt.Fprintln(os.Stdout, "Usage: ridgeline version")
+			fmt.Fprintln(os.Stdout, "")
+			fmt.Fprintln(os.Stdout, "Prints the build version and exits.")
+			return
+		}
+		if len(extra) > 0 {
 			fmt.Fprintf(os.Stderr, "version: unexpected argument %q\n", extra[0])
 			os.Exit(2)
 		}
