@@ -97,6 +97,12 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 			Description: "Search Analytics rows bucketed by the configured dimensions.",
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 			DefaultCron: "0 * * * *",
+			Schema: connectors.Schema{Columns: []connectors.Column{
+				{Name: "clicks", Type: connectors.Int},
+				{Name: "impressions", Type: connectors.Int},
+				{Name: "ctr", Type: connectors.Float},
+				{Name: "position", Type: connectors.Float},
+			}},
 		}},
 	}
 }
