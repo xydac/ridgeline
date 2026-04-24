@@ -14,6 +14,8 @@
 //	                        print results as an aligned text table
 //	creds list|put|get|rm   manage credentials in the AES-256-GCM
 //	                        credential store backing the *_ref config keys
+//	creds oauth PROVIDER    run the provider's browser OAuth flow and
+//	                        store the resulting credentials (gsc)
 //	tui --config PATH       interactive Bubble Tea view of configured
 //	                        streams with last-sync and record counts
 //
@@ -101,6 +103,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline status --config PATH")
 	fmt.Fprintln(w, "  ridgeline query <SQL>")
 	fmt.Fprintln(w, "  ridgeline creds list|put|get|rm --config PATH [NAME]")
+	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID --client-secret SEC")
 	fmt.Fprintln(w, "  ridgeline tui --config PATH [--render-once]")
 	fmt.Fprintln(w, "  ridgeline help")
 }

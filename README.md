@@ -10,8 +10,8 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > an AES-256-GCM credential store with a `ridgeline creds` CLI, JSON-lines
 > and Parquet sinks, native connectors for Hacker News (Algolia public
 > API), Umami (self-hosted analytics, API key or username/password
-> login), and Google Search Console (OAuth 2.0 with a bring-your-own
-> refresh token for now), an external
+> login), and Google Search Console (OAuth 2.0 via a browser PKCE flow
+> or a bring-your-own refresh token), an external
 > runner that lets you wire any executable that speaks JSON-lines as a
 > connector, and an in-process DuckDB `ridgeline query` command. Next up
 > are more native connectors. See [ROADMAP.md](ROADMAP.md). Built in
@@ -251,15 +251,37 @@ than the last one seen.
 ### Pulling Google Search Console data
 
 The `gsc` connector reads daily Search Analytics rows for a configured
-property via the webmasters/v3 API. Auth is OAuth 2.0. The full browser
-PKCE flow is not wired into the binary yet, so today the user obtains a
-long-lived refresh token out of band (for example with the Google
-OAuth Playground, selecting the
-`https://www.googleapis.com/auth/webmasters.readonly` scope) and stores
-it in the credential store alongside the OAuth client id and secret.
-The connector exchanges the refresh token for short-lived access
-tokens at sync time and caches the access token in the per-connector
-state map so a typical hourly run makes one token call per hour.
+property via the webmasters/v3 API. Auth is OAuth 2.0. The connector
+exchanges a long-lived refresh token for short-lived access tokens at
+sync time and caches the access token in the per-connector state map
+so a typical hourly run makes one token call per hour.
+
+There are two ways to get the refresh token into the credential store.
+
+**Browser flow (PKCE).** Create a desktop-app OAuth client in Google
+Cloud Console, then run:
+
+```sh
+./ridgeline creds oauth gsc \
+  --config ridgeline.yaml \
+  --client-id "1234567890-xxxxx.apps.googleusercontent.com" \
+  --client-secret "GOCSPX-..." \
+  --name gsc
+```
+
+A local HTTP listener is bound on a random port and an authorization
+URL is printed. Open it in a browser, sign in with the Google account
+that owns the Search Console property, grant the read-only scope, and
+the callback completes the PKCE exchange. Three credentials are
+stored: `gsc_client_id`, `gsc_client_secret`, `gsc_refresh_token`.
+The command prints the exact `*_ref` lines to paste into
+`ridgeline.yaml` under the connector's `config:` block.
+
+**Bring-your-own refresh token.** If a browser flow is not available
+(for example on a headless server without port forwarding), obtain a
+refresh token out of band with the Google OAuth Playground, selecting
+the `https://www.googleapis.com/auth/webmasters.readonly` scope, and
+seed the same three credential keys directly:
 
 ```sh
 echo "1234567890-xxxxx.apps.googleusercontent.com" | \
@@ -421,9 +443,10 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: the full OAuth browser + PKCE
-flow for GSC so new users can skip the refresh-token-out-of-band
-step, and a unified CLI output formatter.
+See [ROADMAP.md](ROADMAP.md). Next up: typed Parquet columns for
+connectors with a stable schema, so a GSC sync writes real `clicks`
+and `impressions` columns instead of stuffing everything into
+`data_json`.
 
 ## Install
 
