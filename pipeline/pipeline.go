@@ -127,6 +127,13 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 			return result, ctx.Err()
 		case msg, ok := <-ch:
 			if !ok {
+				// If ctx was cancelled, the channel close may be the
+				// connector's response to that cancellation; surface
+				// ctx.Err() rather than reporting clean completion.
+				if err := ctx.Err(); err != nil {
+					_ = flushAll()
+					return result, err
+				}
 				if err := flushAll(); err != nil {
 					return result, err
 				}
