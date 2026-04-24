@@ -45,6 +45,7 @@ type Sink struct {
 	manifest *manifest.Store
 	covered  manifest.Manifest
 	streams  map[string]*streamFile
+	schemas  map[string]connectors.Schema
 	inited   bool
 	closed   bool
 }
@@ -52,7 +53,8 @@ type Sink struct {
 type streamFile struct {
 	path      string
 	file      *os.File
-	writer    *pq.GenericWriter[Row]
+	writer    *pq.GenericWriter[Row] // used when no typed schema was declared
+	typed     *typedWriter           // used when the stream has a declared schema
 	rows      int64
 	startTime time.Time
 	endTime   time.Time
@@ -94,8 +96,37 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	}
 	s.covered = covered
 	s.streams = map[string]*streamFile{}
+	if s.schemas == nil {
+		s.schemas = map[string]connectors.Schema{}
+	}
 	s.inited = true
 	return nil
+}
+
+// DeclareStream registers a stream's declared schema so subsequent
+// Write calls for that stream produce a parquet file with typed
+// columns for the declared fields plus a data_json column that
+// carries the full record as before. Calling DeclareStream for the
+// same stream twice replaces the prior declaration. A declaration
+// that arrives after the stream's file has already been opened is
+// ignored, since the writer is already configured.
+//
+// Pass an empty Schema (zero Columns) to opt back into the untyped
+// {stream, timestamp, data_json} shape.
+func (s *Sink) DeclareStream(stream string, schema connectors.Schema) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.schemas == nil {
+		s.schemas = map[string]connectors.Schema{}
+	}
+	if _, open := s.streams[stream]; open {
+		return
+	}
+	if len(schema.Columns) == 0 {
+		delete(s.schemas, stream)
+		return
+	}
+	s.schemas[stream] = schema
 }
 
 // Dir returns the root output directory. Useful for tests and callers
@@ -137,6 +168,29 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 	sf, err := s.streamFileLocked(stream)
 	if err != nil {
 		return err
+	}
+	if sf.typed != nil {
+		for _, r := range kept {
+			data := r.Data
+			if data == nil {
+				data = map[string]any{}
+			}
+			b, err := json.Marshal(data)
+			if err != nil {
+				return fmt.Errorf("parquet: marshal %s: %w", stream, err)
+			}
+			if err := sf.typed.writeRow(stream, r.Timestamp, data, string(b)); err != nil {
+				return fmt.Errorf("parquet: write %s: %w", stream, err)
+			}
+			if sf.startTime.IsZero() || r.Timestamp.Before(sf.startTime) {
+				sf.startTime = r.Timestamp
+			}
+			if r.Timestamp.After(sf.endTime) {
+				sf.endTime = r.Timestamp
+			}
+			sf.rows++
+		}
+		return nil
 	}
 	rows := make([]Row, 0, len(kept))
 	for _, r := range kept {
@@ -181,6 +235,16 @@ func (s *Sink) streamFileLocked(stream string) (*streamFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parquet: stream %s: %w", stream, err)
 	}
+	if schema, ok := s.schemas[stream]; ok && len(schema.Columns) > 0 {
+		tw, err := newTypedWriter(f, schema)
+		if err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("parquet: stream %s: %w", stream, err)
+		}
+		sf := &streamFile{path: rel, file: f, typed: tw}
+		s.streams[stream] = sf
+		return sf, nil
+	}
 	w := pq.NewGenericWriter[Row](f)
 	sf := &streamFile{path: rel, file: f, writer: w}
 	s.streams[stream] = sf
@@ -197,7 +261,14 @@ func (s *Sink) Flush(_ context.Context) error {
 		return nil
 	}
 	for stream, sf := range s.streams {
-		if err := sf.writer.Flush(); err != nil {
+		var err error
+		switch {
+		case sf.typed != nil:
+			err = sf.typed.Flush()
+		case sf.writer != nil:
+			err = sf.writer.Flush()
+		}
+		if err != nil {
 			return fmt.Errorf("parquet: flush %s: %w", stream, err)
 		}
 	}
@@ -219,8 +290,15 @@ func (s *Sink) Close() error {
 	s.closed = true
 	var firstErr error
 	for stream, sf := range s.streams {
-		if err := sf.writer.Close(); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("parquet: close writer %s: %w", stream, err)
+		var closeErr error
+		switch {
+		case sf.typed != nil:
+			closeErr = sf.typed.Close()
+		case sf.writer != nil:
+			closeErr = sf.writer.Close()
+		}
+		if closeErr != nil && firstErr == nil {
+			firstErr = fmt.Errorf("parquet: close writer %s: %w", stream, closeErr)
 		}
 		info, statErr := sf.file.Stat()
 		if err := sf.file.Close(); err != nil && firstErr == nil {
