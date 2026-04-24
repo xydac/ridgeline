@@ -19,6 +19,16 @@ var defaultLogger = log.New(os.Stderr, "", 0)
 // DefaultBatchSize is used when Request.BatchSize is zero.
 const DefaultBatchSize = 500
 
+// StreamDeclarer is implemented by sinks that accept per-stream
+// schema declarations. A sink that implements this interface receives
+// one DeclareStream call per requested stream that the connector has
+// published a non-empty Schema for, before the first Extract call.
+// Sinks that do not implement StreamDeclarer keep their default
+// behavior.
+type StreamDeclarer interface {
+	DeclareStream(stream string, schema connectors.Schema)
+}
+
 // Request describes one pipeline run.
 type Request struct {
 	// Key identifies this connector instance for state persistence.
@@ -86,6 +96,22 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 	batchSize := req.BatchSize
 	if batchSize <= 0 {
 		batchSize = DefaultBatchSize
+	}
+
+	// Declare typed schemas on the sink when the connector has
+	// published them. A sink that does not implement StreamDeclarer
+	// keeps the default {stream, timestamp, data_json} shape.
+	if decl, ok := sink.(StreamDeclarer); ok {
+		spec := conn.Spec()
+		specByName := map[string]connectors.StreamSpec{}
+		for _, ss := range spec.Streams {
+			specByName[ss.Name] = ss
+		}
+		for _, rs := range req.Streams {
+			if ss, ok := specByName[rs.Name]; ok && len(ss.Schema.Columns) > 0 {
+				decl.DeclareStream(rs.Name, ss.Schema)
+			}
+		}
 	}
 
 	state, err := store.Load(ctx, req.Key)
