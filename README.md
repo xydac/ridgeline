@@ -93,10 +93,18 @@ removal is visible without inspecting the database by hand.
 
 `ridgeline tui --config ridgeline.yaml` opens a terminal UI that
 lists every configured stream with its product, connector type,
-connector name, last-sync timestamp, and cumulative record count
-pulled from the sink manifest. `q`, `ctrl+c`, or `esc` quits. It is
-read-only in this first iteration; sync-trigger keybindings land in
-a follow-up.
+connector name, status, last-sync timestamp, and cumulative record
+count pulled from the sink manifest. Status is derived from the last
+sync time: `never` before a first run, `ok` within the last day,
+`stale` after that, `error` when the last in-TUI sync trigger failed.
+
+Keybindings:
+
+- `j` / `down`, `k` / `up`: move the highlight between rows.
+- `s`: run a real sync on the highlighted connector through the same
+  pipeline path as the CLI; the row updates live with a new status,
+  record count, and last-sync time when the run finishes.
+- `q`, `ctrl+c`, or `esc`: quit.
 
 Pass `--render-once` to print a single snapshot and exit without
 starting an interactive program; useful in pipes or CI.
@@ -413,9 +421,9 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: a Bubble Tea TUI shell, the
-full OAuth browser + PKCE flow for GSC so new users can skip the
-refresh-token-out-of-band step, and a unified CLI output formatter.
+See [ROADMAP.md](ROADMAP.md). Next up: the full OAuth browser + PKCE
+flow for GSC so new users can skip the refresh-token-out-of-band
+step, and a unified CLI output formatter.
 
 ## Install
 

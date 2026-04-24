@@ -26,7 +26,7 @@
 - [x] `ridgeline status` CLI command (per-connector cursor and last-sync time)
 - [x] `ridgeline query` CLI command (runs SQL against DuckDB)
 - [x] `ridgeline creds` CLI command (list, put, get, rm)
-- [ ] TUI shell (Bubble Tea): products view, health bars, keybindings (read-only products view shipped under `ridgeline tui`; health bars and sync-trigger keybindings are next)
+- [x] TUI shell (Bubble Tea): products view, health bars, keybindings (`ridgeline tui` ships a products view with colored status, cursor navigation, and an `s` key that triggers a real sync on the highlighted connector)
 
 ## Known gaps
 
