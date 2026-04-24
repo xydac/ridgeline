@@ -88,9 +88,10 @@ func TestDelete(t *testing.T) {
 	if _, err := cs.Get(ctx, "k"); !errors.Is(err, creds.ErrNotFound) {
 		t.Fatalf("Get after delete: want ErrNotFound, got %v", err)
 	}
-	// Delete of missing key is a no-op.
-	if err := cs.Delete(ctx, "k"); err != nil {
-		t.Fatalf("Delete missing: %v", err)
+	// Delete of a missing key surfaces ErrNotFound so the CLI can
+	// exit non-zero on a typo instead of reporting a silent success.
+	if err := cs.Delete(ctx, "k"); !errors.Is(err, creds.ErrNotFound) {
+		t.Fatalf("Delete missing: want ErrNotFound, got %v", err)
 	}
 }
 

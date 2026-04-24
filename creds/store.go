@@ -91,15 +91,23 @@ func (s *Store) Get(ctx context.Context, name string) ([]byte, error) {
 	return pt, nil
 }
 
-// Delete removes the credential named name. Delete is a no-op if name
-// does not exist.
+// Delete removes the credential named name. Delete returns
+// ErrNotFound when no credential with that name was present, so a
+// typo at the CLI surfaces instead of silently succeeding.
 func (s *Store) Delete(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("creds: name must not be empty")
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE name = ?`, name)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE name = ?`, name)
 	if err != nil {
 		return fmt.Errorf("creds: delete %q: %w", name, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("creds: delete %q: %w", name, err)
+	}
+	if n == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

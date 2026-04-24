@@ -232,7 +232,13 @@ func credsRm(ctx context.Context, args []string) error {
 		return err
 	}
 	defer store.Close()
-	return cs.Delete(ctx, rest[0])
+	if err := cs.Delete(ctx, rest[0]); err != nil {
+		if errors.Is(err, creds.ErrNotFound) {
+			return fmt.Errorf("rm: credential %q does not exist", rest[0])
+		}
+		return err
+	}
+	return nil
 }
 
 // isInteractive reports whether r is an attached terminal. Used to
