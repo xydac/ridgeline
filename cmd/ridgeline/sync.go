@@ -145,7 +145,7 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			n, err := runConnectorInstance(ctx, store, pid, inst)
+			n, err := runConnectorInstance(ctx, store, pid, inst, os.Stdout)
 			if err != nil {
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
@@ -251,8 +251,10 @@ func validateConnectors(ctx context.Context, cfg *config.File) error {
 }
 
 // runConnectorInstance runs one connector from the config against its
-// configured sink. Returns the number of records written.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance) (int, error) {
+// configured sink. Returns the number of records written. The per-
+// connector progress line is written to stdout so callers that want
+// silent runs (TUI, tests) can pass io.Discard.
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer) (int, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
 		return 0, fmt.Errorf("connector type %q is not registered", inst.Type)
@@ -287,7 +289,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	if err != nil {
 		return 0, err
 	}
-	fmt.Printf("%s/%s: %d records, %d states saved\n", pid, inst.Name, res.Records, res.States)
+	fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved\n", pid, inst.Name, res.Records, res.States)
 	return res.Records, nil
 }
 
