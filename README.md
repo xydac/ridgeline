@@ -401,15 +401,30 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: partition pruning on re-run,
-goreleaser + Homebrew, the full OAuth browser + PKCE flow for GSC so
-new users can skip the refresh-token-out-of-band step, and a Bubble
-Tea TUI shell.
+See [ROADMAP.md](ROADMAP.md). Next up: a Bubble Tea TUI shell, the
+full OAuth browser + PKCE flow for GSC so new users can skip the
+refresh-token-out-of-band step, and a unified CLI output formatter.
 
 ## Install
 
-A `brew install` release is in progress; for now
-`go build ./cmd/ridgeline` is the install path.
+Once the first tagged release lands, the supported install path will be:
+
+```
+brew install xydac/tap/ridgeline
+```
+
+Until then, build from source:
+
+```
+git clone https://github.com/xydac/ridgeline
+cd ridgeline
+go build ./cmd/ridgeline
+```
+
+Releases are produced by [goreleaser](https://goreleaser.com) on every
+`v*` tag and publish multi-arch binaries (linux-amd64,
+darwin-amd64, darwin-arm64) plus a Homebrew formula in
+[xydac/homebrew-tap](https://github.com/xydac/homebrew-tap).
 
 ## Contributing
 
