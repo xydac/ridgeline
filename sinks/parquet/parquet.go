@@ -43,6 +43,7 @@ type Sink struct {
 	dir      string
 	runID    string
 	manifest *manifest.Store
+	covered  manifest.Manifest
 	streams  map[string]*streamFile
 	inited   bool
 	closed   bool
@@ -88,6 +89,11 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	s.dir = dir
 	s.runID = runID
 	s.manifest = manifest.NewStore(filepath.Join(dir, "manifest.json"))
+	covered, err := s.manifest.Load()
+	if err != nil {
+		return fmt.Errorf("parquet: load manifest: %w", err)
+	}
+	s.covered = covered
 	s.streams = map[string]*streamFile{}
 	s.inited = true
 	return nil
@@ -114,12 +120,27 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 	if s.closed {
 		return fmt.Errorf("parquet: Write after Close")
 	}
+	// Partition pruning: drop records whose timestamp is already
+	// covered by a partition in the prior manifest. A fully-covered
+	// batch leaves the stream's Parquet file unopened, so a re-run
+	// over an identical window does not create an empty row group
+	// or append a new manifest entry.
+	kept := make([]connectors.Record, 0, len(records))
+	for _, r := range records {
+		if s.covered.Covers(stream, r.Timestamp) {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
 	sf, err := s.streamFileLocked(stream)
 	if err != nil {
 		return err
 	}
-	rows := make([]Row, 0, len(records))
-	for _, r := range records {
+	rows := make([]Row, 0, len(kept))
+	for _, r := range kept {
 		data := r.Data
 		if data == nil {
 			data = map[string]any{}

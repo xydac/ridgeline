@@ -257,3 +257,91 @@ func TestSink_RegisteredInRegistry(t *testing.T) {
 		t.Errorf("Name() = %q, want parquet", s.Name())
 	}
 }
+
+func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+	t0 := time.Unix(1000, 0).UTC()
+	t1 := time.Unix(2000, 0).UTC()
+	t2 := time.Unix(3000, 0).UTC()
+
+	s1 := pqsink.New()
+	if err := s1.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run1"}); err != nil {
+		t.Fatalf("Init 1: %v", err)
+	}
+	if err := s1.Write(ctx, "pages", []connectors.Record{
+		{Stream: "pages", Timestamp: t0, Data: map[string]any{"k": "a"}},
+		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
+	}); err != nil {
+		t.Fatalf("Write 1: %v", err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatalf("Close 1: %v", err)
+	}
+
+	manifestPath := filepath.Join(dir, "manifest.json")
+	firstStat, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatalf("stat manifest after run 1: %v", err)
+	}
+	firstMtime := firstStat.ModTime()
+
+	// Second run: fully covered. No parquet file, no manifest append.
+	s2 := pqsink.New()
+	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2"}); err != nil {
+		t.Fatalf("Init 2: %v", err)
+	}
+	if err := s2.Write(ctx, "pages", []connectors.Record{
+		{Stream: "pages", Timestamp: t0, Data: map[string]any{"k": "a"}},
+		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
+	}); err != nil {
+		t.Fatalf("Write 2: %v", err)
+	}
+	if err := s2.Close(); err != nil {
+		t.Fatalf("Close 2: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "run2", "pages.parquet")); !os.IsNotExist(err) {
+		t.Errorf("run2/pages.parquet should not exist, stat err = %v", err)
+	}
+	store := manifest.NewStore(manifestPath)
+	m, err := store.Load()
+	if err != nil {
+		t.Fatalf("manifest load: %v", err)
+	}
+	if len(m.Partitions) != 1 {
+		t.Errorf("Partitions = %d, want 1", len(m.Partitions))
+	}
+	secondStat, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatalf("stat manifest after run 2: %v", err)
+	}
+	if !secondStat.ModTime().Equal(firstMtime) {
+		t.Errorf("manifest mtime changed on no-op re-run: %v -> %v", firstMtime, secondStat.ModTime())
+	}
+
+	// Third run: one new record outside the covered window lands.
+	s3 := pqsink.New()
+	if err := s3.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run3"}); err != nil {
+		t.Fatalf("Init 3: %v", err)
+	}
+	if err := s3.Write(ctx, "pages", []connectors.Record{
+		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
+		{Stream: "pages", Timestamp: t2, Data: map[string]any{"k": "c"}},
+	}); err != nil {
+		t.Fatalf("Write 3: %v", err)
+	}
+	if err := s3.Close(); err != nil {
+		t.Fatalf("Close 3: %v", err)
+	}
+	m, _ = store.Load()
+	if len(m.Partitions) != 2 {
+		t.Fatalf("Partitions = %d, want 2", len(m.Partitions))
+	}
+	if m.Partitions[1].Rows != 1 {
+		t.Errorf("new partition Rows = %d, want 1", m.Partitions[1].Rows)
+	}
+	if !m.Partitions[1].StartTime.Equal(t2) || !m.Partitions[1].EndTime.Equal(t2) {
+		t.Errorf("new partition window = [%s, %s], want [%s, %s]", m.Partitions[1].StartTime, m.Partitions[1].EndTime, t2, t2)
+	}
+}
