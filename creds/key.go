@@ -26,7 +26,7 @@ func NewRandomKey() ([]byte, error) {
 // the host cannot read it.
 func WriteKeyFile(path string, key []byte) error {
 	if len(key) != KeySize {
-		return fmt.Errorf("creds: WriteKeyFile: key must be %d bytes, got %d", KeySize, len(key))
+		return fmt.Errorf("creds: key must be %d bytes, got %d", KeySize, len(key))
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creds: %w", err)

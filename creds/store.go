@@ -49,11 +49,11 @@ func New(db *sql.DB, key []byte) (*Store, error) {
 // ciphertext. Put overwrites any prior value for name.
 func (s *Store) Put(ctx context.Context, name string, plaintext []byte) error {
 	if name == "" {
-		return fmt.Errorf("creds: Put: name must not be empty")
+		return fmt.Errorf("creds: name must not be empty")
 	}
 	nonce := make([]byte, s.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return fmt.Errorf("creds: Put %q: nonce: %w", name, err)
+		return fmt.Errorf("creds: put %q: nonce: %w", name, err)
 	}
 	ct := s.aead.Seal(nil, nonce, plaintext, []byte(name))
 	_, err := s.db.ExecContext(ctx, `
@@ -64,7 +64,7 @@ func (s *Store) Put(ctx context.Context, name string, plaintext []byte) error {
 			ciphertext = excluded.ciphertext,
 			updated_at = excluded.updated_at`, name, nonce, ct)
 	if err != nil {
-		return fmt.Errorf("creds: Put %q: %w", name, err)
+		return fmt.Errorf("creds: put %q: %w", name, err)
 	}
 	return nil
 }
@@ -74,7 +74,7 @@ func (s *Store) Put(ctx context.Context, name string, plaintext []byte) error {
 // tampered ciphertext) wraps the underlying cause.
 func (s *Store) Get(ctx context.Context, name string) ([]byte, error) {
 	if name == "" {
-		return nil, fmt.Errorf("creds: Get: name must not be empty")
+		return nil, fmt.Errorf("creds: name must not be empty")
 	}
 	var nonce, ct []byte
 	err := s.db.QueryRowContext(ctx, `SELECT nonce, ciphertext FROM credentials WHERE name = ?`, name).Scan(&nonce, &ct)
@@ -82,11 +82,11 @@ func (s *Store) Get(ctx context.Context, name string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("creds: Get %q: %w", name, err)
+		return nil, fmt.Errorf("creds: get %q: %w", name, err)
 	}
 	pt, err := s.aead.Open(nil, nonce, ct, []byte(name))
 	if err != nil {
-		return nil, fmt.Errorf("creds: Get %q: decrypt: %w", name, err)
+		return nil, fmt.Errorf("creds: get %q: decrypt: %w", name, err)
 	}
 	return pt, nil
 }
@@ -95,11 +95,11 @@ func (s *Store) Get(ctx context.Context, name string) ([]byte, error) {
 // does not exist.
 func (s *Store) Delete(ctx context.Context, name string) error {
 	if name == "" {
-		return fmt.Errorf("creds: Delete: name must not be empty")
+		return fmt.Errorf("creds: name must not be empty")
 	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE name = ?`, name)
 	if err != nil {
-		return fmt.Errorf("creds: Delete %q: %w", name, err)
+		return fmt.Errorf("creds: delete %q: %w", name, err)
 	}
 	return nil
 }
@@ -110,19 +110,19 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 func (s *Store) Names(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT name FROM credentials ORDER BY name`)
 	if err != nil {
-		return nil, fmt.Errorf("creds: Names: %w", err)
+		return nil, fmt.Errorf("creds: list names: %w", err)
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err != nil {
-			return nil, fmt.Errorf("creds: Names scan: %w", err)
+			return nil, fmt.Errorf("creds: scan name: %w", err)
 		}
 		out = append(out, n)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("creds: Names rows: %w", err)
+		return nil, fmt.Errorf("creds: iterate names: %w", err)
 	}
 	return out, nil
 }

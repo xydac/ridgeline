@@ -121,7 +121,7 @@ func credsList(ctx context.Context, args []string, stdout io.Writer) error {
 		return nil
 	}
 	if len(rest) != 0 {
-		return fmt.Errorf("creds list: unexpected argument %q", rest[0])
+		return fmt.Errorf("list: unexpected argument %q", rest[0])
 	}
 	cs, store, err := openCreds(cfg)
 	if err != nil {
@@ -147,7 +147,7 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Wri
 		return nil
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("creds put: exactly one NAME argument is required")
+		return fmt.Errorf("put: exactly one NAME argument is required")
 	}
 	name := rest[0]
 	if isInteractive(stdin) {
@@ -163,7 +163,7 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Wri
 	raw = bytes.TrimSuffix(raw, []byte("\n"))
 	raw = bytes.TrimSuffix(raw, []byte("\r"))
 	if len(raw) == 0 {
-		return fmt.Errorf("creds put: refused to store an empty secret for %q", name)
+		return fmt.Errorf("put: refused to store an empty secret for %q", name)
 	}
 
 	cs, store, err := openCreds(cfg)
@@ -187,7 +187,7 @@ func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
 		return nil
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("creds get: exactly one NAME argument is required")
+		return fmt.Errorf("get: exactly one NAME argument is required")
 	}
 	name := rest[0]
 	cs, store, err := openCreds(cfg)
@@ -220,7 +220,7 @@ func credsRm(ctx context.Context, args []string) error {
 		return nil
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("creds rm: exactly one NAME argument is required")
+		return fmt.Errorf("rm: exactly one NAME argument is required")
 	}
 	cs, store, err := openCreds(cfg)
 	if err != nil {
