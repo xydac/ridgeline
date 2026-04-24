@@ -89,6 +89,18 @@ database. State entries that no longer map to a configured connector
 are listed under an `orphan state entries` footer so a rename or
 removal is visible without inspecting the database by hand.
 
+### Products view (TUI)
+
+`ridgeline tui --config ridgeline.yaml` opens a terminal UI that
+lists every configured stream with its product, connector type,
+connector name, last-sync timestamp, and cumulative record count
+pulled from the sink manifest. `q`, `ctrl+c`, or `esc` quits. It is
+read-only in this first iteration; sync-trigger keybindings land in
+a follow-up.
+
+Pass `--render-once` to print a single snapshot and exit without
+starting an interactive program; useful in pipes or CI.
+
 Credentials live in the same file under the `credentials` table,
 sealed with AES-256-GCM. The 32-byte key is loaded from the optional
 `key_path` field (hex encoded; defaults to `~/.ridgeline/key`). The
