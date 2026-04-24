@@ -17,7 +17,7 @@
 - [x] `ridgeline sync --config` against a ridgeline.yaml
 - [x] State and checkpoint store (SQLite, persistent)
 - [x] Credential store (SQLite + AES-256-GCM encryption)
-- [x] Parquet sink (writes `{stream, timestamp, data_json}` files; typed-column inference is a follow-up)
+- [x] Parquet sink (writes `{stream, timestamp, data_json}` files; connectors that declare a stream Schema get typed columns for the declared fields alongside the data_json payload)
 - [x] DuckDB integration (in-process, via go-duckdb/v2)
 - [x] Native connector: Hacker News (Algolia public API)
 - [x] Native connector: Umami (self-hosted analytics, API key or username/password login)
