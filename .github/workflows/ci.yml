@@ -43,3 +43,15 @@ jobs:
 
       - name: test
         run: go test -race -count=1 ./...
+
+  goreleaser-check:
+    name: goreleaser check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          install-only: true
+      - name: validate goreleaser config
+        run: goreleaser check
