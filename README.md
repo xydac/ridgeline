@@ -9,8 +9,9 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > ridgeline.yaml config: SQLite-backed state (durable across restarts),
 > an AES-256-GCM credential store with a `ridgeline creds` CLI, JSON-lines
 > and Parquet sinks, native connectors for Hacker News (Algolia public
-> API) and Umami (self-hosted analytics, API key or username/password
-> login), an external
+> API), Umami (self-hosted analytics, API key or username/password
+> login), and Google Search Console (OAuth 2.0 with a bring-your-own
+> refresh token for now), an external
 > runner that lets you wire any executable that speaks JSON-lines as a
 > connector, and an in-process DuckDB `ridgeline query` command. Next up
 > are more native connectors. See [ROADMAP.md](ROADMAP.md). Built in
@@ -227,6 +228,58 @@ Each sync persists a `created_at_i` high-water mark per stream into
 the SQLite state store, so re-runs only fetch records strictly newer
 than the last one seen.
 
+### Pulling Google Search Console data
+
+The `gsc` connector reads daily Search Analytics rows for a configured
+property via the webmasters/v3 API. Auth is OAuth 2.0. The full browser
+PKCE flow is not wired into the binary yet, so today the user obtains a
+long-lived refresh token out of band (for example with the Google
+OAuth Playground, selecting the
+`https://www.googleapis.com/auth/webmasters.readonly` scope) and stores
+it in the credential store alongside the OAuth client id and secret.
+The connector exchanges the refresh token for short-lived access
+tokens at sync time and caches the access token in the per-connector
+state map so a typical hourly run makes one token call per hour.
+
+```sh
+echo "1234567890-xxxxx.apps.googleusercontent.com" | \
+  ./ridgeline creds put --config ridgeline.yaml gsc_client_id
+echo "GOCSPX-..."   | ./ridgeline creds put --config ridgeline.yaml gsc_client_secret
+echo "1//0g-long-refresh-token" | \
+  ./ridgeline creds put --config ridgeline.yaml gsc_refresh_token
+```
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: search
+        type: gsc
+        config:
+          site_url: sc-domain:example.com   # or https://example.com/
+          client_id_ref: gsc_client_id
+          client_secret_ref: gsc_client_secret
+          refresh_token_ref: gsc_refresh_token
+          dimensions: [date, query, page]   # default; also: country, device, searchAppearance
+          row_limit: 1000                   # rows per page, 1..25000
+          max_pages: 10                     # page cap per extract
+          lookback_days: 28                 # initial lookback on first sync
+          end_offset_days: 2                # Google embargoes the most recent ~2 days
+        streams: [search_analytics]
+        sink:
+          type: parquet
+          options:
+            dir: ./gsc-out
+```
+
+The incremental cursor is a YYYY-MM-DD date stored under `last_date`.
+Subsequent syncs request startDate = last_date + 1 day and stop at
+today minus `end_offset_days`. On a 401 the connector forces one
+refresh and retries once; a second 401 surfaces the original error
+rather than looping.
+
 ### Wiring an external connector (any language)
 
 The `external` connector type spawns any executable that speaks the
@@ -328,6 +381,7 @@ go test ./...
 | `connectors/testsrc`        | Synthetic source used by `sync --dry-run`.                               |
 | `connectors/hackernews`     | Incremental Algolia-backed Hacker News search (stories, comments).       |
 | `connectors/umami`          | Incremental Umami events feed; API-key or login (username/password) auth.|
+| `connectors/gsc`            | Google Search Console daily Search Analytics; OAuth 2.0 refresh token.   |
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
@@ -347,9 +401,10 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: the Google Search Console
-connector, partition pruning on re-run, goreleaser + Homebrew, and a
-Bubble Tea TUI shell.
+See [ROADMAP.md](ROADMAP.md). Next up: partition pruning on re-run,
+goreleaser + Homebrew, the full OAuth browser + PKCE flow for GSC so
+new users can skip the refresh-token-out-of-band step, and a Bubble
+Tea TUI shell.
 
 ## Install
 
