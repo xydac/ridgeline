@@ -58,6 +58,33 @@ func (m *Manifest) ForStream(name string) []Partition {
 	return out
 }
 
+// Covers reports whether stream has a partition whose inclusive
+// [StartTime, EndTime] window contains ts. Partitions with a zero
+// StartTime or EndTime are skipped: a sink that did not observe a
+// timestamp range cannot be used to prune future records. A zero ts
+// is never covered, so records without a timestamp always land.
+//
+// Covers is the read-side primitive behind partition pruning: a sink
+// consults it on every record at Write time to drop data that is
+// already on disk from a prior run.
+func (m *Manifest) Covers(stream string, ts time.Time) bool {
+	if ts.IsZero() {
+		return false
+	}
+	for _, p := range m.Partitions {
+		if p.Stream != stream {
+			continue
+		}
+		if p.StartTime.IsZero() || p.EndTime.IsZero() {
+			continue
+		}
+		if !ts.Before(p.StartTime) && !ts.After(p.EndTime) {
+			return true
+		}
+	}
+	return false
+}
+
 // Store reads and writes a Manifest atomically to a file on disk.
 // Store is safe for concurrent use.
 type Store struct {

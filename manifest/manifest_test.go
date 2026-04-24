@@ -125,6 +125,56 @@ func TestForStream(t *testing.T) {
 	}
 }
 
+func TestCovers(t *testing.T) {
+	t.Parallel()
+	m := manifest.Manifest{
+		Partitions: []manifest.Partition{
+			{
+				Stream:    "pages",
+				StartTime: time.Unix(100, 0).UTC(),
+				EndTime:   time.Unix(200, 0).UTC(),
+			},
+			{
+				Stream:    "pages",
+				StartTime: time.Unix(300, 0).UTC(),
+				EndTime:   time.Unix(400, 0).UTC(),
+			},
+			{
+				Stream:    "events",
+				StartTime: time.Unix(500, 0).UTC(),
+				EndTime:   time.Unix(600, 0).UTC(),
+			},
+			{
+				Stream: "no-time",
+			},
+		},
+	}
+	cases := []struct {
+		name   string
+		stream string
+		ts     time.Time
+		want   bool
+	}{
+		{"before first range", "pages", time.Unix(99, 0).UTC(), false},
+		{"start boundary", "pages", time.Unix(100, 0).UTC(), true},
+		{"inside first range", "pages", time.Unix(150, 0).UTC(), true},
+		{"end boundary", "pages", time.Unix(200, 0).UTC(), true},
+		{"gap between ranges", "pages", time.Unix(250, 0).UTC(), false},
+		{"inside second range", "pages", time.Unix(350, 0).UTC(), true},
+		{"wrong stream", "events", time.Unix(150, 0).UTC(), false},
+		{"zero timestamp", "pages", time.Time{}, false},
+		{"partition without range", "no-time", time.Unix(0, 1).UTC(), false},
+		{"unknown stream", "other", time.Unix(150, 0).UTC(), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := m.Covers(c.stream, c.ts); got != c.want {
+				t.Errorf("Covers(%q, %v) = %v, want %v", c.stream, c.ts, got, c.want)
+			}
+		})
+	}
+}
+
 func TestSave_AtomicOverwrite(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
