@@ -2,7 +2,9 @@ package sqlite_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -250,6 +252,46 @@ func TestList_EmptyStoreReturnsEmpty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("List empty: got %v", got)
+	}
+}
+
+func TestOpen_NotADBNoRawErrno(t *testing.T) {
+	// Opening a non-SQLite file should return a friendly message,
+	// not the raw sqlite errno (26).
+	_, err := sqlite.Open("/etc/hostname")
+	if err == nil {
+		t.Fatalf("expected error opening non-sqlite file")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "(26)") {
+		t.Errorf("error leaks raw errno (26): %s", msg)
+	}
+	if !strings.Contains(msg, "not a valid SQLite database") {
+		t.Errorf("error missing friendly message: %s", msg)
+	}
+}
+
+func TestOpen_CantOpenNoRawErrno(t *testing.T) {
+	// Opening a path inside a non-existent directory should return a
+	// friendly message, not the raw sqlite errno (14).
+	nodir := filepath.Join(t.TempDir(), "no", "such", "subdir", "db.sqlite")
+	// Remove the tempdir to ensure MkdirAll cannot help us -- but
+	// actually MkdirAll in Open creates the parent dir. So use a path
+	// where the parent is a FILE, not a directory.
+	f, err := os.CreateTemp(t.TempDir(), "notadir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	nodir = filepath.Join(f.Name(), "db.sqlite")
+
+	_, err = sqlite.Open(nodir)
+	if err == nil {
+		t.Fatalf("expected error for path inside a file")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "(14)") {
+		t.Errorf("error leaks raw errno (14): %s", msg)
 	}
 }
 

@@ -321,3 +321,70 @@ func TestStateKey(t *testing.T) {
 		t.Fatalf("StateKey: got %q", got)
 	}
 }
+
+func TestParse_YAMLTypeErrorNoGoTypes(t *testing.T) {
+	// products expects a mapping; passing a scalar triggers a yaml.TypeError
+	// that historically leaked "map[string]config.Product" and "!!str".
+	src := `
+version: 1
+state_path: /tmp/x.db
+products: broken_not_a_map
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+	msg := err.Error()
+	for _, leak := range []string{"map[string]", "config.Product", "!!str", "!!seq", "!!map"} {
+		if strings.Contains(msg, leak) {
+			t.Errorf("error leaks Go internal %q: %s", leak, msg)
+		}
+	}
+}
+
+func TestParse_YAMLTypeErrorNoGoTypesOnList(t *testing.T) {
+	// connectors expects a list; passing a scalar leaks "[]config.ConnectorInstance"
+	src := `
+version: 1
+state_path: /tmp/x.db
+products:
+  myapp:
+    connectors: not_a_list
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+	msg := err.Error()
+	for _, leak := range []string{"[]config.", "config.ConnectorInstance", "!!str"} {
+		if strings.Contains(msg, leak) {
+			t.Errorf("error leaks Go internal %q: %s", leak, msg)
+		}
+	}
+}
+
+func TestParse_UnknownFieldNoGoType(t *testing.T) {
+	// KnownFields(true) emits "field X not found in type config.T"
+	src := `
+version: 1
+state_path: /tmp/x.db
+key_path: /tmp/x.key
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        streams: [pages]
+        sink:
+          type: jsonl
+nonsense_field: true
+`
+	_, err := config.Parse([]byte(src))
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "config.") || strings.Contains(msg, "in type") {
+		t.Errorf("error leaks Go type name: %s", msg)
+	}
+}
