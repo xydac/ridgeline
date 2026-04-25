@@ -30,12 +30,6 @@
 
 ## Known gaps
 
-- `ridgeline query` is a full DuckDB session with write access to the filesystem
-  and to any `ATTACH`'d SQLite database. An `ATTACH ...; DELETE FROM state`
-  on the state DB succeeds silently; a `COPY ... TO '/path'` writes files.
-  The subcommand should enforce a read-only statement surface by default
-  and open attached SQLite databases read-only, with an explicit opt-in
-  flag for write access.
 - `ridgeline creds put` silently overwrites an existing value. It
   should either refuse without an explicit overwrite flag, or print a
   visible "replaced" line so the previous value is not lost unnoticed.
