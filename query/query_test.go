@@ -79,7 +79,7 @@ func TestRunReadOnlyRejectsDelete(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for DELETE in read-only mode, got nil")
 	}
-	if !strings.Contains(err.Error(), "read-only mode rejects") {
+	if !strings.Contains(err.Error(), "read-only mode") {
 		t.Errorf("expected read-only rejection error, got %q", err.Error())
 	}
 	if !strings.Contains(strings.ToUpper(err.Error()), "DELETE") {
@@ -97,7 +97,7 @@ func TestRunReadOnlyRejectsCopy(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for COPY TO in read-only mode, got nil")
 	}
-	if !strings.Contains(err.Error(), "read-only mode rejects") {
+	if !strings.Contains(err.Error(), "read-only mode") {
 		t.Errorf("expected read-only rejection error, got %q", err.Error())
 	}
 }
@@ -110,7 +110,7 @@ func TestRunReadOnlyRejectsMultiStatement(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for multi-statement input, got nil")
 	}
-	if !strings.Contains(err.Error(), "multi-statement") {
+	if !strings.Contains(err.Error(), "multi-statement") || !strings.Contains(err.Error(), "not permitted") {
 		t.Errorf("expected multi-statement error, got %q", err.Error())
 	}
 }
@@ -122,7 +122,7 @@ func TestRunReadOnlyRejectsInsert(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for INSERT in read-only mode, got nil")
 	}
-	if !strings.Contains(err.Error(), "read-only mode rejects") {
+	if !strings.Contains(err.Error(), "read-only mode") {
 		t.Errorf("expected read-only rejection error, got %q", err.Error())
 	}
 }

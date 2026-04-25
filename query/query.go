@@ -72,11 +72,11 @@ func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
 		if safeNonSelectKeywords[kw] {
 			return nil
 		}
-		return fmt.Errorf("query: read-only mode rejects %s; pass --write to permit modifications", kw)
+		return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)
 	}
 
 	if len(meta.Statements) > 1 {
-		return fmt.Errorf("query: multi-statement SQL is not permitted; run one statement at a time")
+		return fmt.Errorf("multi-statement SQL is not permitted; run one statement at a time")
 	}
 
 	return nil
