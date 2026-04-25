@@ -53,10 +53,18 @@ type Connector struct {
 	// Now overrides the clock used for the default endAt timestamp.
 	// Tests set this to pin responses; nil means time.Now.
 	Now func() time.Time
+	// tokenStore, when set, is used to persist cached JWTs in sealed
+	// storage. Injected by the sync runner via SetTokenStore.
+	tokenStore connectors.TokenStore
 }
 
 // New returns a ready-to-register Connector.
 func New() *Connector { return &Connector{} }
+
+// SetTokenStore satisfies connectors.TokenStorer. The sync runner calls
+// this once before Extract so JWTs acquired via auth=login are persisted
+// in encrypted storage rather than the plain-text state database.
+func (c *Connector) SetTokenStore(ts connectors.TokenStore) { c.tokenStore = ts }
 
 // Spec returns the connector's self-description.
 func (c *Connector) Spec() connectors.ConnectorSpec {
@@ -72,6 +80,14 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 			Description: "Page views and custom events for the configured website, newest first.",
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 			DefaultCron: "0 * * * *",
+			Schema: connectors.Schema{Columns: []connectors.Column{
+				{Name: "id", Type: connectors.String, Key: true},
+				{Name: "websiteId", Type: connectors.String},
+				{Name: "sessionId", Type: connectors.String},
+				{Name: "createdAt", Type: connectors.Timestamp},
+				{Name: "urlPath", Type: connectors.String},
+				{Name: "eventName", Type: connectors.String},
+			}},
 		}},
 	}
 }
@@ -160,7 +176,7 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 	if now == nil {
 		now = time.Now
 	}
-	auth, err := newAuthorizer(cfg, state, c.Client, now)
+	auth, err := newAuthorizer(cfg, state, c.Client, now, c.tokenStore)
 	if err != nil {
 		return nil, err
 	}

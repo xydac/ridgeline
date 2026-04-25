@@ -387,7 +387,7 @@ func TestResolveConfigRefs_ReplacesRefs(t *testing.T) {
 		},
 	}
 	var stderr bytes.Buffer
-	if err := resolveConfigRefs(context.Background(), cfg, store, &stderr); err != nil {
+	if _, err := resolveConfigRefs(context.Background(), cfg, store, &stderr); err != nil {
 		t.Fatalf("resolveConfigRefs: %v", err)
 	}
 	got := cfg.Products["myapp"].Connectors[0].Config
@@ -429,7 +429,7 @@ func TestResolveConfigRefs_NoRefsSkipsCredsOpen(t *testing.T) {
 		},
 	}
 	var stderr bytes.Buffer
-	if err := resolveConfigRefs(context.Background(), cfg, store, &stderr); err != nil {
+	if _, err := resolveConfigRefs(context.Background(), cfg, store, &stderr); err != nil {
 		t.Fatalf("unexpected error without refs: %v", err)
 	}
 }

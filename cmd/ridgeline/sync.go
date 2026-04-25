@@ -138,7 +138,8 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	}
 	defer store.Close()
 
-	if err := resolveConfigRefs(ctx, cfg, store, os.Stderr); err != nil {
+	cs, err := resolveConfigRefs(ctx, cfg, store, os.Stderr)
+	if err != nil {
 		return err
 	}
 	if err := validateConnectors(ctx, cfg); err != nil {
@@ -152,7 +153,7 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			n, err := runConnectorInstance(ctx, store, pid, inst, os.Stdout)
+			n, err := runConnectorInstance(ctx, store, pid, inst, os.Stdout, cs)
 			if err != nil {
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
@@ -173,13 +174,16 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 // sync before any sink is opened or records are written. Collisions
 // where both `api_key` and `api_key_ref` are present are logged to
 // stderr and the ref wins.
-func resolveConfigRefs(ctx context.Context, cfg *config.File, store *sqlitestate.Store, stderr io.Writer) error {
+//
+// The returned *creds.Store is non-nil only when a store was opened;
+// callers may pass it to connectors that implement TokenStorer.
+func resolveConfigRefs(ctx context.Context, cfg *config.File, store *sqlitestate.Store, stderr io.Writer) (*creds.Store, error) {
 	if !needsCreds(cfg) {
-		return nil
+		return nil, nil
 	}
 	cs, err := openCredStore(cfg, store)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
@@ -187,14 +191,14 @@ func resolveConfigRefs(ctx context.Context, cfg *config.File, store *sqlitestate
 			inst := &product.Connectors[i]
 			warns, err := creds.ResolveRefs(ctx, cs, inst.Config)
 			if err != nil {
-				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
+				return nil, fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
 			for _, w := range warns {
 				fmt.Fprintf(stderr, "warn: product %s connector %s: %s\n", pid, inst.Name, w)
 			}
 		}
 	}
-	return nil
+	return cs, nil
 }
 
 // needsCreds reports whether any connector config in cfg contains a
@@ -261,10 +265,15 @@ func validateConnectors(ctx context.Context, cfg *config.File) error {
 // configured sink. Returns the number of records written. The per-
 // connector progress line is written to stdout so callers that want
 // silent runs (TUI, tests) can pass io.Discard.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer) (int, error) {
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store) (int, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
 		return 0, fmt.Errorf("connector type %q is not registered", inst.Type)
+	}
+	if cs != nil {
+		if ts, ok := conn.(connectors.TokenStorer); ok {
+			ts.SetTokenStore(cs)
+		}
 	}
 	sink, err := sinks.New(inst.Sink.Type)
 	if err != nil {

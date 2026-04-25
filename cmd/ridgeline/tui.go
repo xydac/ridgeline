@@ -496,7 +496,8 @@ func realTUISyncer(ctx context.Context, cfgPath, pid, connName string) (int, err
 		return 0, err
 	}
 	defer store.Close()
-	if err := resolveConfigRefs(ctx, cfg, store, io.Discard); err != nil {
+	cs, err := resolveConfigRefs(ctx, cfg, store, io.Discard)
+	if err != nil {
 		return 0, err
 	}
 	if err := validateConnectors(ctx, cfg); err != nil {
@@ -508,7 +509,7 @@ func realTUISyncer(ctx context.Context, cfgPath, pid, connName string) (int, err
 	}
 	for _, inst := range product.Connectors {
 		if inst.Name == connName {
-			return runConnectorInstance(ctx, store, pid, inst, io.Discard)
+			return runConnectorInstance(ctx, store, pid, inst, io.Discard, cs)
 		}
 	}
 	return 0, fmt.Errorf("connector %q not found under product %q", connName, pid)

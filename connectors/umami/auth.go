@@ -68,19 +68,21 @@ const (
 const loginPath = "/api/auth/login"
 
 // loginAuth authenticates every request with a JWT acquired by POSTing
-// to /api/auth/login. The token is cached in the connector's state
-// map across syncs so a typical run makes one bearer request and
-// skips the login round-trip.
+// to /api/auth/login. The token is cached in sealed storage (via
+// tokenStore) when available, or in the connector's state map when
+// tokenStore is nil. Using the sealed store ensures the JWT is
+// encrypted at rest and visible in `ridgeline creds list`.
 //
 // A loginAuth must not be shared across concurrent Extract calls: the
 // dirty flag is a one-shot signal consumed by Extract, and a second
 // reader would swallow the checkpoint the first needed.
 type loginAuth struct {
-	baseURL  string
-	username string
-	password string
-	client   *http.Client
-	now      func() time.Time
+	baseURL    string
+	username   string
+	password   string
+	client     *http.Client
+	now        func() time.Time
+	tokenStore connectors.TokenStore
 
 	mu       sync.Mutex
 	token    string
@@ -88,7 +90,7 @@ type loginAuth struct {
 	dirty    bool
 }
 
-func newLoginAuth(cfg map[string]any, state connectors.State, client *http.Client, now func() time.Time) (*loginAuth, error) {
+func newLoginAuth(cfg map[string]any, state connectors.State, client *http.Client, now func() time.Time, ts connectors.TokenStore) (*loginAuth, error) {
 	base := strings.TrimRight(strings.TrimSpace(stringOf(cfg["base_url"])), "/")
 	username := strings.TrimSpace(stringOf(cfg["username"]))
 	password := strings.TrimSpace(stringOf(cfg["password"]))
@@ -99,24 +101,38 @@ func newLoginAuth(cfg map[string]any, state connectors.State, client *http.Clien
 		return nil, fmt.Errorf("umami: auth=login requires username and password (set username_ref and password_ref)")
 	}
 	a := &loginAuth{
-		baseURL:  base,
-		username: username,
-		password: password,
-		client:   client,
-		now:      now,
+		baseURL:    base,
+		username:   username,
+		password:   password,
+		client:     client,
+		now:        now,
+		tokenStore: ts,
 	}
-	if state != nil {
+	if ts != nil {
+		// Try sealed store first; a missing entry is not an error.
+		if raw, err := ts.Get(context.Background(), tokenCredKey(base)); err == nil {
+			a.token = strings.TrimSpace(string(raw))
+			a.issuedAt = time.Now().UTC() // issuedAt unknown; treat as current
+		}
+	} else if state != nil {
+		// Fall back to state-based cache for callers without a token store
+		// (e.g. tests that construct loginAuth directly).
 		if t, ok := state[stateKeyAuthToken].(string); ok {
 			a.token = strings.TrimSpace(t)
 		}
 		if raw, ok := state[stateKeyAuthTokenAt].(string); ok {
-			if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-				a.issuedAt = ts
+			if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+				a.issuedAt = parsed
 			}
 		}
 	}
 	return a, nil
 }
+
+// tokenCredKey returns the credential store name for the cached JWT for a
+// given Umami base URL. Using the base URL makes the key unique when a
+// single installation syncs multiple Umami instances.
+func tokenCredKey(baseURL string) string { return "umami.token." + baseURL }
 
 func (a *loginAuth) decorate(req *http.Request) error {
 	a.mu.Lock()
@@ -188,6 +204,15 @@ func (a *loginAuth) reauth(ctx context.Context) error {
 	a.issuedAt = now().UTC()
 	a.dirty = true
 	a.mu.Unlock()
+	if a.tokenStore != nil {
+		// Persist to sealed storage immediately so a crash before the
+		// end-of-stream StateMsg still saves the credential.
+		if err := a.tokenStore.Put(ctx, tokenCredKey(a.baseURL), []byte(tok)); err != nil {
+			// Non-fatal: the token is usable in memory; log by returning
+			// the error wrapped so callers can decide to surface or drop it.
+			return fmt.Errorf("umami login: seal token: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -200,6 +225,11 @@ func (a *loginAuth) clearToken() {
 
 func (a *loginAuth) applyTo(state connectors.State) {
 	if state == nil {
+		return
+	}
+	// When a sealed token store is in use, the JWT is already persisted
+	// there; do not copy it into the plain-text state database.
+	if a.tokenStore != nil {
 		return
 	}
 	a.mu.Lock()
@@ -230,7 +260,7 @@ func (a *loginAuth) consumeDirty() bool {
 // newAuthorizer builds the authorizer for cfg. The caller has already
 // validated cfg, so any unreachable-branch errors here indicate a
 // Validate/Extract drift.
-func newAuthorizer(cfg map[string]any, state connectors.State, client *http.Client, now func() time.Time) (authorizer, error) {
+func newAuthorizer(cfg map[string]any, state connectors.State, client *http.Client, now func() time.Time, ts connectors.TokenStore) (authorizer, error) {
 	switch mode := authMode(cfg); mode {
 	case authAPIKey:
 		key := strings.TrimSpace(stringOf(cfg["api_key"]))
@@ -239,7 +269,7 @@ func newAuthorizer(cfg map[string]any, state connectors.State, client *http.Clie
 		}
 		return &apiKeyAuth{key: key}, nil
 	case authLogin:
-		return newLoginAuth(cfg, state, client, now)
+		return newLoginAuth(cfg, state, client, now, ts)
 	default:
 		return nil, fmt.Errorf("umami: unsupported auth mode %q", mode)
 	}
