@@ -10,12 +10,12 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > an AES-256-GCM credential store with a `ridgeline creds` CLI, JSON-lines
 > and Parquet sinks, native connectors for Hacker News (Algolia public
 > API), Umami (self-hosted analytics, API key or username/password
-> login), and Google Search Console (OAuth 2.0 via a browser PKCE flow
-> or a bring-your-own refresh token), an external
-> runner that lets you wire any executable that speaks JSON-lines as a
-> connector, and an in-process DuckDB `ridgeline query` command. Next up
-> are more native connectors. See [ROADMAP.md](ROADMAP.md). Built in
-> public.
+> login), Google Search Console (OAuth 2.0 via a browser PKCE flow
+> or a bring-your-own refresh token), and Plausible Analytics (daily
+> timeseries via API token), an external runner that lets you wire any
+> executable that speaks JSON-lines as a connector, and an in-process
+> DuckDB `ridgeline query` command. See [ROADMAP.md](ROADMAP.md). Built
+> in public.
 
 ## Try it now
 
@@ -340,6 +340,46 @@ today minus `end_offset_days`. On a 401 the connector forces one
 refresh and retries once; a second 401 surfaces the original error
 rather than looping.
 
+### Pulling Plausible Analytics data
+
+The `plausible` connector reads daily aggregate metrics from
+[Plausible Analytics](https://plausible.io) (cloud or self-hosted) via
+the stats API. Each record covers one calendar day with `visitors`,
+`pageviews`, `bounce_rate`, and `visit_duration` columns stored as typed
+Parquet fields. Syncs are incremental: the cursor is the last date
+successfully fetched.
+
+Create an API token in your Plausible dashboard under Settings -> API
+Tokens, then store it:
+
+```sh
+echo "plau_..." | ./ridgeline creds put --config ridgeline.yaml plausible_token
+```
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: stats
+        type: plausible
+        config:
+          site_id: example.com          # domain as registered in Plausible
+          api_token_ref: plausible_token
+          # base_url: https://plausible.io   # omit for cloud; set for self-hosted
+          # lookback_days: 30                # initial backfill window (default 30)
+        streams: [timeseries]
+        sink:
+          type: parquet
+          options:
+            dir: ./plausible-out
+```
+
+The `timeseries` stream fetches from `/api/v1/stats/timeseries` with
+`interval=date`. Each sync requests from `(last_date + 1)` through
+yesterday so today's incomplete data is never written.
+
 ### Wiring an external connector (any language)
 
 The `external` connector type spawns any executable that speaks the
@@ -445,6 +485,7 @@ go test ./...
 | `connectors/hackernews`     | Incremental Algolia-backed Hacker News search (stories, comments).       |
 | `connectors/umami`          | Incremental Umami events feed; API-key or login (username/password) auth.|
 | `connectors/gsc`            | Google Search Console daily Search Analytics; OAuth 2.0 refresh token.   |
+| `connectors/plausible`      | Plausible Analytics daily timeseries (visitors, pageviews, bounce rate). |
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
