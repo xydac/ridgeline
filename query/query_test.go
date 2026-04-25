@@ -14,7 +14,7 @@ import (
 
 func TestRunLiteralSelect(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "SELECT 42 AS answer, 'hi' AS greeting", &buf)
+	err := Run(context.Background(), "SELECT 42 AS answer, 'hi' AS greeting", &buf, Options{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestRunLiteralSelect(t *testing.T) {
 
 func TestRunNullRendering(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "SELECT NULL AS empty", &buf)
+	err := Run(context.Background(), "SELECT NULL AS empty", &buf, Options{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestRunNullRendering(t *testing.T) {
 
 func TestRunEmptyResultSetPrintsHeaderAndCount(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "SELECT 1 AS x WHERE 1=0", &buf)
+	err := Run(context.Background(), "SELECT 1 AS x WHERE 1=0", &buf, Options{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestRunEmptyResultSetPrintsHeaderAndCount(t *testing.T) {
 
 func TestRunRejectsEmptyQuery(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "   \n\t  ", &buf)
+	err := Run(context.Background(), "   \n\t  ", &buf, Options{})
 	if err == nil {
 		t.Fatal("expected error for empty query, got nil")
 	}
@@ -65,9 +65,91 @@ func TestRunRejectsEmptyQuery(t *testing.T) {
 
 func TestRunSurfacesSyntaxError(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "SELEKT 1", &buf)
+	err := Run(context.Background(), "SELEKT 1", &buf, Options{})
 	if err == nil {
 		t.Fatal("expected syntax error, got nil")
+	}
+}
+
+// TestRunReadOnlyRejectsDelete verifies that a DELETE statement is
+// rejected in default (read-only) mode.
+func TestRunReadOnlyRejectsDelete(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "DELETE FROM nonexistent", &buf, Options{})
+	if err == nil {
+		t.Fatal("expected error for DELETE in read-only mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "read-only mode rejects") {
+		t.Errorf("expected read-only rejection error, got %q", err.Error())
+	}
+	if !strings.Contains(strings.ToUpper(err.Error()), "DELETE") {
+		t.Errorf("error should mention DELETE, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyRejectsCopy verifies that COPY TO is rejected in
+// default (read-only) mode. This closes F-025.
+func TestRunReadOnlyRejectsCopy(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "out.csv")
+	stmt := "COPY (SELECT 42 AS answer) TO '" + tmp + "' (HEADER)"
+	var buf bytes.Buffer
+	err := Run(context.Background(), stmt, &buf, Options{})
+	if err == nil {
+		t.Fatal("expected error for COPY TO in read-only mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "read-only mode rejects") {
+		t.Errorf("expected read-only rejection error, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyRejectsMultiStatement verifies that semicolon-joined
+// multi-statement input is rejected. This closes F-026.
+func TestRunReadOnlyRejectsMultiStatement(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "SELECT 1; SELECT 2", &buf, Options{})
+	if err == nil {
+		t.Fatal("expected error for multi-statement input, got nil")
+	}
+	if !strings.Contains(err.Error(), "multi-statement") {
+		t.Errorf("expected multi-statement error, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyRejectsInsert verifies INSERT is rejected.
+func TestRunReadOnlyRejectsInsert(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "INSERT INTO t VALUES (1)", &buf, Options{})
+	if err == nil {
+		t.Fatal("expected error for INSERT in read-only mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "read-only mode rejects") {
+		t.Errorf("expected read-only rejection error, got %q", err.Error())
+	}
+}
+
+// TestRunWriteModeAllowsNonSelect verifies that Write: true bypasses
+// the read-only guard. The statement may produce other errors (e.g. no
+// such table) but must NOT produce the "read-only mode rejects" error.
+func TestRunWriteModeAllowsNonSelect(t *testing.T) {
+	var buf bytes.Buffer
+	// CREATE TABLE AS SELECT returns a row-count, not tabular data, so
+	// Run may error about "no columns" -- but must not say "read-only".
+	err := Run(context.Background(), "CREATE TABLE t AS SELECT 42 AS x", &buf, Options{Write: true})
+	if err != nil && strings.Contains(err.Error(), "read-only mode rejects") {
+		t.Errorf("write mode should not produce read-only rejection: %v", err)
+	}
+}
+
+// TestRunReadOnlyAllowsCTE verifies that a WITH...SELECT (CTE) is
+// permitted in read-only mode, since its AST type is SELECT_NODE.
+func TestRunReadOnlyAllowsCTE(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "WITH x AS (SELECT 1 AS n) SELECT n FROM x", &buf, Options{})
+	if err != nil {
+		t.Fatalf("CTE should be allowed in read-only mode: %v", err)
+	}
+	if !strings.Contains(buf.String(), "(1 row)") {
+		t.Errorf("expected 1-row result, got\n%s", buf.String())
 	}
 }
 
@@ -98,7 +180,7 @@ func TestRunReadsParquet(t *testing.T) {
 
 	var buf bytes.Buffer
 	q := "SELECT stream, count(*) AS n FROM read_parquet('" + filepath.Join(dir, "*.parquet") + "') GROUP BY stream ORDER BY stream"
-	if err := Run(context.Background(), q, &buf); err != nil {
+	if err := Run(context.Background(), q, &buf, Options{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got := buf.String()
