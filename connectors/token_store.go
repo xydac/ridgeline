@@ -1,6 +1,9 @@
 package connectors
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // TokenStore persists and retrieves short-lived derived credentials, such
 // as cached JWTs acquired via username/password login, using sealed
@@ -20,3 +23,7 @@ type TokenStore interface {
 type TokenStorer interface {
 	SetTokenStore(ts TokenStore)
 }
+
+// ErrTokenNotFound is returned by TokenStore.Get when no token is stored
+// under the requested name.
+var ErrTokenNotFound = fmt.Errorf("connectors: token not found")

@@ -6,12 +6,47 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/xydac/ridgeline/connectors"
 	"github.com/xydac/ridgeline/connectors/umami"
 )
+
+// memTokenStore is an in-memory TokenStore used in tests.
+type memTokenStore struct {
+	mu   sync.Mutex
+	data map[string][]byte
+}
+
+func newMemTokenStore() *memTokenStore { return &memTokenStore{data: map[string][]byte{}} }
+
+func (s *memTokenStore) Put(_ context.Context, name string, value []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]byte, len(value))
+	copy(cp, value)
+	s.data[name] = cp
+	return nil
+}
+
+func (s *memTokenStore) Get(_ context.Context, name string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.data[name]
+	if !ok {
+		return nil, connectors.ErrTokenNotFound
+	}
+	return v, nil
+}
+
+func (s *memTokenStore) has(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.data[name]
+	return ok
+}
 
 // TestExtract_LoginHappyPath verifies a fresh auth=login run: the
 // connector logs in once, caches the returned JWT in state, and pulls
@@ -331,6 +366,100 @@ func TestExtract_LoginMissingTokenField(t *testing.T) {
 	}
 	if !strings.Contains(errLog, "missing token") {
 		t.Errorf("error log = %q, want 'missing token'", errLog)
+	}
+}
+
+// TestExtract_LoginWithTokenStore_JWTInStoreNotState verifies that when a
+// TokenStore is injected, a freshly acquired JWT is written to the store
+// and NOT written into the state map.
+func TestExtract_LoginWithTokenStore_JWTInStoreNotState(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/login" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"token": "sealed-jwt"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"id": "e1", "createdAt": "2026-04-20T12:00:00Z"}},
+		})
+	}))
+	defer srv.Close()
+
+	ts := newMemTokenStore()
+	c := umami.New()
+	c.Client = srv.Client()
+	c.SetTokenStore(ts)
+	cfg := connectors.ConnectorConfig{
+		"base_url": srv.URL, "website_id": "w",
+		"auth": "login", "username": "u", "password": "p",
+	}
+	ch, err := c.Extract(context.Background(), cfg, []connectors.Stream{{Name: umami.StreamEvents}}, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	var lastState connectors.State
+	for m := range ch {
+		if m.Type == connectors.StateMsg && m.State != nil {
+			lastState = *m.State
+		}
+	}
+	// JWT must be in the token store.
+	credKey := "umami.token." + srv.URL
+	if !ts.has(credKey) {
+		t.Errorf("token store missing key %q", credKey)
+	}
+	// JWT must NOT be in state.
+	if _, ok := lastState["auth_token"]; ok {
+		t.Errorf("state must not contain auth_token when tokenStore is set; got %v", lastState)
+	}
+	if _, ok := lastState["auth_token_issued_at"]; ok {
+		t.Errorf("state must not contain auth_token_issued_at when tokenStore is set; got %v", lastState)
+	}
+}
+
+// TestExtract_LoginWithTokenStore_ReusesStoredToken verifies that a JWT
+// pre-loaded into the token store is used on the first request and no
+// login round-trip is made.
+func TestExtract_LoginWithTokenStore_ReusesStoredToken(t *testing.T) {
+	t.Parallel()
+
+	var logins int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/login" {
+			atomic.AddInt32(&logins, 1)
+			t.Errorf("unexpected login call")
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer stored-sealed-jwt" {
+			t.Errorf("Authorization = %q, want stored-sealed-jwt", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+	}))
+	defer srv.Close()
+
+	ts := newMemTokenStore()
+	credKey := "umami.token." + srv.URL
+	_ = ts.Put(context.Background(), credKey, []byte("stored-sealed-jwt"))
+
+	c := umami.New()
+	c.Client = srv.Client()
+	c.SetTokenStore(ts)
+	cfg := connectors.ConnectorConfig{
+		"base_url": srv.URL, "website_id": "w",
+		"auth": "login", "username": "u", "password": "p",
+	}
+	ch, err := c.Extract(context.Background(), cfg, []connectors.Stream{{Name: umami.StreamEvents}}, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	for range ch {
+	}
+	if got := atomic.LoadInt32(&logins); got != 0 {
+		t.Errorf("logins = %d, want 0 (token already in store)", got)
 	}
 }
 

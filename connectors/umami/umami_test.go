@@ -38,6 +38,38 @@ func TestSpec(t *testing.T) {
 	}
 }
 
+func TestSpec_EventsStreamTypedSchema(t *testing.T) {
+	t.Parallel()
+	stream := umami.New().Spec().Streams[0]
+	wantCols := []struct {
+		name string
+		typ  connectors.ColumnType
+		key  bool
+	}{
+		{"id", connectors.String, true},
+		{"websiteId", connectors.String, false},
+		{"sessionId", connectors.String, false},
+		{"createdAt", connectors.Timestamp, false},
+		{"urlPath", connectors.String, false},
+		{"eventName", connectors.String, false},
+	}
+	cols := stream.Schema.Columns
+	if len(cols) != len(wantCols) {
+		t.Fatalf("schema columns = %d, want %d", len(cols), len(wantCols))
+	}
+	for i, w := range wantCols {
+		if cols[i].Name != w.name {
+			t.Errorf("col[%d].Name = %q, want %q", i, cols[i].Name, w.name)
+		}
+		if cols[i].Type != w.typ {
+			t.Errorf("col[%d] %q Type = %v, want %v", i, w.name, cols[i].Type, w.typ)
+		}
+		if cols[i].Key != w.key {
+			t.Errorf("col[%d] %q Key = %v, want %v", i, w.name, cols[i].Key, w.key)
+		}
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	c := umami.New()
