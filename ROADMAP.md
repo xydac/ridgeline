@@ -33,11 +33,6 @@
 - Output lines from the sync pipeline's warning path carry the Go
   stdlib log prefix (`2026/04/21 01:00:38 ...`); info and done lines
   print without a prefix. Output should go through one formatter.
-- YAML decode errors surface the Go destination type
-  (`map[string]config.Product`) and yaml tags (`!!str`) in error
-  messages. SQLite driver errors surface numeric errnos like `(14)`
-  and `(26)`. Both should be translated into Ridgeline vocabulary at
-  the CLI boundary.
 - A `sync` that produces zero records still creates an empty
   timestamped partition directory under the sink's output root.
   Repeated idempotent runs accumulate empty directories. The mkdir
