@@ -67,9 +67,13 @@ func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
 	}
 
 	if meta.Error {
-		// Non-SELECT statement. Check the opening keyword against the safe list.
+		// json_serialize_sql could not parse the statement. This happens for
+		// non-SELECT statements (DELETE, COPY, ATTACH, ...) but also for a
+		// malformed SELECT that the SELECT-only parser cannot reach. If the
+		// opening keyword is itself SELECT or WITH, treat the statement as a
+		// malformed SELECT and let DuckDB surface the real syntax error.
 		kw := firstKeyword(stmt)
-		if safeNonSelectKeywords[kw] {
+		if safeNonSelectKeywords[kw] || kw == "SELECT" || kw == "WITH" {
 			return nil
 		}
 		return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)

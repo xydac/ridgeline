@@ -153,6 +153,21 @@ func TestRunReadOnlyAllowsCTE(t *testing.T) {
 	}
 }
 
+// TestRunMalformedSelectSurfacesSyntaxError verifies that a SELECT
+// that json_serialize_sql cannot parse (e.g. two SELECT clauses
+// concatenated without a delimiter) produces a real DuckDB syntax
+// error rather than the misleading "read-only mode rejects SELECT".
+func TestRunMalformedSelectSurfacesSyntaxError(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "SELECT 1 SELECT 2", &buf, Options{})
+	if err == nil {
+		t.Fatal("expected syntax error, got nil")
+	}
+	if strings.Contains(err.Error(), "read-only mode rejects") {
+		t.Errorf("malformed SELECT should not be flagged as read-only rejection: %v", err)
+	}
+}
+
 // TestRunReadsParquet exercises the round-trip a user will actually
 // hit: write a parquet file with the ridgeline parquet sink's schema,
 // then select from it via read_parquet. Uses the glob pattern the
