@@ -257,8 +257,16 @@ func TestList_EmptyStoreReturnsEmpty(t *testing.T) {
 
 func TestOpen_NotADBNoRawErrno(t *testing.T) {
 	// Opening a non-SQLite file should return a friendly message,
-	// not the raw sqlite errno (26).
-	_, err := sqlite.Open("/etc/hostname")
+	// not the raw sqlite errno (26). Use a temp file so the test is
+	// portable across platforms with different /etc/hostname permissions.
+	f, err := os.CreateTemp(t.TempDir(), "notsqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("this is not a sqlite database\n")
+	f.Close()
+
+	_, err = sqlite.Open(f.Name())
 	if err == nil {
 		t.Fatalf("expected error opening non-sqlite file")
 	}
