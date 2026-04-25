@@ -391,7 +391,7 @@ sink:
     dir: ./pq-out
 ```
 
-Each file has a fixed three-column schema:
+Every file has at minimum these three columns:
 
 | Column      | Type           | Meaning                                    |
 |-------------|----------------|--------------------------------------------|
@@ -399,9 +399,12 @@ Each file has a fixed three-column schema:
 | `timestamp` | INT64          | Record timestamp, unix microseconds, UTC   |
 | `data_json` | UTF8           | Record body encoded as JSON                |
 
-Storing the record body as a JSON column keeps the sink usable for
-every connector without a per-stream schema declaration. Typed-column
-Parquet inference is on the roadmap.
+Connectors that declare a stream Schema (currently `gsc` and `umami`)
+get typed columns for the declared fields alongside the `data_json`
+payload, so a `gsc` sync writes real `clicks` and `impressions`
+columns rather than burying them in JSON. Connectors without a
+declared schema fall back to the three-column layout above, keeping
+the sink usable for every source without a per-stream declaration.
 
 ### Querying with `ridgeline query`
 
@@ -461,10 +464,9 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Next up: typed Parquet columns for
-connectors with a stable schema, so a GSC sync writes real `clicks`
-and `impressions` columns instead of stuffing everything into
-`data_json`.
+See [ROADMAP.md](ROADMAP.md). Open known gaps include unifying the
+sync pipeline's log prefix and skipping empty timestamped partition
+directories on zero-record runs.
 
 ## Install
 
