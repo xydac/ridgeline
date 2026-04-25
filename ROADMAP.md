@@ -30,16 +30,6 @@
 
 ## Known gaps
 
-- `ridgeline creds put` silently overwrites an existing value. It
-  should either refuse without an explicit overwrite flag, or print a
-  visible "replaced" line so the previous value is not lost unnoticed.
-- `ridgeline creds put` strips a single trailing newline from stdin,
-  which is friendly for `echo "secret" | creds put` but silently
-  mutates a secret whose bytes really do end with a newline. The
-  strip should be opt-in, or a raw-bytes mode should be offered.
-- `creds oauth gsc --client-secret VALUE` takes the secret on the
-  command line and therefore leaks it to shell history. An
-  alternative that reads the secret from stdin or a file is needed.
 - Output lines from the sync pipeline's warning path carry the Go
   stdlib log prefix (`2026/04/21 01:00:38 ...`); info and done lines
   print without a prefix. Output should go through one formatter.

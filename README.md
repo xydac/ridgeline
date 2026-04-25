@@ -125,8 +125,16 @@ delete:
 echo "my-umami-api-key" | ./ridgeline creds put --config ridgeline.yaml umami_main
 # stored credential "umami_main" (16 bytes)
 
+# Overwriting an existing name prints "replaced" so the change is visible:
+echo "new-key" | ./ridgeline creds put --config ridgeline.yaml umami_main
+# replaced credential "umami_main" (7 bytes)
+
+# --raw preserves trailing bytes verbatim (skips newline strip):
+printf 'secret-with-newline\n' | ./ridgeline creds put --raw --config ridgeline.yaml umami_raw
+
 ./ridgeline creds list --config ridgeline.yaml
 # umami_main
+# umami_raw
 
 ./ridgeline creds get --config ridgeline.yaml umami_main
 # my-umami-api-key
@@ -262,11 +270,21 @@ There are two ways to get the refresh token into the credential store.
 Cloud Console, then run:
 
 ```sh
+# Read the secret from a file (keeps it out of shell history):
 ./ridgeline creds oauth gsc \
   --config ridgeline.yaml \
   --client-id "1234567890-xxxxx.apps.googleusercontent.com" \
-  --client-secret "GOCSPX-..." \
+  --client-secret-file ~/Downloads/client_secret.json \
   --name gsc
+
+# Or pipe it from stdin:
+cat ~/Downloads/client_secret.json | ./ridgeline creds oauth gsc \
+  --config ridgeline.yaml \
+  --client-id "1234567890-xxxxx.apps.googleusercontent.com" \
+  --client-secret-stdin \
+  --name gsc
+
+# --client-secret VALUE also works but writes the secret into shell history.
 ```
 
 A local HTTP listener is bound on a random port and an authorization
