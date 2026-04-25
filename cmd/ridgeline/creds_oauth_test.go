@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -185,5 +186,109 @@ func TestRunCreds_OAuthUnknownProvider(t *testing.T) {
 	err := runCreds(context.Background(), []string{"oauth", "nope"}, bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
 		t.Errorf("expected unknown-provider error, got %v", err)
+	}
+}
+
+func TestRunCreds_OAuthGSCClientSecretFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+
+	// Write client secret to a temp file.
+	secretFile := dir + "/secret.txt"
+	if err := os.WriteFile(secretFile, []byte("file-secret\n"), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+
+	issuer := newFakeOAuthIssuer(t, "refresh-via-file")
+	stderr := &urlCapturingWriter{onURL: func(u string) {
+		hc := &http.Client{Timeout: 5 * time.Second}
+		req, _ := http.NewRequest(http.MethodGet, u, nil)
+		if resp, err := hc.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out bytes.Buffer
+	err := runCreds(ctx, []string{
+		"oauth", "gsc",
+		"--config", cfgPath,
+		"--client-id", "cid",
+		"--client-secret-file", secretFile,
+		"--name", "gscfile",
+		"--auth-url", issuer.URL + "/auth",
+		"--token-url", issuer.URL + "/token",
+	}, bytes.NewReader(nil), &out, stderr)
+	if err != nil {
+		t.Fatalf("oauth gsc --client-secret-file: %v (stderr=%s)", err, stderr.buf.String())
+	}
+	if !strings.Contains(out.String(), "client_id_ref: gscfile_client_id") {
+		t.Errorf("expected yaml snippet in stdout; got:\n%s", out.String())
+	}
+}
+
+func TestRunCreds_OAuthGSCClientSecretStdin(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+
+	issuer := newFakeOAuthIssuer(t, "refresh-via-stdin")
+	stderr := &urlCapturingWriter{onURL: func(u string) {
+		hc := &http.Client{Timeout: 5 * time.Second}
+		req, _ := http.NewRequest(http.MethodGet, u, nil)
+		if resp, err := hc.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out bytes.Buffer
+	err := runCreds(ctx, []string{
+		"oauth", "gsc",
+		"--config", cfgPath,
+		"--client-id", "cid",
+		"--client-secret-stdin",
+		"--name", "gscstdin",
+		"--auth-url", issuer.URL + "/auth",
+		"--token-url", issuer.URL + "/token",
+	}, bytes.NewBufferString("stdin-secret\n"), &out, stderr)
+	if err != nil {
+		t.Fatalf("oauth gsc --client-secret-stdin: %v (stderr=%s)", err, stderr.buf.String())
+	}
+	if !strings.Contains(out.String(), "client_id_ref: gscstdin_client_id") {
+		t.Errorf("expected yaml snippet in stdout; got:\n%s", out.String())
+	}
+}
+
+func TestRunCreds_OAuthGSCMutuallyExclusiveSecret(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	err := runCreds(context.Background(), []string{
+		"oauth", "gsc",
+		"--config", cfgPath,
+		"--client-id", "cid",
+		"--client-secret", "sec",
+		"--client-secret-stdin",
+	}, bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "only one") {
+		t.Errorf("expected mutual-exclusion error, got %v", err)
+	}
+}
+
+func TestRunCreds_OAuthGSCRequiresSecret(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	err := runCreds(context.Background(), []string{
+		"oauth", "gsc",
+		"--config", cfgPath,
+		"--client-id", "cid",
+	}, bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "required") {
+		t.Errorf("expected missing-secret error, got %v", err)
 	}
 }

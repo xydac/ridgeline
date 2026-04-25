@@ -168,3 +168,53 @@ func TestRunCreds_PutTrimsTrailingNewline(t *testing.T) {
 		t.Errorf("round trip: got %q", got)
 	}
 }
+
+func TestRunCreds_PutRawPreservesTrailingNewline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	var out, errOut bytes.Buffer
+	ctx := context.Background()
+	if err := runCreds(ctx, []string{"put", "--raw", "--config", cfgPath, "k"},
+		bytes.NewBufferString("secret-value\n"), &out, &errOut); err != nil {
+		t.Fatalf("put --raw: %v", err)
+	}
+	out.Reset()
+	if err := runCreds(ctx, []string{"get", "--config", cfgPath, "k"},
+		bytes.NewReader(nil), &out, &errOut); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	// --raw keeps the trailing newline; get adds one more when absent,
+	// so the stored bytes ("secret-value\n") come back as "secret-value\n".
+	if got := out.String(); got != "secret-value\n" {
+		t.Errorf("raw round trip: got %q, want %q", got, "secret-value\n")
+	}
+}
+
+func TestRunCreds_PutPrintsReplaced(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+
+	var errOut bytes.Buffer
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "mykey"},
+		bytes.NewBufferString("first\n"), &bytes.Buffer{}, &errOut); err != nil {
+		t.Fatalf("first put: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "stored") {
+		t.Errorf("first put stderr = %q, want 'stored'", errOut.String())
+	}
+	if strings.Contains(errOut.String(), "replaced") {
+		t.Errorf("first put stderr = %q, must not say 'replaced'", errOut.String())
+	}
+
+	errOut.Reset()
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "mykey"},
+		bytes.NewBufferString("second\n"), &bytes.Buffer{}, &errOut); err != nil {
+		t.Fatalf("second put: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "replaced") {
+		t.Errorf("second put stderr = %q, want 'replaced'", errOut.String())
+	}
+}
