@@ -17,7 +17,7 @@ import (
 // Name is the connector name registered with the connectors package.
 const Name = "umami"
 
-// Header used to carry an Umami v2 API key.
+// APIKeyHeader carries an Umami v2 API key on outgoing HTTP requests.
 const APIKeyHeader = "x-umami-api-key"
 
 // DefaultPageSize is the page size when the config omits page_size.
