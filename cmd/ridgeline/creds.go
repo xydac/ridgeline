@@ -47,7 +47,7 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	case "rm":
 		return credsRm(ctx, rest)
 	case "oauth":
-		return credsOAuth(ctx, rest, stdout, stderr)
+		return credsOAuth(ctx, rest, stdin, stdout, stderr)
 	}
 	return fmt.Errorf("unknown creds verb %q (known: list, put, get, rm, oauth)", verb)
 }
@@ -55,10 +55,10 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 func credsUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  ridgeline creds list  --config PATH")
-	fmt.Fprintln(w, "  ridgeline creds put   --config PATH NAME        # reads secret from stdin")
-	fmt.Fprintln(w, "  ridgeline creds get   --config PATH NAME        # writes plaintext to stdout")
+	fmt.Fprintln(w, "  ridgeline creds put   --config PATH [--raw] NAME        # reads secret from stdin")
+	fmt.Fprintln(w, "  ridgeline creds get   --config PATH NAME                # writes plaintext to stdout")
 	fmt.Fprintln(w, "  ridgeline creds rm    --config PATH NAME")
-	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID --client-secret SEC [--name PREFIX]")
+	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID (--client-secret SEC | --client-secret-file PATH | --client-secret-stdin) [--name PREFIX]")
 }
 
 // credsFlags parses --config out of args and returns the loaded config
@@ -144,13 +144,20 @@ func credsList(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer) error {
-	cfg, rest, help, err := credsFlags("put", args)
+	fs := flag.NewFlagSet("creds put", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	rawMode := fs.Bool("raw", false, "store bytes verbatim without stripping a trailing newline")
+	help, err := parseSubcommandFlags(fs, args)
 	if err != nil {
 		return err
 	}
 	if help {
 		return nil
 	}
+	if *cfgPath == "" {
+		return fmt.Errorf("--config PATH is required")
+	}
+	rest := fs.Args()
 	if len(rest) != 1 {
 		return fmt.Errorf("put: exactly one NAME argument is required")
 	}
@@ -158,28 +165,39 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Wri
 	if isInteractive(stdin) {
 		fmt.Fprintf(stderr, "Enter secret for %q, end with EOF (Ctrl+D):\n", name)
 	}
-	raw, err := io.ReadAll(stdin)
+	input, err := io.ReadAll(stdin)
 	if err != nil {
 		return fmt.Errorf("read stdin: %w", err)
 	}
-	// Trim a single trailing newline so `echo foo | creds put` stores
-	// exactly "foo". A user wanting a trailing newline can pipe it with
-	// printf.
-	raw = bytes.TrimSuffix(raw, []byte("\n"))
-	raw = bytes.TrimSuffix(raw, []byte("\r"))
-	if len(raw) == 0 {
+	secret := input
+	if !*rawMode {
+		// Strip a single trailing newline so `echo foo | creds put` stores
+		// exactly "foo". Pass --raw to preserve trailing bytes verbatim.
+		secret = bytes.TrimSuffix(secret, []byte("\n"))
+		secret = bytes.TrimSuffix(secret, []byte("\r"))
+	}
+	if len(secret) == 0 {
 		return fmt.Errorf("put: refused to store an empty secret for %q", name)
 	}
 
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
 	cs, store, err := openCreds(cfg)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	if err := cs.Put(ctx, name, raw); err != nil {
+
+	action := "stored"
+	if _, getErr := cs.Get(ctx, name); getErr == nil {
+		action = "replaced"
+	}
+	if err := cs.Put(ctx, name, secret); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "stored credential %q (%d bytes)\n", name, len(raw))
+	fmt.Fprintf(stderr, "%s credential %q (%d bytes)\n", action, name, len(secret))
 	return nil
 }
 
