@@ -144,11 +144,10 @@ the YAML file never carries the secret on disk.
 The `umami` connector reads the events feed from a self-hosted Umami
 install. It supports two auth modes: an API key (Umami v2 cloud or any
 install that exposes Settings -> API Keys) and username/password login
-(the default for most self-hosted installs, which POSTs to
-`/api/auth/login` and caches the returned JWT).
+(POSTs to `/api/auth/login` and caches the returned JWT).
 
-**API key mode** (default). Create the key in the Umami UI, store it,
-reference it from the config:
+**API key mode** (Ridgeline default when `auth:` is omitted). Create
+the key in the Umami UI, store it, reference it from the config:
 
 ```yaml
 version: 1
@@ -172,8 +171,9 @@ products:
             dir: ./umami-out
 ```
 
-**Login mode**. Store the username and password with `ridgeline creds put`,
-then declare `auth: login` plus `username_ref` and `password_ref`:
+**Login mode** (opt in with `auth: login`). Store the username and
+password with `ridgeline creds put`, then declare `auth: login` plus
+`username_ref` and `password_ref`:
 
 ```sh
 echo "alice" | ./ridgeline creds put --config ridgeline.yaml umami_user
