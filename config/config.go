@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -104,7 +106,7 @@ func Parse(b []byte) (*File, error) {
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("config: parse: %w", err)
+		return nil, translateYAMLErr(err)
 	}
 	if err := f.applyDefaults(); err != nil {
 		return nil, err
@@ -175,6 +177,58 @@ func (f *File) ProductIDs() []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// translateYAMLErr converts a yaml.TypeError into a Ridgeline-vocabulary
+// error that does not expose Go type names or yaml internal tags. For any
+// other error type it falls back to a generic "config: parse" wrap.
+func translateYAMLErr(err error) error {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return fmt.Errorf("config: parse: %w", err)
+	}
+	msgs := make([]string, 0, len(te.Errors))
+	for _, m := range te.Errors {
+		msgs = append(msgs, cleanYAMLMsg(m))
+	}
+	if len(msgs) == 1 {
+		return fmt.Errorf("config: %s", msgs[0])
+	}
+	return fmt.Errorf("config: multiple errors in config file:\n  %s", strings.Join(msgs, "\n  "))
+}
+
+var (
+	reGoMapType    = regexp.MustCompile(`map\[string\][^\s,)]*`)
+	reGoSliceType  = regexp.MustCompile(`\[][^\s,)]*`)
+	reUnknownField = regexp.MustCompile(`\bnot found in type [^\s,]+`)
+)
+
+var yamlTagNames = map[string]string{
+	"!!str":       "a string",
+	"!!seq":       "a list",
+	"!!map":       "a mapping",
+	"!!int":       "an integer",
+	"!!bool":      "a boolean",
+	"!!float":     "a number",
+	"!!null":      "null",
+	"!!binary":    "binary data",
+	"!!timestamp": "a timestamp",
+	"!!merge":     "a merge key",
+}
+
+func cleanYAMLMsg(msg string) string {
+	// "field X not found in type pkg.T" -> "field X is not recognized"
+	msg = reUnknownField.ReplaceAllString(msg, "is not recognized")
+	// Replace !!tag with human-readable type name.
+	for tag, name := range yamlTagNames {
+		msg = strings.ReplaceAll(msg, tag+" ", name+" ")
+		msg = strings.ReplaceAll(msg, tag, name)
+	}
+	// Replace Go composite type names.
+	msg = reGoMapType.ReplaceAllString(msg, "a mapping")
+	msg = reGoSliceType.ReplaceAllString(msg, "a list")
+	msg = strings.ReplaceAll(msg, "interface {}", "a value")
+	return strings.TrimRight(msg, " ")
 }
 
 // applyDefaults fills in empty optional fields with their documented

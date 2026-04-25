@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func Open(path string) (*Store, error) {
 	}
 	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("sqlite: ping %s: %w", path, err)
+		return nil, translateSQLiteErr(path, err)
 	}
 
 	if path != ":memory:" {
@@ -159,6 +160,23 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("sqlite: Delete %q: %w", key, err)
 	}
 	return nil
+}
+
+// translateSQLiteErr maps known sqlite driver errno codes to
+// Ridgeline-vocabulary errors. Unknown codes fall through to a generic
+// state-prefixed wrap so no raw errno leaks to the user.
+func translateSQLiteErr(path string, err error) error {
+	type codeErr interface{ Code() int }
+	var ce codeErr
+	if errors.As(err, &ce) {
+		switch ce.Code() {
+		case 26: // SQLITE_NOTADB
+			return fmt.Errorf("state: database file is not a valid SQLite database: %s", path)
+		case 14: // SQLITE_CANTOPEN
+			return fmt.Errorf("state: database file unavailable: %s", path)
+		}
+	}
+	return fmt.Errorf("state: %w", err)
 }
 
 // Keys returns every state key currently stored, sorted
