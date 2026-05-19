@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -499,5 +500,149 @@ products:
 	}
 	if err := runSync(context.Background(), []string{"--config", cfgPath}); err == nil {
 		t.Fatal("expected error for unknown sink type")
+	}
+}
+
+// failCfg returns a YAML snippet for an external connector that exits 1,
+// passing validation (non-empty command) but failing at extract time.
+func failConnectorYAML(name, outDir string) string {
+	return `
+      - name: ` + name + `
+        type: external
+        config: { command: "/bin/false" }
+        streams: [events]
+        sink: { type: jsonl, options: { dir: ` + outDir + ` } }`
+}
+
+func TestRunSync_ContinueOnError_OneConnectorFails(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	firstOut := filepath.Join(dir, "first")
+	failOut := filepath.Join(dir, "fail")
+	thirdOut := filepath.Join(dir, "third")
+
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: first
+        type: testsrc
+        config: { records: 2 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + firstOut + ` } }` +
+		failConnectorYAML("mid", failOut) + `
+      - name: third
+        type: testsrc
+        config: { records: 2 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + thirdOut + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath, "--continue-on-error"})
+	if err == nil {
+		t.Fatal("expected PartialSyncError")
+	}
+	var pse *PartialSyncError
+	if !errors.As(err, &pse) {
+		t.Fatalf("want *PartialSyncError, got %T: %v", err, err)
+	}
+	if len(pse.failures) != 1 {
+		t.Errorf("failures = %d, want 1", len(pse.failures))
+	}
+	if pse.failures[0].connector != "mid" {
+		t.Errorf("failed connector = %q, want 'mid'", pse.failures[0].connector)
+	}
+	if pse.succeeded != 2 {
+		t.Errorf("succeeded = %d, want 2", pse.succeeded)
+	}
+	if pse.IsTotal() {
+		t.Error("IsTotal() = true; want false with 2 succeeded")
+	}
+	// successful connectors must have written output
+	if _, err := os.Stat(firstOut); err != nil {
+		t.Errorf("first connector output missing: %v", err)
+	}
+	if _, err := os.Stat(thirdOut); err != nil {
+		t.Errorf("third connector output missing: %v", err)
+	}
+	// error message must name the failed connector
+	if !strings.Contains(err.Error(), "mid") {
+		t.Errorf("error %q does not name failed connector", err.Error())
+	}
+}
+
+func TestRunSync_ContinueOnError_AllFail(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:` +
+		failConnectorYAML("a", filepath.Join(dir, "a")) +
+		failConnectorYAML("b", filepath.Join(dir, "b")) + `
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath, "--continue-on-error"})
+	if err == nil {
+		t.Fatal("expected PartialSyncError")
+	}
+	var pse *PartialSyncError
+	if !errors.As(err, &pse) {
+		t.Fatalf("want *PartialSyncError, got %T: %v", err, err)
+	}
+	if len(pse.failures) != 2 {
+		t.Errorf("failures = %d, want 2", len(pse.failures))
+	}
+	if pse.succeeded != 0 {
+		t.Errorf("succeeded = %d, want 0", pse.succeeded)
+	}
+	if !pse.IsTotal() {
+		t.Error("IsTotal() = false; want true with 0 succeeded")
+	}
+}
+
+func TestRunSync_ContinueOnError_AllPass(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	firstOut := filepath.Join(dir, "first")
+	secondOut := filepath.Join(dir, "second")
+
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: first
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + firstOut + ` } }
+      - name: second
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + secondOut + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := runSync(context.Background(), []string{"--config", cfgPath, "--continue-on-error"}); err != nil {
+		t.Fatalf("expected nil on all-pass with --continue-on-error: %v", err)
 	}
 }

@@ -20,21 +20,56 @@ import (
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
 
+// syncFailure records one connector's runtime error during a
+// --continue-on-error run.
+type syncFailure struct {
+	product   string
+	connector string
+	err       error
+}
+
+// PartialSyncError is returned by runSync when --continue-on-error is
+// set and at least one connector failed while others were attempted.
+// Call IsTotal to distinguish a run where every connector failed from
+// one where only some did.
+type PartialSyncError struct {
+	failures  []syncFailure
+	succeeded int
+}
+
+func (e *PartialSyncError) Error() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d of %d connector(s) failed:", len(e.failures), len(e.failures)+e.succeeded)
+	for _, f := range e.failures {
+		fmt.Fprintf(&sb, "\n  %s/%s: %s", f.product, f.connector, f.err)
+	}
+	return sb.String()
+}
+
+// IsTotal reports whether every connector failed (none succeeded).
+func (e *PartialSyncError) IsTotal() bool { return e.succeeded == 0 }
+
 // runSync implements `ridgeline sync`.
 //
-//	--config PATH     drive the pipeline from a ridgeline.yaml file with
-//	                  durable SQLite state. Each configured connector is
-//	                  run once, in product id then connector name order.
-//	--dry-run         run the built-in testsrc connector against a
-//	                  JSON-lines sink with an in-memory state store.
+//	--config PATH           drive the pipeline from a ridgeline.yaml file
+//	                        with durable SQLite state. Each configured
+//	                        connector is run once, in product id then
+//	                        connector name order.
+//	--continue-on-error     when used with --config, continue running
+//	                        remaining connectors after one fails. Exit
+//	                        code 2 signals partial failure; exit code 1
+//	                        signals total failure (all connectors failed).
+//	--dry-run               run the built-in testsrc connector against a
+//	                        JSON-lines sink with an in-memory state store.
 //
-// The flags are mutually exclusive.
+// --config and --dry-run are mutually exclusive.
 func runSync(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	dryRun := fs.Bool("dry-run", false, "run the built-in testsrc connector against the jsonl sink")
 	records := fs.Int("records", testsrc.DefaultRecords, "records per stream for dry-run")
 	out := fs.String("out", "", "output directory (default: $TMPDIR/ridgeline-dryrun)")
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	continueOnError := fs.Bool("continue-on-error", false, "continue after a connector failure; exit 2 on partial, 1 on total")
 	help, err := parseSubcommandFlags(fs, args)
 	if err != nil {
 		return err
@@ -61,7 +96,7 @@ func runSync(ctx context.Context, args []string) error {
 		return fmt.Errorf("--out must not be empty")
 	}
 	if *cfgPath != "" {
-		return runConfigSync(ctx, *cfgPath)
+		return runConfigSync(ctx, *cfgPath, *continueOnError)
 	}
 	if *dryRun {
 		return runDryRun(ctx, *out, *records)
@@ -127,7 +162,12 @@ func runDryRun(ctx context.Context, out string, records int) error {
 // is aborted with a non-zero exit: it is better to refuse a broken
 // config up front than to have earlier connectors write partial data
 // before a later one trips over its config at extract time.
-func runConfigSync(ctx context.Context, cfgPath string) error {
+//
+// When continueOnError is true, a runtime failure from one connector
+// is logged and the remaining connectors are still attempted. The
+// caller receives a *PartialSyncError whose IsTotal method
+// distinguishes a run where all connectors failed from a partial one.
+func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
@@ -150,15 +190,27 @@ func runConfigSync(ctx context.Context, cfgPath string) error {
 	fmt.Printf("state: %s\n", cfg.StatePath)
 
 	var totalRecords int
+	var failures []syncFailure
+	var succeeded int
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
 			n, err := runConnectorInstance(ctx, store, pid, inst, os.Stdout, cs)
 			if err != nil {
+				if continueOnError {
+					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
+					failures = append(failures, syncFailure{product: pid, connector: inst.Name, err: err})
+					continue
+				}
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
 			totalRecords += n
+			succeeded++
 		}
+	}
+	if len(failures) > 0 {
+		fmt.Printf("done: %d records total (%d connector(s) failed)\n", totalRecords, len(failures))
+		return &PartialSyncError{failures: failures, succeeded: succeeded}
 	}
 	fmt.Printf("done: %d records total\n", totalRecords)
 	return nil

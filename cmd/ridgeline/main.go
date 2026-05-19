@@ -25,6 +25,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -66,6 +67,10 @@ func main() {
 	case "sync":
 		if err := runSync(context.Background(), os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "sync: %v\n", err)
+			var pse *PartialSyncError
+			if errors.As(err, &pse) && !pse.IsTotal() {
+				os.Exit(2)
+			}
 			os.Exit(1)
 		}
 	case "status":
@@ -100,7 +105,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  ridgeline version")
 	fmt.Fprintln(w, "  ridgeline sync --dry-run [--records N] [--out DIR]")
-	fmt.Fprintln(w, "  ridgeline sync --config PATH")
+	fmt.Fprintln(w, "  ridgeline sync --config PATH [--continue-on-error]")
 	fmt.Fprintln(w, "  ridgeline status --config PATH")
 	fmt.Fprintln(w, "  ridgeline query <SQL>")
 	fmt.Fprintln(w, "  ridgeline creds list|put|get|rm --config PATH [NAME]")
