@@ -67,6 +67,24 @@ State lives in `./ridgeline.db` (SQLite, 0600 permissions, schema
 created on first run). A second invocation reuses the same database,
 so connector checkpoints survive process restarts.
 
+**Partial failure:** by default a single connector error aborts the
+whole run. Pass `--continue-on-error` to keep going and commit the
+data from connectors that succeed:
+
+```sh
+./ridgeline sync --config ridgeline.yaml --continue-on-error
+# loaded ridgeline.yaml
+# state: ./ridgeline.db
+# myapp/analytics: 150 records, 1 states saved
+# sync error (continuing): product myapp connector events: ...
+# myapp/search: 42 records, 1 states saved
+# done: 192 records total (1 connector(s) failed)
+```
+
+Exit code is `0` when all connectors pass, `2` when some fail and some
+succeed (partial), and `1` when all connectors fail or a configuration
+error prevents any connector from starting.
+
 ### Inspecting state
 
 `ridgeline status` reads the same `ridgeline.yaml` and prints each

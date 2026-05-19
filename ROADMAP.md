@@ -28,6 +28,7 @@
 - [x] `ridgeline query` CLI command (runs SQL against DuckDB)
 - [x] `ridgeline creds` CLI command (list, put, get, rm)
 - [x] TUI shell (Bubble Tea): products view, health bars, keybindings (`ridgeline tui` ships a products view with colored status, cursor navigation, and an `s` key that triggers a real sync on the highlighted connector)
+- [x] `sync --continue-on-error`: partial failure mode that runs remaining connectors after one fails, exits 2 on partial and 1 on total failure
 
 ## Known gaps
 
