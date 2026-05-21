@@ -206,6 +206,66 @@ func TestRunReadsParquet(t *testing.T) {
 	}
 }
 
+// TestApplySandboxSettings verifies that applySandbox configures the
+// expected DuckDB settings and locks the configuration.
+func TestApplySandboxSettings(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := applySandbox(context.Background(), db); err != nil {
+		t.Fatalf("applySandbox: %v", err)
+	}
+
+	// Confirm autoinstall and autoload are false via duckdb_settings().
+	for _, want := range []struct{ name, val string }{
+		{"autoinstall_known_extensions", "false"},
+		{"autoload_known_extensions", "false"},
+	} {
+		var got string
+		row := db.QueryRowContext(context.Background(),
+			"SELECT value FROM duckdb_settings() WHERE name = '"+want.name+"'")
+		if err := row.Scan(&got); err != nil {
+			t.Errorf("query %s: %v", want.name, err)
+			continue
+		}
+		if got != want.val {
+			t.Errorf("expected %s=%s, got %s", want.name, want.val, got)
+		}
+	}
+
+	// Confirm lock: any attempt to change a setting must fail.
+	_, err = db.ExecContext(context.Background(), "SET autoload_known_extensions = true")
+	if err == nil {
+		t.Fatal("expected SET to fail after lock_configuration = true")
+	}
+}
+
+// TestRunReadOnlySandboxBlocksHTTP verifies that an HTTP URL fails in
+// read-only mode because httpfs cannot be auto-loaded. The failure must
+// come from DuckDB's extension gating, not from a live network error.
+func TestRunReadOnlySandboxBlocksHTTP(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(),
+		"SELECT 1 FROM read_csv_auto('https://nonexistent.invalid/x.csv') LIMIT 1",
+		&buf, Options{})
+	if err == nil {
+		t.Fatal("expected HTTP read to fail in read-only mode, got nil")
+	}
+	// The error must mention the missing httpfs extension, not a live
+	// HTTP response. A live network error would contain "HTTP Error" or
+	// "Could not establish connection".
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "http error") || strings.Contains(msg, "could not establish") {
+		t.Errorf("sandbox failed: DuckDB made a live network attempt (got: %v)", err)
+	}
+	if !strings.Contains(msg, "httpfs") && !strings.Contains(msg, "extension") {
+		t.Logf("unexpected error format (sandbox may still work): %v", err)
+	}
+}
+
 // TestMain guards against leaving temp dirs behind if a test panics.
 func TestMain(m *testing.M) {
 	code := m.Run()

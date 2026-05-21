@@ -96,14 +96,40 @@ func firstKeyword(stmt string) string {
 	return strings.ToUpper(fields[0])
 }
 
+// applySandbox configures the in-process DuckDB instance for safe
+// read-only operation. It must be called immediately after opening the
+// database and before any user SQL runs.
+//
+// Extension auto-install and auto-load are disabled, which blocks network
+// reads (HTTP, S3, GCS) because they require the httpfs extension. Local
+// filesystem reads (read_parquet, read_csv_auto, read_json_auto) continue
+// to work; they are gated only by OS-level process permissions.
+//
+// Configuration is locked after these settings are applied, so subsequent
+// SQL cannot undo the sandbox via SET statements.
+func applySandbox(ctx context.Context, db *sql.DB) error {
+	for _, s := range []string{
+		"SET autoinstall_known_extensions = false",
+		"SET autoload_known_extensions = false",
+		"SET lock_configuration = true",
+	} {
+		if _, err := db.ExecContext(ctx, s); err != nil {
+			return fmt.Errorf("sandbox: %w", err)
+		}
+	}
+	return nil
+}
+
 // Run opens an in-memory DuckDB database, executes stmt, and writes
 // the result rows as an aligned text table to w. The database is closed
 // before Run returns; no state persists between calls.
 //
 // By default (opts.Write == false), Run enforces read-only mode: only
 // SELECT-type, EXPLAIN, PRAGMA, SHOW, and DESCRIBE statements are
-// accepted, and multi-statement input is rejected. Pass Options{Write: true}
-// to bypass these guardrails.
+// accepted; multi-statement input is rejected; and network reads
+// (HTTP, S3, GCS) are blocked by disabling extension auto-load.
+// Local filesystem reads remain unrestricted. Pass Options{Write: true}
+// to bypass these guardrails for full DuckDB access.
 //
 // Empty or whitespace-only input is rejected before any DuckDB call.
 func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
@@ -117,6 +143,9 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 	defer db.Close()
 
 	if !opts.Write {
+		if err := applySandbox(ctx, db); err != nil {
+			return err
+		}
 		if err := checkReadOnly(ctx, db, stmt); err != nil {
 			return err
 		}
