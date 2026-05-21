@@ -484,6 +484,16 @@ without a separate load step:
 ./ridgeline query "SELECT json_extract(data_json, '\$.id') AS id, stream FROM read_parquet('./pq-out/*/*.parquet') ORDER BY stream, id"
 ```
 
+Pass the entire SQL statement as a single quoted argument.
+
+The default mode is read-only: only `SELECT`, `EXPLAIN`, `DESCRIBE`,
+`SHOW`, and `PRAGMA` statements are accepted, multi-statement input
+(semicolon-separated) is rejected, and network reads (HTTP, S3, GCS)
+are blocked by disabling DuckDB's `httpfs` extension. Local filesystem
+reads (`read_parquet`, `read_csv_auto`, `read_json_auto`) remain
+unrestricted. Pass `--write` to allow modifications (INSERT, DELETE,
+COPY, ATTACH, DDL) and to lift the network restriction.
+
 pandas, pyarrow, and the external `duckdb` CLI read the same files
 with no translation layer, so `ridgeline query` is one convenient
 option rather than the only option.
