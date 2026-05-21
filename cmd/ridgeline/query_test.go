@@ -19,15 +19,16 @@ func TestRunQueryExecutesSimpleSelect(t *testing.T) {
 	}
 }
 
-func TestRunQueryJoinsMultiplePositionalArgs(t *testing.T) {
+func TestRunQueryRejectsMultiplePositionalArgs(t *testing.T) {
 	var buf bytes.Buffer
-	// Simulate an unquoted shell invocation: "ridgeline query SELECT 1".
+	// Multiple positional args are rejected to prevent ambiguous SQL joins.
+	// Users must quote the whole statement: ridgeline query "SELECT 1 AS n".
 	err := runQuery(context.Background(), []string{"SELECT", "1", "AS", "n"}, &buf)
-	if err != nil {
-		t.Fatalf("runQuery: %v", err)
+	if err == nil {
+		t.Fatal("expected error for multiple positional args, got nil")
 	}
-	if !strings.Contains(buf.String(), "n") {
-		t.Errorf("expected column n in output:\n%s", buf.String())
+	if !strings.Contains(strings.ToLower(err.Error()), "single quoted") {
+		t.Errorf("error should mention single-quoted argument, got %q", err.Error())
 	}
 }
 
