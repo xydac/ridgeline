@@ -53,7 +53,7 @@ func credsOAuthGSC(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	listen := fs.String("listen", "127.0.0.1:0", "local callback listener address")
 	authURL := fs.String("auth-url", "", "override OAuth authorization endpoint (default: Google)")
 	tokenURL := fs.String("token-url", "", "override OAuth token endpoint (default: Google)")
-	help, err := parseSubcommandFlags(fs, args)
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return err
 	}

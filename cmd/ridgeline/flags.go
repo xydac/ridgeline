@@ -4,21 +4,26 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 )
 
 // parseSubcommandFlags parses args into fs and normalizes two cross-cutting
 // behaviors every subcommand wants:
 //
-//   - `--help` / `-h`: the stdlib flag package prints usage and returns
-//     flag.ErrHelp. We convert that into (true, nil) so the caller can
-//     return nil and the user sees usage plus a zero exit, not the
-//     "sync: flag: help requested" footgun that plagued the first few
-//     releases.
+//   - `--help` / `-h`: the stdlib flag package prints usage to stdout (via
+//     fs.SetOutput) and returns flag.ErrHelp. We convert that into
+//     (true, nil) so the caller exits 0 with no trailing error line.
 //   - any other flag.Parse error: propagated unchanged.
 //
-// The bool return is true when the help path fired, so callers that need
-// to skip their normal work can branch on it.
-func parseSubcommandFlags(fs *flag.FlagSet, args []string) (helpRequested bool, err error) {
+// stdout must be the destination for help output (typically os.Stdout or the
+// injected writer from the caller). The function calls fs.SetOutput(stdout)
+// before parsing so the Usage function and flag error messages go to the
+// right place.
+//
+// The bool return is true when the help path fired; callers should return nil
+// immediately so main.go exits 0.
+func parseSubcommandFlags(fs *flag.FlagSet, stdout io.Writer, args []string) (helpRequested bool, err error) {
+	fs.SetOutput(stdout)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return true, nil

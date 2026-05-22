@@ -32,7 +32,17 @@ import (
 func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
-	help, err := parseSubcommandFlags(fs, args)
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintln(w, "Usage: ridgeline status --config PATH")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Prints per-connector cursor and last-sync time from the SQLite state")
+		fmt.Fprintln(w, "database. Opens the database read-only; safe to run at any time.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return err
 	}

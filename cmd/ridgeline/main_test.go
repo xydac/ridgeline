@@ -111,20 +111,31 @@ func TestCLI_SubcommandHelpFlags_ExitZero(t *testing.T) {
 		{"status", "--help"},
 		{"query", "--help"},
 		{"creds", "list", "--help"},
+		{"creds", "put", "--help"},
 		{"tui", "--help"},
+		{"version", "--help"},
 	}
 	for _, args := range cases {
 		args := args
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			t.Parallel()
+			var stdout, stderr strings.Builder
 			cmd := exec.Command(bin, args...)
-			out, err := cmd.CombinedOutput()
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
 			if err != nil {
-				t.Fatalf("%v: expected exit 0, got %v\n%s", args, err, out)
+				t.Fatalf("%v: expected exit 0, got %v\nstdout: %s\nstderr: %s", args, err, stdout.String(), stderr.String())
 			}
-			got := string(out)
-			if strings.Contains(got, "flag: help requested") {
-				t.Errorf("%v: leaked 'flag: help requested' to user: %s", args, got)
+			got := stdout.String()
+			if strings.Contains(stderr.String(), "flag: help requested") || strings.Contains(got, "flag: help requested") {
+				t.Errorf("%v: leaked 'flag: help requested': stdout=%s stderr=%s", args, got, stderr.String())
+			}
+			if !strings.Contains(got, "Usage: ridgeline") {
+				t.Errorf("%v: stdout missing 'Usage: ridgeline': %s", args, got)
+			}
+			if stderr.String() != "" {
+				t.Errorf("%v: --help wrote to stderr: %s", args, stderr.String())
 			}
 		})
 	}

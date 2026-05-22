@@ -70,7 +70,19 @@ func runSync(ctx context.Context, args []string) error {
 	out := fs.String("out", "", "output directory (default: $TMPDIR/ridgeline-dryrun)")
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	continueOnError := fs.Bool("continue-on-error", false, "continue after a connector failure; exit 2 on partial, 1 on total")
-	help, err := parseSubcommandFlags(fs, args)
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintln(w, "Usage: ridgeline sync --config PATH [--continue-on-error]")
+		fmt.Fprintln(w, "       ridgeline sync --dry-run [--records N] [--out DIR]")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Runs the sync pipeline. With --config, drives all configured connectors")
+		fmt.Fprintln(w, "against their configured sinks using durable SQLite state. With --dry-run,")
+		fmt.Fprintln(w, "runs the built-in test source and prints results without writing state.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, os.Stdout, args)
 	if err != nil {
 		return err
 	}

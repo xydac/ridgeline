@@ -38,7 +38,7 @@ func runQuery(ctx context.Context, args []string, stdout io.Writer) error {
 		fmt.Fprintln(w, "Example:")
 		fmt.Fprintln(w, "  ridgeline query \"SELECT count(*) FROM read_parquet('./out/*/*.parquet')\"")
 	}
-	help, err := parseSubcommandFlags(fs, args)
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return err
 	}

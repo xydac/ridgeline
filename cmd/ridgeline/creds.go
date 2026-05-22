@@ -41,11 +41,11 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	case "list":
 		return credsList(ctx, rest, stdout)
 	case "put":
-		return credsPut(ctx, rest, stdin, stderr)
+		return credsPut(ctx, rest, stdin, stdout, stderr)
 	case "get":
 		return credsGet(ctx, rest, stdout)
 	case "rm":
-		return credsRm(ctx, rest)
+		return credsRm(ctx, rest, stdout)
 	case "oauth":
 		return credsOAuth(ctx, rest, stdin, stdout, stderr)
 	}
@@ -64,10 +64,24 @@ func credsUsage(w io.Writer) {
 // credsFlags parses --config out of args and returns the loaded config
 // alongside the remaining positional arguments. Errors here are the
 // same flavor as runSync: missing --config is a hard error.
-func credsFlags(verb string, args []string) (*config.File, []string, bool, error) {
+//
+// stdout is used as the destination for help output so --help exits 0
+// with usage printed to the right writer.
+func credsFlags(verb string, args []string, stdout io.Writer) (*config.File, []string, bool, error) {
 	fs := flag.NewFlagSet("creds "+verb, flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
-	help, err := parseSubcommandFlags(fs, args)
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintf(w, "Usage: ridgeline creds %s --config PATH", verb)
+		if verb != "list" {
+			fmt.Fprint(w, " NAME")
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -118,7 +132,7 @@ func openCreds(cfg *config.File) (*creds.Store, *sqlitestate.Store, error) {
 }
 
 func credsList(ctx context.Context, args []string, stdout io.Writer) error {
-	cfg, rest, help, err := credsFlags("list", args)
+	cfg, rest, help, err := credsFlags("list", args, stdout)
 	if err != nil {
 		return err
 	}
@@ -143,11 +157,21 @@ func credsList(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer) error {
+func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("creds put", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	rawMode := fs.Bool("raw", false, "store bytes verbatim without stripping a trailing newline")
-	help, err := parseSubcommandFlags(fs, args)
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintln(w, "Usage: ridgeline creds put --config PATH [--raw] NAME")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Reads the secret from stdin, encrypts it, and stores it under NAME.")
+		fmt.Fprintln(w, "Pass --raw to preserve trailing newlines verbatim (default: strip one).")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return err
 	}
@@ -202,7 +226,7 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stderr io.Wri
 }
 
 func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
-	cfg, rest, help, err := credsFlags("get", args)
+	cfg, rest, help, err := credsFlags("get", args, stdout)
 	if err != nil {
 		return err
 	}
@@ -234,8 +258,8 @@ func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-func credsRm(ctx context.Context, args []string) error {
-	cfg, rest, help, err := credsFlags("rm", args)
+func credsRm(ctx context.Context, args []string, stdout io.Writer) error {
+	cfg, rest, help, err := credsFlags("rm", args, stdout)
 	if err != nil {
 		return err
 	}

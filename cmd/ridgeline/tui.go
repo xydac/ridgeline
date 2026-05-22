@@ -214,7 +214,18 @@ func runTUI(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	renderOnce := fs.Bool("render-once", false, "render the current view to stdout and exit")
-	help, err := parseSubcommandFlags(fs, args)
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintln(w, "Usage: ridgeline tui --config PATH [--render-once]")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Opens an interactive Bubble Tea view of configured products and streams,")
+		fmt.Fprintln(w, "showing last-sync time, record counts, and health status. Press 's' to")
+		fmt.Fprintln(w, "trigger a sync on the highlighted connector, 'q' or Ctrl+C to quit.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return err
 	}
