@@ -10,6 +10,21 @@ import (
 	"testing"
 )
 
+// writeCredsOnlyConfig drops a ridgeline.yaml with no products: block.
+// It is valid for creds commands but not for sync/status.
+func writeCredsOnlyConfig(t *testing.T, dir string) string {
+	t.Helper()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	body := `version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+`
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return cfgPath
+}
+
 // writeMinimalConfig drops a ridgeline.yaml in dir that points state
 // and key paths at dir. Returns the config path.
 func writeMinimalConfig(t *testing.T, dir string) string {
@@ -99,8 +114,8 @@ func TestRunCreds_GetMissingFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error for missing credential")
 	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("err = %v, want 'not found'", err)
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("err = %v, want 'does not exist'", err)
 	}
 }
 
@@ -216,5 +231,85 @@ func TestRunCreds_PutPrintsReplaced(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "replaced") {
 		t.Errorf("second put stderr = %q, want 'replaced'", errOut.String())
+	}
+}
+
+// F-033: creds commands must work against a config with no products:.
+func TestRunCreds_NoProductsConfig(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeCredsOnlyConfig(t, dir)
+	ctx := context.Background()
+
+	var out, errOut bytes.Buffer
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "mykey"},
+		bytes.NewBufferString("secret\n"), &out, &errOut); err != nil {
+		t.Fatalf("put against no-products config: %v", err)
+	}
+	out.Reset()
+	if err := runCreds(ctx, []string{"list", "--config", cfgPath},
+		bytes.NewReader(nil), &out, &errOut); err != nil {
+		t.Fatalf("list against no-products config: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "mykey" {
+		t.Errorf("list = %q, want mykey", got)
+	}
+}
+
+// F-034: creds put/get/rm must reject names with path traversal or whitespace.
+func TestRunCreds_RejectsInvalidNames(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeCredsOnlyConfig(t, dir)
+	ctx := context.Background()
+
+	cases := []struct {
+		verb string
+		name string
+	}{
+		{"put", "../../etc/x"},
+		{"put", "../secret"},
+		{"put", "foo/bar"},
+		{"put", "foo bar"},
+		{"put", "foo\tbar"},
+		{"get", "../../etc/x"},
+		{"rm", "../../etc/x"},
+	}
+	for _, tc := range cases {
+		args := []string{tc.verb, "--config", cfgPath, tc.name}
+		var stdin *bytes.Buffer
+		if tc.verb == "put" {
+			stdin = bytes.NewBufferString("x\n")
+		} else {
+			stdin = bytes.NewBufferString("")
+		}
+		err := runCreds(ctx, args, stdin, io.Discard, io.Discard)
+		if err == nil {
+			t.Errorf("creds %s %q: want error, got nil", tc.verb, tc.name)
+		}
+	}
+}
+
+// F-032: creds error messages must not double the "creds:" prefix.
+func TestRunCreds_ErrorPrefixNotDoubled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeCredsOnlyConfig(t, dir)
+	ctx := context.Background()
+
+	// get on a missing key should give exactly one "creds:" prefix when
+	// main.go wraps it; at the runCreds level the error should NOT start
+	// with "creds:" so that the main.go wrap adds the first and only one.
+	err := runCreds(ctx, []string{"get", "--config", cfgPath, "missing"},
+		bytes.NewReader(nil), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("want error for missing credential")
+	}
+	msg := err.Error()
+	if strings.HasPrefix(msg, "creds:") {
+		t.Errorf("error %q starts with 'creds:'; main.go will double it", msg)
+	}
+	if !strings.Contains(msg, "does not exist") {
+		t.Errorf("error %q should say 'does not exist'", msg)
 	}
 }

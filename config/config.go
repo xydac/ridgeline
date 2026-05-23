@@ -83,6 +83,39 @@ type SinkRef struct {
 	Options map[string]any `yaml:"options"`
 }
 
+// LoadCreds reads path, applies defaults, and validates only the fields
+// required for credential operations (version, state_path, key_path).
+// Products are not required, so a config that has no connectors configured
+// yet is still accepted. Use this for all ridgeline creds subcommands.
+func LoadCreds(path string) (*File, error) {
+	if path == "" {
+		return nil, fmt.Errorf("config: path must not be empty")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	return ParseCreds(raw)
+}
+
+// ParseCreds is like Parse but skips the products validation so a minimal
+// config (version + state_path + key_path only) is accepted.
+func ParseCreds(b []byte) (*File, error) {
+	var f File
+	dec := yaml.NewDecoder(strings.NewReader(string(b)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&f); err != nil {
+		return nil, translateYAMLErr(err)
+	}
+	if err := f.applyDefaults(); err != nil {
+		return nil, err
+	}
+	if f.Version != SchemaVersion {
+		return nil, fmt.Errorf("config: version must be %d (got %d); add 'version: %d' at the top of the file", SchemaVersion, f.Version, SchemaVersion)
+	}
+	return &f, nil
+}
+
 // Load reads path, expands paths beginning with ~/, applies defaults,
 // and validates the result. The returned File is safe to use directly;
 // no further defaulting is required.

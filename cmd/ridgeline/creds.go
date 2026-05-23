@@ -8,11 +8,44 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"unicode"
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/creds"
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
+
+// validateCredName rejects names that contain path separators, dot-dot
+// sequences, or whitespace. These characters could be exploited to
+// construct unexpected filesystem paths in credential-backed connectors
+// and make error messages ambiguous.
+func validateCredName(name string) error {
+	if name == "" {
+		return fmt.Errorf("credential name must not be empty")
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return fmt.Errorf("credential name %q must not contain path separators", name)
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("credential name %q must not contain '..'", name)
+	}
+	for _, r := range name {
+		if unicode.IsSpace(r) {
+			return fmt.Errorf("credential name %q must not contain whitespace", name)
+		}
+	}
+	return nil
+}
+
+// errCreds strips a leading "creds: " prefix from errors returned by the
+// creds package so that main.go's single "creds: " wrap does not double it.
+func errCreds(err error) error {
+	if err == nil {
+		return nil
+	}
+	return errors.New(strings.TrimPrefix(err.Error(), "creds: "))
+}
 
 // runCreds implements `ridgeline creds` with four verbs:
 //
@@ -91,7 +124,7 @@ func credsFlags(verb string, args []string, stdout io.Writer) (*config.File, []s
 	if *cfgPath == "" {
 		return nil, nil, false, fmt.Errorf("--config PATH is required")
 	}
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := config.LoadCreds(*cfgPath)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -186,6 +219,9 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 		return fmt.Errorf("put: exactly one NAME argument is required")
 	}
 	name := rest[0]
+	if err := validateCredName(name); err != nil {
+		return fmt.Errorf("put: %w", err)
+	}
 	if isInteractive(stdin) {
 		fmt.Fprintf(stderr, "Enter secret for %q, end with EOF (Ctrl+D):\n", name)
 	}
@@ -204,7 +240,7 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 		return fmt.Errorf("put: refused to store an empty secret for %q", name)
 	}
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := config.LoadCreds(*cfgPath)
 	if err != nil {
 		return err
 	}
@@ -219,7 +255,7 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 		action = "replaced"
 	}
 	if err := cs.Put(ctx, name, secret); err != nil {
-		return err
+		return errCreds(err)
 	}
 	fmt.Fprintf(stderr, "%s credential %q (%d bytes)\n", action, name, len(secret))
 	return nil
@@ -237,6 +273,9 @@ func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("get: exactly one NAME argument is required")
 	}
 	name := rest[0]
+	if err := validateCredName(name); err != nil {
+		return fmt.Errorf("get: %w", err)
+	}
 	cs, store, err := openCreds(cfg)
 	if err != nil {
 		return err
@@ -244,7 +283,10 @@ func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
 	defer store.Close()
 	plain, err := cs.Get(ctx, name)
 	if err != nil {
-		return err
+		if errors.Is(err, creds.ErrNotFound) {
+			return fmt.Errorf("get: credential %q does not exist", name)
+		}
+		return errCreds(err)
 	}
 	if _, err := stdout.Write(plain); err != nil {
 		return err
@@ -268,6 +310,9 @@ func credsRm(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	if len(rest) != 1 {
 		return fmt.Errorf("rm: exactly one NAME argument is required")
+	}
+	if err := validateCredName(rest[0]); err != nil {
+		return fmt.Errorf("rm: %w", err)
 	}
 	cs, store, err := openCreds(cfg)
 	if err != nil {
