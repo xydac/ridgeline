@@ -68,8 +68,10 @@ snapshot:
 changelog:
   use: github-native
 
-brews:
+homebrew_casks:
   - name: ridgeline
+    binaries:
+      - ridgeline
     repository:
       owner: xydac
       name: homebrew-tap
@@ -77,15 +79,16 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/xydac/ridgeline"
     description: "Self-hosted intelligence platform for indie developers"
-    license: "MIT"
     commit_author:
       name: ridgeline-release-bot
       email: github@mail.xydac.com
-    install: |
-      bin.install "ridgeline"
-    test: |
-      system "#{bin}/ridgeline", "version"
     skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ridgeline"]
+          end
 
 release:
   github:
