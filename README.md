@@ -539,13 +539,13 @@ directories on zero-record runs.
 
 ## Install
 
-Once the first tagged release lands, the supported install path will be:
+Install the released binary with Homebrew:
 
 ```
 brew install xydac/tap/ridgeline
 ```
 
-Until then, build from source:
+Or build from source:
 
 ```
 git clone https://github.com/xydac/ridgeline

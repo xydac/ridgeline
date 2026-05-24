@@ -3,7 +3,7 @@
 ## Phase 1: Framework + Core Pipeline
 
 - [x] Go module scaffold and CI (ubuntu + macOS, Go 1.25 + 1.26)
-- [x] goreleaser config and Homebrew tap stub (multi-arch builds via goreleaser-cross on `v*` tags; first tag still pending)
+- [x] goreleaser config and Homebrew tap (multi-arch builds via goreleaser-cross on `v*` tags; `v0.1.0` published, formula in `xydac/homebrew-tap`)
 - [x] Config parser (YAML to Go structs)
 - [x] Connector interface (native Go)
 - [x] JSON-lines protocol spec and codec for external connectors
