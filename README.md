@@ -533,9 +533,7 @@ is specified in [docs/protocol.md](docs/protocol.md).
 
 ## What is coming
 
-See [ROADMAP.md](ROADMAP.md). Open known gaps include unifying the
-sync pipeline's log prefix and skipping empty timestamped partition
-directories on zero-record runs.
+See [ROADMAP.md](ROADMAP.md) for known gaps and planned work.
 
 ## Install
 

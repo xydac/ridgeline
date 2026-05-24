@@ -32,13 +32,22 @@
 
 ## Known gaps
 
-- Output lines from the sync pipeline's warning path carry the Go
-  stdlib log prefix (`2026/04/21 01:00:38 ...`); info and done lines
-  print without a prefix. Output should go through one formatter.
-- A `sync` that produces zero records still creates an empty
-  timestamped partition directory under the sink's output root.
-  Repeated idempotent runs accumulate empty directories. The mkdir
-  should be deferred until the first partition is actually written.
+- A native connector that hits a runtime or auth error (for example an
+  HTTP 401) logs the failure but the `sync` still exits 0. The
+  documented default-abort behavior and the `--continue-on-error` exit
+  codes only fire for connectors that surface the error to the
+  orchestrator; connectors that swallow errors into a log line do not
+  yet participate.
+- `ridgeline status` checks config shape but not connector-specific
+  config. A connector whose `config:` block is incomplete (missing a
+  required `_ref`, a conflicting auth mode) passes `status` and fails
+  only at `sync`. Connector-level validation should run at load time so
+  `status` catches it.
+- The `gsc` OAuth helper stores the `--client-secret-file` content
+  verbatim. Pointing it at Google's downloaded `client_secret.json`
+  wrapper stores the JSON document instead of the bare secret, so token
+  exchange fails after the browser round-trip. The helper should accept
+  the wrapper or document that only the bare value is expected.
 
 ## Phase 2+
 
