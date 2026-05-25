@@ -13,6 +13,8 @@ import (
 	"github.com/xydac/ridgeline/connectors"
 	"github.com/xydac/ridgeline/connectors/testsrc"
 	"github.com/xydac/ridgeline/creds"
+	"github.com/xydac/ridgeline/enrichers"
+	_ "github.com/xydac/ridgeline/enrichers/urlhost" // register url_host enricher
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 	"github.com/xydac/ridgeline/sinks/jsonl"
@@ -303,8 +305,9 @@ func openCredStore(cfg *config.File, store *sqlitestate.Store) (*creds.Store, er
 // its own config map before any sink is opened or record is written.
 // Connector types that are not registered are also reported here, so
 // the user does not have to wait for extract time to learn about the
-// typo. Validation walks products in sorted id order and connectors
-// in their declared YAML order so error messages are stable.
+// typo. Unknown enricher types are also rejected here. Validation walks
+// products in sorted id order and connectors in their declared YAML
+// order so error messages are stable.
 func validateConnectors(ctx context.Context, cfg *config.File) error {
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
@@ -320,9 +323,35 @@ func validateConnectors(ctx context.Context, cfg *config.File) error {
 			if err := conn.Validate(ctx, connCfg); err != nil {
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
+			for _, er := range inst.Enrichers {
+				if _, ok := enrichers.Get(er.Type); !ok {
+					return fmt.Errorf("product %s connector %s: enricher type %q is not registered", pid, inst.Name, er.Type)
+				}
+			}
 		}
 	}
 	return nil
+}
+
+// buildEnricherSteps converts a connector instance's enricher refs into
+// pipeline.EnricherStep values, resolving each type from the registry.
+func buildEnricherSteps(inst config.ConnectorInstance) []pipeline.EnricherStep {
+	if len(inst.Enrichers) == 0 {
+		return nil
+	}
+	steps := make([]pipeline.EnricherStep, 0, len(inst.Enrichers))
+	for _, er := range inst.Enrichers {
+		e, ok := enrichers.Get(er.Type)
+		if !ok {
+			continue // already validated; should not happen
+		}
+		cfg := enrichers.EnrichConfig{}
+		for k, v := range er.Config {
+			cfg[k] = v
+		}
+		steps = append(steps, pipeline.EnricherStep{E: e, Cfg: cfg})
+	}
+	return steps
 }
 
 // runConnectorInstance runs one connector from the config against its
@@ -361,9 +390,10 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 		connCfg[k] = v
 	}
 	req := pipeline.Request{
-		Key:     config.StateKey(pid, inst.Name),
-		Config:  connCfg,
-		Streams: streams,
+		Key:       config.StateKey(pid, inst.Name),
+		Config:    connCfg,
+		Streams:   streams,
+		Enrichers: buildEnricherSteps(inst),
 	}
 	res, err := pipeline.Run(ctx, conn, sink, store, req)
 	if err != nil {

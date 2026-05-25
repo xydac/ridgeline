@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/xydac/ridgeline/connectors"
+	"github.com/xydac/ridgeline/enrichers"
 	"github.com/xydac/ridgeline/sinks"
 )
 
@@ -29,6 +30,14 @@ type StreamDeclarer interface {
 	DeclareStream(stream string, schema connectors.Schema)
 }
 
+// EnricherStep pairs a registered enricher with its per-connector config.
+// The pipeline applies steps in slice order to each record batch before
+// passing the batch to the sink.
+type EnricherStep struct {
+	E   enrichers.Enricher
+	Cfg enrichers.EnrichConfig
+}
+
 // Request describes one pipeline run.
 type Request struct {
 	// Key identifies this connector instance for state persistence.
@@ -47,6 +56,10 @@ type Request struct {
 	// lines match the CLI's plain output instead of carrying the stdlib
 	// date/time prefix.
 	Logger *log.Logger
+	// Enrichers is the ordered list of transforms applied to each
+	// record batch before the sink writes them. An empty slice is a
+	// no-op.
+	Enrichers []EnricherStep
 }
 
 // StreamResult is the per-stream outcome of a Run.
@@ -127,12 +140,20 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 	result := Result{PerStream: map[string]StreamResult{}}
 	buffers := map[string][]connectors.Record{}
 
-	// flushStream writes the buffered records for stream to the sink
-	// and clears the buffer.
+	// flushStream applies any configured enrichers to the buffered
+	// records for stream, then writes the batch to the sink and clears
+	// the buffer.
 	flushStream := func(stream string) error {
 		batch := buffers[stream]
 		if len(batch) == 0 {
 			return nil
+		}
+		for _, step := range req.Enrichers {
+			var enrichErr error
+			batch, enrichErr = step.E.Enrich(ctx, step.Cfg, batch)
+			if enrichErr != nil {
+				return fmt.Errorf("enricher %s: %w", step.E.Name(), enrichErr)
+			}
 		}
 		if err := sink.Write(ctx, stream, batch); err != nil {
 			return fmt.Errorf("sink.Write(%s): %w", stream, err)
@@ -141,7 +162,7 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		sr.Records += len(batch)
 		result.PerStream[stream] = sr
 		result.Records += len(batch)
-		buffers[stream] = batch[:0]
+		buffers[stream] = buffers[stream][:0]
 		return nil
 	}
 

@@ -71,6 +71,11 @@ type ConnectorInstance struct {
 
 	// Sink is the destination for records emitted by this connector.
 	Sink SinkRef `yaml:"sink"`
+
+	// Enrichers is an optional list of transforms applied to each
+	// record batch after extraction and before the sink writes them.
+	// Enrichers run in the order listed; an empty slice is a no-op.
+	Enrichers []EnricherRef `yaml:"enrichers"`
 }
 
 // SinkRef selects a registered sink and carries its options.
@@ -81,6 +86,18 @@ type SinkRef struct {
 
 	// Options is the sink-specific configuration map.
 	Options map[string]any `yaml:"options"`
+}
+
+// EnricherRef selects a registered enricher and carries its options.
+// Enrichers are applied in order after extraction and before the sink
+// writes each batch of records.
+type EnricherRef struct {
+	// Type is the registered enricher type (for example "url_host").
+	// Must match an enricher registered with package enrichers.
+	Type string `yaml:"type"`
+
+	// Config is the enricher-specific configuration map.
+	Config map[string]any `yaml:"config"`
 }
 
 // LoadCreds reads path, applies defaults, and validates only the fields

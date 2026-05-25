@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xydac/ridgeline/connectors"
+	"github.com/xydac/ridgeline/enrichers"
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 )
@@ -412,3 +413,88 @@ func (b *blockingConnector) Extract(ctx context.Context, _ connectors.ConnectorC
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// stubEnricher appends a marker field to each record for test assertions.
+type stubEnricher struct{ name string }
+
+func (s stubEnricher) Name() string { return s.name }
+func (s stubEnricher) Enrich(_ context.Context, _ enrichers.EnrichConfig, recs []connectors.Record) ([]connectors.Record, error) {
+	for i := range recs {
+		recs[i].Data["enriched_by"] = s.name
+	}
+	return recs, nil
+}
+
+// errEnricher always returns an error from Enrich.
+type errEnricher struct{}
+
+func (errEnricher) Name() string { return "err" }
+func (errEnricher) Enrich(_ context.Context, _ enrichers.EnrichConfig, _ []connectors.Record) ([]connectors.Record, error) {
+	return nil, fmt.Errorf("enricher failed")
+}
+
+func TestRun_EnrichersAppliedBeforeWrite(t *testing.T) {
+	now := time.Now()
+	msgs := []connectors.Message{
+		{Type: connectors.RecordMsg, Record: &connectors.Record{
+			Stream: "s", Timestamp: now, Data: map[string]any{"v": 1},
+		}},
+		{Type: connectors.RecordMsg, Record: &connectors.Record{
+			Stream: "s", Timestamp: now, Data: map[string]any{"v": 2},
+		}},
+	}
+	conn := &fakeConnector{msgs: msgs}
+	sink := newRecordingSink()
+	store := pipeline.NewMemoryStateStore()
+	req := pipeline.Request{
+		Key:     "k",
+		Streams: []connectors.Stream{{Name: "s"}},
+		Enrichers: []pipeline.EnricherStep{
+			{E: stubEnricher{"marker"}, Cfg: enrichers.EnrichConfig{}},
+		},
+	}
+	res, err := pipeline.Run(context.Background(), conn, sink, store, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Records != 2 {
+		t.Fatalf("records = %d; want 2", res.Records)
+	}
+	batches := sink.writes["s"]
+	if len(batches) == 0 {
+		t.Fatal("no batches written to sink")
+	}
+	for _, batch := range batches {
+		for _, rec := range batch {
+			if rec.Data["enriched_by"] != "marker" {
+				t.Errorf("enriched_by = %v; want marker", rec.Data["enriched_by"])
+			}
+		}
+	}
+}
+
+func TestRun_EnricherErrorAbortsRun(t *testing.T) {
+	now := time.Now()
+	msgs := []connectors.Message{
+		{Type: connectors.RecordMsg, Record: &connectors.Record{
+			Stream: "s", Timestamp: now, Data: map[string]any{"v": 1},
+		}},
+	}
+	conn := &fakeConnector{msgs: msgs}
+	sink := newRecordingSink()
+	store := pipeline.NewMemoryStateStore()
+	req := pipeline.Request{
+		Key:     "k",
+		Streams: []connectors.Stream{{Name: "s"}},
+		Enrichers: []pipeline.EnricherStep{
+			{E: errEnricher{}, Cfg: enrichers.EnrichConfig{}},
+		},
+	}
+	_, err := pipeline.Run(context.Background(), conn, sink, store, req)
+	if err == nil {
+		t.Fatal("expected error from enricher, got nil")
+	}
+	if !strings.Contains(err.Error(), "enricher failed") {
+		t.Errorf("error = %v; want to contain 'enricher failed'", err)
+	}
+}
