@@ -464,6 +464,42 @@ columns rather than burying them in JSON. Connectors without a
 declared schema fall back to the three-column layout above, keeping
 the sink usable for every source without a per-stream declaration.
 
+### Enriching records
+
+An enricher is a transform step that runs after extraction and before
+the sink writes each batch of records. Add an `enrichers:` list under
+any connector to opt that stream into enrichment:
+
+```yaml
+connectors:
+  - name: events
+    type: umami
+    config:
+      base_url: https://analytics.example.com
+      site_id_ref: umami.myapp.site_id
+    streams: [events]
+    enrichers:
+      - type: url_host
+        config:
+          url_field: url        # field to read the URL from (default: url)
+          host_field: host      # field to write the hostname into (default: host)
+    sink:
+      type: parquet
+      options:
+        dir: ./pq-out
+```
+
+With this config every record gets a `host` field derived from the
+`url` field, so you can group by domain in DuckDB without parsing URLs
+in SQL. The enricher runs after every connector batch before the sink
+writes it; an enricher error aborts the sync for that connector.
+
+Built-in enrichers:
+
+| Type       | What it adds                                            | Config keys                                        |
+|------------|---------------------------------------------------------|----------------------------------------------------|
+| `url_host` | `host` - the hostname extracted from a URL field        | `url_field` (default `url`), `host_field` (default `host`) |
+
 ### Querying with `ridgeline query`
 
 `ridgeline query <SQL>` runs a SQL statement against an in-process
@@ -519,6 +555,7 @@ go test ./...
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
 | `sinks/parquet`             | Apache Parquet file sink with a `{stream, timestamp, data_json}` schema. |
 | `enrichers`                 | `Enricher` interface, `EnrichConfig` accessors, init-time registry.      |
+| `enrichers/urlhost`         | Built-in `url_host` enricher: extracts hostname from a URL field.        |
 | `protocol`                  | JSON-lines `Encoder`/`Decoder` for external plugins.                     |
 | `pipeline`                  | ETL lifecycle: Connector -> batch -> Sink -> Flush -> StateStore.Save.   |
 | `manifest`                  | Atomic partition index written alongside sink output.                    |

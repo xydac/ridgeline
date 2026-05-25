@@ -29,6 +29,7 @@
 - [x] `ridgeline creds` CLI command (list, put, get, rm)
 - [x] TUI shell (Bubble Tea): products view, health bars, keybindings (`ridgeline tui` ships a products view with colored status, cursor navigation, and an `s` key that triggers a real sync on the highlighted connector)
 - [x] `sync --continue-on-error`: partial failure mode that runs remaining connectors after one fails, exits 2 on partial and 1 on total failure
+- [x] Enricher transform stage: `Enricher` interface with per-batch semantics, init-time registry, `enrichers:` config section on each connector, built-in `url_host` enricher (hostname extraction from URL fields)
 
 ## Known gaps
 
