@@ -11,8 +11,9 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > and Parquet sinks, native connectors for Hacker News (Algolia public
 > API), Umami (self-hosted analytics, API key or username/password
 > login), Google Search Console (OAuth 2.0 via a browser PKCE flow
-> or a bring-your-own refresh token), and Plausible Analytics (daily
-> timeseries via API token), an external runner that lets you wire any
+> or a bring-your-own refresh token), Plausible Analytics (daily
+> timeseries via API token), and GitHub repository traffic (daily views
+> and clones via PAT), an external runner that lets you wire any
 > executable that speaks JSON-lines as a connector, and an in-process
 > DuckDB `ridgeline query` command. See [ROADMAP.md](ROADMAP.md). Built
 > in public.
@@ -398,6 +399,44 @@ The `timeseries` stream fetches from `/api/v1/stats/timeseries` with
 `interval=date`. Each sync requests from `(last_date + 1)` through
 yesterday so today's incomplete data is never written.
 
+### Pulling GitHub repository traffic
+
+The `github` connector reads daily views and clones for a GitHub
+repository via the REST API. Traffic data requires push access to the
+repository. Each record covers one calendar day with `count` and
+`uniques` columns stored as typed Parquet fields. The `views` and
+`clones` streams each maintain an independent incremental cursor.
+
+Create a personal access token (PAT) with `repo` scope (or `public_repo`
+for public repositories), then store it:
+
+```sh
+echo "github_pat_..." | ./ridgeline creds put --config ridgeline.yaml github_token
+```
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+products:
+  myrepo:
+    connectors:
+      - name: traffic
+        type: github
+        config:
+          owner: acme
+          repo: widgets
+          api_token_ref: github_token
+        streams: [views, clones]
+        sink:
+          type: parquet
+          options:
+            dir: ./github-out
+```
+
+The GitHub traffic API always returns the last 14 days of data. Each
+sync filters server-returned rows through the per-stream cursor so only
+new days are written to the sink.
+
 ### Wiring an external connector (any language)
 
 The `external` connector type spawns any executable that speaks the
@@ -550,6 +589,7 @@ go test ./...
 | `connectors/umami`          | Incremental Umami events feed; API-key or login (username/password) auth.|
 | `connectors/gsc`            | Google Search Console daily Search Analytics; OAuth 2.0 refresh token.   |
 | `connectors/plausible`      | Plausible Analytics daily timeseries (visitors, pageviews, bounce rate). |
+| `connectors/github`         | GitHub repository traffic: daily views and clones (PAT auth).           |
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |
