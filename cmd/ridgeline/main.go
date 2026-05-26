@@ -31,6 +31,7 @@ import (
 
 	// Side-effect imports register built-in connectors and sinks.
 	_ "github.com/xydac/ridgeline/connectors/external"
+	_ "github.com/xydac/ridgeline/connectors/github"
 	_ "github.com/xydac/ridgeline/connectors/gsc"
 	_ "github.com/xydac/ridgeline/connectors/hackernews"
 	_ "github.com/xydac/ridgeline/connectors/plausible"
