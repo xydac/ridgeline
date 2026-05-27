@@ -292,3 +292,48 @@ func TestRunCreds_OAuthGSCRequiresSecret(t *testing.T) {
 		t.Errorf("expected missing-secret error, got %v", err)
 	}
 }
+
+func TestExtractGoogleClientSecret(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "bare secret passthrough",
+			input: "GOCSPX-realsecretvalue",
+			want:  "GOCSPX-realsecretvalue",
+		},
+		{
+			name:  "installed app wrapper",
+			input: `{"installed":{"client_id":"123.apps.googleusercontent.com","project_id":"proj","client_secret":"GOCSPX-frominstalled","redirect_uris":["http://localhost"]}}`,
+			want:  "GOCSPX-frominstalled",
+		},
+		{
+			name:  "web app wrapper",
+			input: `{"web":{"client_id":"123.apps.googleusercontent.com","client_secret":"GOCSPX-fromweb","redirect_uris":["https://example.com"]}}`,
+			want:  "GOCSPX-fromweb",
+		},
+		{
+			name:  "unknown JSON shape passthrough",
+			input: `{"other":"value"}`,
+			want:  `{"other":"value"}`,
+		},
+		{
+			name:  "non-JSON passthrough",
+			input: "not-json",
+			want:  "not-json",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractGoogleClientSecret(tc.input)
+			if got != tc.want {
+				t.Errorf("extractGoogleClientSecret(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

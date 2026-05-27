@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,32 @@ import (
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/connectors/gsc"
 )
+
+// extractGoogleClientSecret unwraps a Google Cloud Console
+// client_secret.json file, returning the bare secret string. If the
+// input is not a recognized Google wrapper (JSON with an "installed" or
+// "web" key containing "client_secret"), the input is returned
+// unchanged so that a bare secret value or any other format still works.
+func extractGoogleClientSecret(raw string) string {
+	var wrapper struct {
+		Installed *struct {
+			ClientSecret string `json:"client_secret"`
+		} `json:"installed"`
+		Web *struct {
+			ClientSecret string `json:"client_secret"`
+		} `json:"web"`
+	}
+	if err := json.Unmarshal([]byte(raw), &wrapper); err != nil {
+		return raw
+	}
+	if wrapper.Installed != nil && wrapper.Installed.ClientSecret != "" {
+		return wrapper.Installed.ClientSecret
+	}
+	if wrapper.Web != nil && wrapper.Web.ClientSecret != "" {
+		return wrapper.Web.ClientSecret
+	}
+	return raw
+}
 
 // credsOAuth dispatches `ridgeline creds oauth PROVIDER ...` to the
 // provider-specific browser flow. The only supported provider today
@@ -93,14 +120,14 @@ func credsOAuthGSC(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		if err != nil {
 			return fmt.Errorf("--client-secret-file: %w", err)
 		}
-		secret = strings.TrimRight(string(b), "\r\n")
+		secret = extractGoogleClientSecret(strings.TrimRight(string(b), "\r\n"))
 	}
 	if *clientSecretStdin {
 		b, err := io.ReadAll(stdin)
 		if err != nil {
 			return fmt.Errorf("--client-secret-stdin: %w", err)
 		}
-		secret = strings.TrimRight(string(b), "\r\n")
+		secret = extractGoogleClientSecret(strings.TrimRight(string(b), "\r\n"))
 	}
 	if secret == "" {
 		return fmt.Errorf("client secret must not be empty")
