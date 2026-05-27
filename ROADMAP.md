@@ -32,24 +32,6 @@
 - [x] `sync --continue-on-error`: partial failure mode that runs remaining connectors after one fails, exits 2 on partial and 1 on total failure
 - [x] Enricher transform stage: `Enricher` interface with per-batch semantics, init-time registry, `enrichers:` config section on each connector, built-in `url_host` enricher (hostname extraction from URL fields)
 
-## Known gaps
-
-- A native connector that hits a runtime or auth error (for example an
-  HTTP 401) logs the failure but the `sync` still exits 0. The
-  documented default-abort behavior and the `--continue-on-error` exit
-  codes only fire for connectors that surface the error to the
-  orchestrator; connectors that swallow errors into a log line do not
-  yet participate.
-- `ridgeline status` checks config shape but not connector-specific
-  config. A connector whose `config:` block is incomplete (missing a
-  required `_ref`, a conflicting auth mode) passes `status` and fails
-  only at `sync`. Connector-level validation should run at load time so
-  `status` catches it.
-- The `gsc` OAuth helper stores the `--client-secret-file` content
-  verbatim. Pointing it at Google's downloaded `client_secret.json`
-  wrapper stores the JSON document instead of the bare secret, so token
-  exchange fails after the browser round-trip. The helper should accept
-  the wrapper or document that only the bare value is expected.
 
 ## Phase 2+
 
