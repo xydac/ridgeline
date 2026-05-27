@@ -170,3 +170,75 @@ products:
 		t.Errorf("renamed connector not shown:\n%s", out)
 	}
 }
+
+func TestRunStatus_InvalidConnectorConfig_Rejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ridgeline.db")
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+
+	// Plausible requires site_id and api_token (or api_token_ref).
+	// Omitting both must cause status to exit non-zero.
+	cfg := `
+version: 1
+state_path: ` + dbPath + `
+products:
+  myapp:
+    connectors:
+      - name: stats
+        type: plausible
+        config:
+          base_url: https://plausible.io
+        streams: [timeseries]
+        sink:
+          type: jsonl
+          options:
+            dir: ` + dir + `/out
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	err := runStatus(context.Background(), []string{"--config", cfgPath}, &buf)
+	if err == nil {
+		t.Fatal("expected validation error for missing site_id and api_token, got nil")
+	}
+	if !strings.Contains(err.Error(), "site_id") && !strings.Contains(err.Error(), "api_token") {
+		t.Errorf("error should mention missing field, got: %v", err)
+	}
+}
+
+func TestRunStatus_RefConfigPassesValidation(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ridgeline.db")
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+
+	// Using api_token_ref (a credential reference) must not cause a
+	// false validation failure even though the credential is not loaded.
+	cfg := `
+version: 1
+state_path: ` + dbPath + `
+products:
+  myapp:
+    connectors:
+      - name: stats
+        type: plausible
+        config:
+          base_url: https://plausible.io
+          site_id: example.com
+          api_token_ref: my_plausible_token
+        streams: [timeseries]
+        sink:
+          type: jsonl
+          options:
+            dir: ` + dir + `/out
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := runStatus(context.Background(), []string{"--config", cfgPath}, &buf); err != nil {
+		t.Fatalf("runStatus with _ref config: %v", err)
+	}
+}

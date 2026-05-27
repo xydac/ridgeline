@@ -60,6 +60,9 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := validateConnectorsForStatus(ctx, cfg); err != nil {
+		return err
+	}
 
 	fmt.Fprintf(stdout, "loaded %s\n", *cfgPath)
 
@@ -139,6 +142,53 @@ func loadStateEntries(ctx context.Context, path string) ([]sqlitestate.Entry, bo
 
 func formatStreams(streams []string) string {
 	return "[" + strings.Join(streams, " ") + "]"
+}
+
+// validateConnectorsForStatus calls each connector's Validate method
+// using the config as declared. Credentials accessed through _ref keys
+// are not loaded (status is read-only), but a non-empty *_ref value is
+// treated as satisfying the corresponding bare requirement so that a
+// properly-configured _ref config does not produce a false failure.
+// Connectors whose type is not registered or whose required fields are
+// absent cause a hard error, matching the behavior of sync's pre-flight
+// validation.
+func validateConnectorsForStatus(ctx context.Context, cfg *config.File) error {
+	for _, pid := range cfg.ProductIDs() {
+		product := cfg.Products[pid]
+		for _, inst := range product.Connectors {
+			conn, ok := connectors.Get(inst.Type)
+			if !ok {
+				return fmt.Errorf("product %s connector %s: type %q is not registered", pid, inst.Name, inst.Type)
+			}
+			connCfg := connectors.ConnectorConfig{}
+			for k, v := range inst.Config {
+				connCfg[k] = v
+			}
+			// Synthesize bare keys from _ref entries so validators do
+			// not false-fail on ref-based configs (credentials remain
+			// unloaded; we only need to signal presence). Strip the
+			// _ref keys afterward so unknown-key checks do not reject
+			// them.
+			for k, v := range connCfg {
+				if !strings.HasSuffix(k, "_ref") || k == "_ref" {
+					continue
+				}
+				ref, ok := v.(string)
+				if !ok || strings.TrimSpace(ref) == "" {
+					continue
+				}
+				bare := strings.TrimSuffix(k, "_ref")
+				if _, exists := connCfg[bare]; !exists {
+					connCfg[bare] = "(ref: " + ref + ")"
+				}
+				delete(connCfg, k)
+			}
+			if err := conn.Validate(ctx, connCfg); err != nil {
+				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
+			}
+		}
+	}
+	return nil
 }
 
 // formatCursor renders the saved cursor for a connector. Empty maps
