@@ -43,7 +43,7 @@ func fakeTraffic(t *testing.T, viewsEntries, clonesEntries []map[string]any, wan
 	}
 }
 
-func collect(t *testing.T, ch <-chan connectors.Message) (records []connectors.Record, states []connectors.State, logs []string) {
+func collect(t *testing.T, ch <-chan connectors.Message) (records []connectors.Record, states []connectors.State, logs []string, fatal error) {
 	t.Helper()
 	for m := range ch {
 		switch m.Type {
@@ -53,6 +53,8 @@ func collect(t *testing.T, ch <-chan connectors.Message) (records []connectors.R
 			states = append(states, *m.State)
 		case connectors.LogMsg:
 			logs = append(logs, m.Log.Message)
+		case connectors.ErrorMsg:
+			fatal = m.Err
 		}
 	}
 	return
@@ -164,7 +166,7 @@ func TestExtract_ViewsAndClones(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	records, states, logs := collect(t, ch)
+	records, states, logs, _ := collect(t, ch)
 	if len(logs) > 0 {
 		t.Errorf("unexpected log messages: %v", logs)
 	}
@@ -222,7 +224,7 @@ func TestExtract_IncrementalCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	records, states, _ := collect(t, ch)
+	records, states, _, _ := collect(t, ch)
 	if len(records) != 1 {
 		t.Fatalf("records: want 1, got %d", len(records))
 	}
@@ -261,7 +263,7 @@ func TestExtract_AlreadyUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	records, _, _ := collect(t, ch)
+	records, _, _, _ := collect(t, ch)
 	// HTTP was still called (GitHub does not support date filtering) but no
 	// records should be emitted because all are at or before the cursor.
 	_ = called
@@ -288,12 +290,12 @@ func TestExtract_Unauthorized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract returned error: %v", err)
 	}
-	_, _, logs := collect(t, ch)
-	if len(logs) == 0 {
-		t.Fatal("expected error log for 401")
+	_, _, _, fatal := collect(t, ch)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg for 401, got nil")
 	}
-	if !strings.Contains(logs[0], "401") && !strings.Contains(logs[0], "Unauthorized") {
-		t.Errorf("unexpected log: %s", logs[0])
+	if !strings.Contains(fatal.Error(), "401") && !strings.Contains(fatal.Error(), "Unauthorized") {
+		t.Errorf("unexpected error: %v", fatal)
 	}
 }
 
@@ -315,12 +317,12 @@ func TestExtract_Forbidden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract returned error: %v", err)
 	}
-	_, _, logs := collect(t, ch)
-	if len(logs) == 0 {
-		t.Fatal("expected error log for 403")
+	_, _, _, fatal := collect(t, ch)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg for 403, got nil")
 	}
-	if !strings.Contains(logs[0], "403") && !strings.Contains(logs[0], "Forbidden") {
-		t.Errorf("unexpected log: %s", logs[0])
+	if !strings.Contains(fatal.Error(), "403") && !strings.Contains(fatal.Error(), "Forbidden") {
+		t.Errorf("unexpected error: %v", fatal)
 	}
 }
 
@@ -336,7 +338,7 @@ func TestExtract_UnknownStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	_, _, logs := collect(t, ch)
+	_, _, logs, _ := collect(t, ch)
 	if len(logs) == 0 || !strings.Contains(logs[0], "nosuchstream") {
 		t.Errorf("expected unknown-stream log, got %v", logs)
 	}

@@ -205,9 +205,8 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 					}
 				}
 				if err != nil {
-					sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError,
-						fmt.Sprintf("umami %s: %v", s.Name, err)))
-					break
+					sendMessage(ctx, ch, connectors.ErrorMessage(fmt.Errorf("umami %s: %w", s.Name, err)))
+					return
 				}
 				if len(events) == 0 {
 					break

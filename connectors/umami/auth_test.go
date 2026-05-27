@@ -285,19 +285,22 @@ func TestExtract_LoginRetryStillFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	var errLog string
+	var fatal error
 	for m := range ch {
-		if m.Type == connectors.LogMsg && m.Log.Level == connectors.LevelError {
-			errLog = m.Log.Message
+		if m.Type == connectors.ErrorMsg {
+			fatal = m.Err
 		}
 	}
-	if !strings.Contains(errLog, "401") || !strings.Contains(errLog, "first body") {
-		t.Errorf("error log = %q, want 401 + original body", errLog)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg, got nil")
+	}
+	if !strings.Contains(fatal.Error(), "401") || !strings.Contains(fatal.Error(), "first body") {
+		t.Errorf("error = %q, want 401 + original body", fatal)
 	}
 }
 
 // TestExtract_LoginFailureSurfaces verifies that a login rejection on
-// first try (no cached token) surfaces as an error log message; no
+// first try (no cached token) surfaces as a fatal ErrorMsg; no
 // records, no StateMsg.
 func TestExtract_LoginFailureSurfaces(t *testing.T) {
 	t.Parallel()
@@ -322,19 +325,22 @@ func TestExtract_LoginFailureSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	var errLog string
+	var fatal error
 	for m := range ch {
-		if m.Type == connectors.LogMsg && m.Log.Level == connectors.LevelError {
-			errLog = m.Log.Message
+		if m.Type == connectors.ErrorMsg {
+			fatal = m.Err
 		}
 	}
-	if !strings.Contains(errLog, "login") || !strings.Contains(errLog, "bad password") {
-		t.Errorf("error log = %q, want 'login' + 'bad password'", errLog)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg, got nil")
+	}
+	if !strings.Contains(fatal.Error(), "login") || !strings.Contains(fatal.Error(), "bad password") {
+		t.Errorf("error = %q, want 'login' + 'bad password'", fatal)
 	}
 }
 
 // TestExtract_LoginMissingTokenField verifies that a 200 response
-// without a token field is treated as an error.
+// without a token field is treated as a fatal error.
 func TestExtract_LoginMissingTokenField(t *testing.T) {
 	t.Parallel()
 
@@ -358,14 +364,17 @@ func TestExtract_LoginMissingTokenField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	var errLog string
+	var fatal error
 	for m := range ch {
-		if m.Type == connectors.LogMsg && m.Log.Level == connectors.LevelError {
-			errLog = m.Log.Message
+		if m.Type == connectors.ErrorMsg {
+			fatal = m.Err
 		}
 	}
-	if !strings.Contains(errLog, "missing token") {
-		t.Errorf("error log = %q, want 'missing token'", errLog)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg, got nil")
+	}
+	if !strings.Contains(fatal.Error(), "missing token") {
+		t.Errorf("error = %q, want 'missing token'", fatal)
 	}
 }
 

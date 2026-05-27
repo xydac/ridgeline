@@ -168,8 +168,8 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 			for pages < maxPages {
 				hits, err := c.fetchPage(ctx, baseURL, query, tag, since, upper, hitsPerPage)
 				if err != nil {
-					sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError, fmt.Sprintf("hackernews %s: %v", s.Name, err)))
-					break
+					sendMessage(ctx, ch, connectors.ErrorMessage(fmt.Errorf("hackernews %s: %w", s.Name, err)))
+					return
 				}
 				if len(hits) == 0 {
 					break

@@ -147,10 +147,8 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 
 			entries, err := c.fetchTraffic(ctx, client, baseURL, owner, repo, apiToken, s.Name)
 			if err != nil {
-				sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError,
-					fmt.Sprintf("github %s: %v", s.Name, err)))
-				sendMessage(ctx, ch, connectors.StateMessage(currentState))
-				continue
+				sendMessage(ctx, ch, connectors.ErrorMessage(fmt.Errorf("github %s: %w", s.Name, err)))
+				return
 			}
 
 			highWater := cursor

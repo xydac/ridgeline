@@ -226,7 +226,7 @@ func TestExtract_IncrementalSkipsSeen(t *testing.T) {
 	}
 }
 
-func TestExtract_Non200SurfacesBody(t *testing.T) {
+func TestExtract_Non200SurfacesError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -241,14 +241,17 @@ func TestExtract_Non200SurfacesBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	var logged string
+	var fatal error
 	for m := range ch {
-		if m.Type == connectors.LogMsg && m.Log.Level == connectors.LevelError {
-			logged = m.Log.Message
+		if m.Type == connectors.ErrorMsg {
+			fatal = m.Err
 		}
 	}
-	if !strings.Contains(logged, "401") || !strings.Contains(logged, "bad key") {
-		t.Errorf("error log = %q, want 401 + body", logged)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg for 401, got nil")
+	}
+	if !strings.Contains(fatal.Error(), "401") || !strings.Contains(fatal.Error(), "bad key") {
+		t.Errorf("error = %q, want 401 + body", fatal)
 	}
 }
 

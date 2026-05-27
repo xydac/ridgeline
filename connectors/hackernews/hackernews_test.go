@@ -120,7 +120,7 @@ func hit(id string, createdAt int64, extras map[string]any) map[string]any {
 	return h
 }
 
-func collect(ch <-chan connectors.Message) (records []connectors.Record, states []connectors.State, logs []connectors.LogEntry) {
+func collect(ch <-chan connectors.Message) (records []connectors.Record, states []connectors.State, logs []connectors.LogEntry, fatal error) {
 	for m := range ch {
 		switch m.Type {
 		case connectors.RecordMsg:
@@ -135,6 +135,8 @@ func collect(ch <-chan connectors.Message) (records []connectors.Record, states 
 			if m.Log != nil {
 				logs = append(logs, *m.Log)
 			}
+		case connectors.ErrorMsg:
+			fatal = m.Err
 		}
 	}
 	return
@@ -158,7 +160,7 @@ func TestExtract_SinglePageStories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	recs, states, logs := collect(ch)
+	recs, states, logs, _ := collect(ch)
 	if got, want := len(recs), 3; got != want {
 		t.Fatalf("records = %d, want %d", got, want)
 	}
@@ -205,7 +207,7 @@ func TestExtract_AppliesIncrementalCursorAsLowerBound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	recs, states, _ := collect(ch)
+	recs, states, _, _ := collect(ch)
 	if len(recs) != 1 {
 		t.Fatalf("records = %d, want 1", len(recs))
 	}
@@ -264,7 +266,7 @@ func TestExtract_PaginatesUntilOlderThanCursor(t *testing.T) {
 	}
 	state := connectors.State{"since_stories": int64(1700000400)}
 	ch, _ := c.Extract(context.Background(), cfg, []connectors.Stream{{Name: hackernews.StreamStories}}, state)
-	recs, states, _ := collect(ch)
+	recs, states, _, _ := collect(ch)
 	// All 4 hits are emitted (we don't filter client-side; we just stop
 	// paginating past the cursor). The caller's upsert logic in the
 	// sink is responsible for dedup; the cursor advances monotonically.
@@ -301,7 +303,7 @@ func TestExtract_RespectsMaxPages(t *testing.T) {
 		"max_pages":     2,
 	}
 	ch, _ := c.Extract(context.Background(), cfg, []connectors.Stream{{Name: hackernews.StreamStories}}, nil)
-	recs, _, _ := collect(ch)
+	recs, _, _, _ := collect(ch)
 	if len(recs) != 4 {
 		t.Errorf("records = %d, want 4 (2 pages * 2)", len(recs))
 	}
@@ -316,7 +318,7 @@ func TestExtract_EmptyResultsStillEmitState(t *testing.T) {
 	c := hackernews.New()
 	cfg := connectors.ConnectorConfig{"query": "zzzznopehits", "base_url": srv.URL}
 	ch, _ := c.Extract(context.Background(), cfg, []connectors.Stream{{Name: hackernews.StreamStories}}, connectors.State{"since_stories": int64(1700)})
-	recs, states, _ := collect(ch)
+	recs, states, _, _ := collect(ch)
 	if len(recs) != 0 {
 		t.Errorf("records = %d, want 0", len(recs))
 	}
@@ -328,7 +330,7 @@ func TestExtract_EmptyResultsStillEmitState(t *testing.T) {
 	}
 }
 
-func TestExtract_ServerErrorLogsAndMovesOn(t *testing.T) {
+func TestExtract_ServerErrorFails(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/search_by_date", func(w http.ResponseWriter, r *http.Request) {
@@ -343,18 +345,12 @@ func TestExtract_ServerErrorLogsAndMovesOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	recs, states, logs := collect(ch)
+	recs, _, _, fatal := collect(ch)
 	if len(recs) != 0 {
 		t.Errorf("records = %d, want 0", len(recs))
 	}
-	if len(states) != 1 {
-		t.Errorf("want one state even after error, got %d", len(states))
-	}
-	if len(logs) == 0 {
-		t.Fatal("expected error log")
-	}
-	if got := logs[0].Level; got != connectors.LevelError {
-		t.Errorf("log level = %v, want error", got)
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg for server error, got nil")
 	}
 }
 
@@ -367,7 +363,7 @@ func TestExtract_UnknownStreamWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	_, _, logs := collect(ch)
+	_, _, logs, _ := collect(ch)
 	if len(logs) == 0 {
 		t.Fatal("expected warn log for unknown stream")
 	}
@@ -470,7 +466,7 @@ func TestExtract_BothStreamsIndependentCursors(t *testing.T) {
 		{Name: hackernews.StreamStories},
 		{Name: hackernews.StreamComments},
 	}, nil)
-	_, states, _ := collect(ch)
+	_, states, _, _ := collect(ch)
 	if len(states) != 2 {
 		t.Fatalf("states = %d, want 2", len(states))
 	}

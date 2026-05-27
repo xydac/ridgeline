@@ -157,14 +157,8 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 
 			rows, err := c.fetchTimeseries(ctx, baseURL, siteID, apiToken, startDate, endDate)
 			if err != nil {
-				sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError,
-					fmt.Sprintf("plausible %s: %v", s.Name, err)))
-				newState := connectors.State{}
-				if cursor != (time.Time{}) {
-					newState[cursorKey] = cursor.Format("2006-01-02")
-				}
-				sendMessage(ctx, ch, connectors.StateMessage(newState))
-				continue
+				sendMessage(ctx, ch, connectors.ErrorMessage(fmt.Errorf("plausible %s: %w", s.Name, err)))
+				return
 			}
 
 			highWater := cursor

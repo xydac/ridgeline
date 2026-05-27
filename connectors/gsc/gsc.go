@@ -241,9 +241,8 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 					}
 				}
 				if err != nil {
-					sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelError,
-						fmt.Sprintf("gsc %s: %v", s.Name, err)))
-					break
+					sendMessage(ctx, ch, connectors.ErrorMessage(fmt.Errorf("gsc %s: %w", s.Name, err)))
+					return
 				}
 				if len(rows) == 0 {
 					break

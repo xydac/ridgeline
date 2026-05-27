@@ -130,7 +130,7 @@ func TestExtractGoldenPath(t *testing.T) {
 	state := connectors.State{}
 	streams := []connectors.Stream{{Name: gsc.StreamSearchAnalytics}}
 
-	records, states, logs := collect(t, c, cfg, streams, state)
+	records, states, logs, _ := collect(t, c, cfg, streams, state)
 
 	if got := tokenCalls.Load(); got != 1 {
 		t.Errorf("token calls = %d, want 1", got)
@@ -245,7 +245,7 @@ func TestExtractReauthsOn401(t *testing.T) {
 	}
 	streams := []connectors.Stream{{Name: gsc.StreamSearchAnalytics}}
 
-	records, states, logs := collect(t, c, cfg, streams, state)
+	records, states, logs, _ := collect(t, c, cfg, streams, state)
 
 	if got := tokenCalls.Load(); got != 1 {
 		t.Errorf("token calls = %d, want 1 (forced by 401)", got)
@@ -298,15 +298,15 @@ func TestExtractTokenFailureSurfaces(t *testing.T) {
 	}
 	streams := []connectors.Stream{{Name: gsc.StreamSearchAnalytics}}
 
-	records, _, logs := collect(t, c, cfg, streams, connectors.State{})
+	records, _, _, fatal := collect(t, c, cfg, streams, connectors.State{})
 	if len(records) != 0 {
 		t.Errorf("records = %d, want 0 on token failure", len(records))
 	}
-	if len(logs) == 0 {
-		t.Fatalf("expected an error log, got none")
+	if fatal == nil {
+		t.Fatal("expected ErrorMsg for token failure, got nil")
 	}
-	if !strings.Contains(logs[0].Message, "invalid_grant") {
-		t.Errorf("log = %q, want server body surfaced", logs[0].Message)
+	if !strings.Contains(fatal.Error(), "invalid_grant") {
+		t.Errorf("error = %q, want server body surfaced", fatal)
 	}
 }
 
@@ -330,7 +330,7 @@ func TestExtractUnknownStreamWarns(t *testing.T) {
 	}
 	streams := []connectors.Stream{{Name: "not_a_stream"}}
 
-	records, _, logs := collect(t, c, cfg, streams, connectors.State{})
+	records, _, logs, _ := collect(t, c, cfg, streams, connectors.State{})
 	if len(records) != 0 {
 		t.Errorf("records = %d, want 0 for unknown stream", len(records))
 	}
@@ -426,7 +426,7 @@ type logEntry struct {
 	Message string
 }
 
-func collect(t *testing.T, c *gsc.Connector, cfg connectors.ConnectorConfig, streams []connectors.Stream, state connectors.State) ([]connectors.Record, []connectors.State, []logEntry) {
+func collect(t *testing.T, c *gsc.Connector, cfg connectors.ConnectorConfig, streams []connectors.Stream, state connectors.State) ([]connectors.Record, []connectors.State, []logEntry, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -438,6 +438,7 @@ func collect(t *testing.T, c *gsc.Connector, cfg connectors.ConnectorConfig, str
 	var records []connectors.Record
 	var states []connectors.State
 	var logs []logEntry
+	var fatal error
 	for m := range ch {
 		switch m.Type {
 		case connectors.RecordMsg:
@@ -452,7 +453,9 @@ func collect(t *testing.T, c *gsc.Connector, cfg connectors.ConnectorConfig, str
 			if m.Log != nil {
 				logs = append(logs, logEntry{Level: m.Log.Level, Message: m.Log.Message})
 			}
+		case connectors.ErrorMsg:
+			fatal = m.Err
 		}
 	}
-	return records, states, logs
+	return records, states, logs, fatal
 }
