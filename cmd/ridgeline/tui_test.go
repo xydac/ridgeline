@@ -36,10 +36,17 @@ func TestRunTUI_RenderOnce_NeverSynced(t *testing.T) {
 	for _, want := range []string{
 		"PRODUCT", "CONNECTOR", "STREAM", "STATUS", "LAST SYNC", "RECORDS",
 		"myapp", "demo", "testsrc", "pages", "events",
-		"never", "q/ctrl+c", "s  sync",
+		"never",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render missing %q:\n%s", want, out)
+		}
+	}
+	// --render-once targets pipes and CI: the interactive keybindings
+	// footer must not leak into machine-readable output.
+	for _, banned := range []string{"q/ctrl+c", "s  sync", "j/k"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("render-once leaked interactive legend %q:\n%s", banned, out)
 		}
 	}
 }

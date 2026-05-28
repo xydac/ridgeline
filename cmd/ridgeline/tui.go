@@ -246,7 +246,7 @@ func runTUI(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	if *renderOnce {
-		fmt.Fprint(stdout, renderTUIView(*cfgPath, rows, 0))
+		fmt.Fprint(stdout, renderTUIView(*cfgPath, rows, 0, false))
 		return nil
 	}
 
@@ -391,7 +391,7 @@ func (m tuiModel) View() string {
 	if m.quit {
 		return ""
 	}
-	out := renderTUIView(m.cfgPath, m.rows, m.cursor)
+	out := renderTUIView(m.cfgPath, m.rows, m.cursor, true)
 	// Surface the first error below the legend so a failed sync is
 	// visible even after the row's color cue scrolls off.
 	for _, r := range m.rows {
@@ -417,9 +417,11 @@ var (
 )
 
 // renderTUIView is the pure rendering function. It produces the full
-// screen (header, table, legend) so it can be diffed in tests. The
-// cursor argument is the index of the highlighted row.
-func renderTUIView(cfgPath string, rows []tuiRow, cursor int) string {
+// screen (header, table, optional legend) so it can be diffed in tests.
+// The cursor argument is the index of the highlighted row. The legend
+// argument controls whether the interactive keybindings footer is
+// appended; non-interactive callers (--render-once) pass false.
+func renderTUIView(cfgPath string, rows []tuiRow, cursor int, legend bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "ridgeline %s\n", Version)
 	fmt.Fprintf(&b, "config: %s\n\n", cfgPath)
@@ -480,9 +482,11 @@ func renderTUIView(cfgPath string, rows []tuiRow, cursor int) string {
 		b.WriteByte('\n')
 	}
 
-	b.WriteByte('\n')
-	b.WriteString(tuiLegendStyle.Render("j/k up/down  move   s  sync   q/ctrl+c  quit"))
-	b.WriteByte('\n')
+	if legend {
+		b.WriteByte('\n')
+		b.WriteString(tuiLegendStyle.Render("j/k up/down  move   s  sync   q/ctrl+c  quit"))
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 
