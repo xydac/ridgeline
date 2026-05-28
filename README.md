@@ -528,10 +528,13 @@ connectors:
         dir: ./pq-out
 ```
 
-With this config every record gets a `host` field derived from the
-`url` field, so you can group by domain in DuckDB without parsing URLs
-in SQL. The enricher runs after every connector batch before the sink
-writes it; an enricher error aborts the sync for that connector.
+With this config a `host` field is added to each record whose `url`
+field is present and contains a parseable hostname, so you can group
+by domain in DuckDB without parsing URLs in SQL. Records whose URL is
+missing, empty, or hostless (relative paths, opaque strings) pass
+through unchanged and have no `host` key. The enricher runs after every
+connector batch before the sink writes it; an enricher error aborts
+the sync for that connector.
 
 Built-in enrichers:
 
