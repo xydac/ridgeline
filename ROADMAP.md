@@ -33,6 +33,10 @@
 - [x] Enricher transform stage: `Enricher` interface with per-batch semantics, init-time registry, `enrichers:` config section on each connector, built-in `url_host` enricher (hostname extraction from URL fields)
 
 
+## Known gaps
+
+- The Homebrew tap now ships a cask, which Homebrew on Linux refuses to install ("macOS is required for this software"). v0.1.0 was published as a cross-platform formula and still installs on Linux; tags after v0.1.0 will only install via Homebrew on macOS until the packaging path serves a Linux artifact.
+
 ## Phase 2+
 
 Further phases are tracked privately during bootstrap and will be published here once Phase 1 ships.
