@@ -205,6 +205,54 @@ func TestLoad_CorruptFile(t *testing.T) {
 	}
 }
 
+func TestTouch_CreatesFileWhenMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", "manifest.json")
+	s := manifest.NewStore(path)
+
+	if err := s.Touch(); err != nil {
+		t.Fatalf("Touch: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("manifest not created: %v", err)
+	}
+	m, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(m.Partitions) != 0 {
+		t.Errorf("Partitions = %d, want 0", len(m.Partitions))
+	}
+	if m.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt is zero after Touch")
+	}
+}
+
+func TestTouch_AdvancesUpdatedAt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := manifest.NewStore(filepath.Join(dir, "manifest.json"))
+
+	if err := s.Append(manifest.Partition{Stream: "s", Path: "s/p", Rows: 1}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	m1, _ := s.Load()
+	first := m1.UpdatedAt
+
+	time.Sleep(2 * time.Millisecond)
+	if err := s.Touch(); err != nil {
+		t.Fatalf("Touch: %v", err)
+	}
+	m2, _ := s.Load()
+	if !m2.UpdatedAt.After(first) {
+		t.Errorf("UpdatedAt did not advance: %v -> %v", first, m2.UpdatedAt)
+	}
+	if len(m2.Partitions) != 1 {
+		t.Errorf("Partitions = %d after Touch, want 1 (unchanged)", len(m2.Partitions))
+	}
+}
+
 func TestAppend_Concurrent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

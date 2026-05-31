@@ -193,3 +193,20 @@ func (s *Store) Append(p Partition) error {
 	m.Partitions = append(m.Partitions, p)
 	return s.saveLocked(m)
 }
+
+// Touch loads the manifest (creating it when the file does not exist),
+// refreshes UpdatedAt, and writes it back. Callers should invoke Touch
+// at the end of a successful sync run so updated_at advances even when
+// all records were pruned by the sink and no Append was needed.
+func (s *Store) Touch() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+		return fmt.Errorf("manifest: mkdir: %w", err)
+	}
+	m, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	return s.saveLocked(m)
+}
