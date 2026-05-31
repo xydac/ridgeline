@@ -125,7 +125,13 @@ func TestSink_NoRecordsNoManifestEntry(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	store := manifest.NewStore(filepath.Join(dir, "manifest.json"))
+	manifestPath := filepath.Join(dir, "manifest.json")
+	// manifest.json must exist after Close even with zero records, so
+	// the path reported to the user is always valid.
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Errorf("manifest.json not created after zero-record Close: %v", err)
+	}
+	store := manifest.NewStore(manifestPath)
 	m, _ := store.Load()
 	if len(m.Partitions) != 0 {
 		t.Errorf("Partitions = %d, want 0", len(m.Partitions))
@@ -294,7 +300,9 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	firstMtime := firstStat.ModTime()
 
 	// Second run: identical window. Every record must be pruned, no
-	// new file appears under run2, and the manifest is untouched.
+	// new file appears under run2. The manifest is touched so
+	// updated_at advances (making consecutive re-runs distinguishable).
+	time.Sleep(2 * time.Millisecond)
 	s2 := jsonl.New()
 	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2"}); err != nil {
 		t.Fatalf("Init 2: %v", err)
@@ -321,14 +329,15 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 		t.Fatalf("manifest load: %v", err)
 	}
 	if len(m.Partitions) != 1 {
-		t.Errorf("Partitions = %d, want 1 (no new append)", len(m.Partitions))
+		t.Errorf("Partitions = %d, want 1 (no new append on pruned re-run)", len(m.Partitions))
 	}
 	secondStat, err := os.Stat(manifestPath)
 	if err != nil {
 		t.Fatalf("stat manifest after run 2: %v", err)
 	}
-	if !secondStat.ModTime().Equal(firstMtime) {
-		t.Errorf("manifest mtime changed on no-op re-run: %v -> %v", firstMtime, secondStat.ModTime())
+	// Touch must advance mtime so re-runs are observably distinct.
+	if !secondStat.ModTime().After(firstMtime) {
+		t.Errorf("manifest mtime should advance on re-run: %v -> %v", firstMtime, secondStat.ModTime())
 	}
 
 	// Third run: a record at t2 is outside the covered window, so it

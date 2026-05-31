@@ -206,6 +206,7 @@ func (s *Sink) Close() error {
 	}
 	s.closed = true
 	var firstErr error
+	var wrote bool
 	for stream, sf := range s.streams {
 		if err := sf.writer.Flush(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("jsonl: flush %s: %w", stream, err)
@@ -217,6 +218,7 @@ func (s *Sink) Close() error {
 			firstErr = fmt.Errorf("jsonl: close %s: %w", stream, err)
 		}
 		if sf.rows > 0 {
+			wrote = true
 			part := manifest.Partition{
 				Stream:    stream,
 				Path:      sf.path,
@@ -232,5 +234,15 @@ func (s *Sink) Close() error {
 		}
 	}
 	s.streams = nil
+	// When no new partitions were written (zero-record run or fully-pruned
+	// re-sync), touch the manifest so updated_at advances. This makes
+	// consecutive re-runs distinguishable and ensures the manifest file
+	// exists after every Close, so the manifest path reported to the user
+	// is always valid.
+	if !wrote && firstErr == nil {
+		if err := s.manifest.Touch(); err != nil {
+			firstErr = err
+		}
+	}
 	return firstErr
 }

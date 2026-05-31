@@ -289,6 +289,7 @@ func (s *Sink) Close() error {
 	}
 	s.closed = true
 	var firstErr error
+	var wrote bool
 	for stream, sf := range s.streams {
 		var closeErr error
 		switch {
@@ -305,6 +306,7 @@ func (s *Sink) Close() error {
 			firstErr = fmt.Errorf("parquet: close file %s: %w", stream, err)
 		}
 		if sf.rows > 0 {
+			wrote = true
 			var size int64
 			if statErr == nil {
 				size = info.Size()
@@ -324,5 +326,10 @@ func (s *Sink) Close() error {
 		}
 	}
 	s.streams = nil
+	if !wrote && firstErr == nil {
+		if err := s.manifest.Touch(); err != nil {
+			firstErr = err
+		}
+	}
 	return firstErr
 }

@@ -138,7 +138,6 @@ func runDryRun(ctx context.Context, out string, records int) error {
 	if err := sink.Init(ctx, sinks.SinkConfig{"dir": dir}); err != nil {
 		return fmt.Errorf("sink init: %w", err)
 	}
-	defer sink.Close()
 
 	req := pipeline.Request{
 		Key:    "dryrun-" + testsrc.Name,
@@ -150,7 +149,13 @@ func runDryRun(ctx context.Context, out string, records int) error {
 	}
 	res, err := pipeline.Run(ctx, conn, sink, pipeline.NewMemoryStateStore(), req)
 	if err != nil {
+		sink.Close()
 		return err
+	}
+	// Close before printing the manifest path: Touch in Close writes
+	// manifest.json so the path in the output is always valid.
+	if err := sink.Close(); err != nil {
+		return fmt.Errorf("sink close: %w", err)
 	}
 	fmt.Printf("wrote %d records across %d streams into %s\n", res.Records, len(res.PerStream), dir)
 	for stream, sr := range res.PerStream {
