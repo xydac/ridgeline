@@ -36,6 +36,15 @@
 ## Known gaps
 
 - The Homebrew tap now ships a cask, which Homebrew on Linux refuses to install ("macOS is required for this software"). v0.1.0 was published as a cross-platform formula and still installs on Linux; tags after v0.1.0 will only install via Homebrew on macOS until the packaging path serves a Linux artifact.
+- `sync` reports `done: N records total` from records extracted, not records persisted. On a steady-state re-run the sink writes nothing new but the CLI still prints a non-zero count; only the manifest's `updated_at` refresh signals freshness. Either distinguish "N new" from "N extracted" in the CLI output or document the counting rule.
+- `umami` login mode caches its JWT in cleartext in the state DB. Anything that can read the state file (including `ridgeline query` via `ATTACH`) can read the token. The cached credential should travel through the encrypted `credentials` table, or the query runner should refuse `ATTACH` against the state DB.
+- `ridgeline query` rejects SQL that begins with a `--` line comment because Go's flag parser claims the argument as an unknown flag. The end-of-flags `--` separator works but is undocumented. Stop flag parsing after the `query` subcommand, or document the separator in `--help` and the README.
+- `ridgeline query` misclassifies syntax errors as read-only-mode rejections. A typo'd verb like `SELEKT 1` is reported as "read-only mode rejects SELEKT; pass --write", which steers the user to drop safety guards to debug a spelling mistake. Only emit the "pass --write" message when the leading token is a recognized mutating or DDL keyword.
+- The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
+- Unknown `connector` and `enricher` `type:` values reject with no list of valid types. Sinks already enumerate known types on rejection; connectors and enrichers should match that, or expose a discovery verb.
+- An empty or whitespace-only `ridgeline.yaml` returns `config: parse: EOF` instead of an actionable "file is empty; add `version: 1` and at least one product" message.
+- `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
+- GitHub 401 error responses are logged as raw multi-line JSON. Parse the response and surface only `message` and `documentation_url`.
 
 ## Phase 2+
 
