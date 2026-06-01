@@ -14,6 +14,11 @@
 # Credentials
 /credentials.db
 
+# Local SQLite state files (manual testing scratch)
+*.db
+*.db-shm
+*.db-wal
+
 # OS / editors
 .DS_Store
 *.swp
