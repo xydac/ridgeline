@@ -35,7 +35,6 @@
 
 ## Known gaps
 
-- The Homebrew tap now ships a cask, which Homebrew on Linux refuses to install ("macOS is required for this software"). v0.1.0 was published as a cross-platform formula and still installs on Linux; tags after v0.1.0 will only install via Homebrew on macOS until the packaging path serves a Linux artifact.
 - `sync` reports `done: N records total` from records extracted, not records persisted. On a steady-state re-run the sink writes nothing new but the CLI still prints a non-zero count; only the manifest's `updated_at` refresh signals freshness. Either distinguish "N new" from "N extracted" in the CLI output or document the counting rule.
 - `umami` login mode caches its JWT in cleartext in the state DB. Anything that can read the state file (including `ridgeline query` via `ATTACH`) can read the token. The cached credential should travel through the encrypted `credentials` table, or the query runner should refuse `ATTACH` against the state DB.
 - `ridgeline query` rejects SQL that begins with a `--` line comment because Go's flag parser claims the argument as an unknown flag. The end-of-flags `--` separator works but is undocumented. Stop flag parsing after the `query` subcommand, or document the separator in `--help` and the README.

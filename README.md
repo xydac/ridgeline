@@ -617,13 +617,22 @@ See [ROADMAP.md](ROADMAP.md) for known gaps and planned work.
 
 ## Install
 
-Install the released binary with Homebrew:
+**macOS** - install via Homebrew:
 
 ```
 brew install xydac/tap/ridgeline
 ```
 
-Or build from source:
+**Linux** - download a pre-built binary from the
+[releases page](https://github.com/xydac/ridgeline/releases), unpack,
+and place the binary in your PATH:
+
+```
+tar -xzf ridgeline_VERSION_linux_amd64.tar.gz
+sudo mv ridgeline /usr/local/bin/
+```
+
+**Build from source** (any platform):
 
 ```
 git clone https://github.com/xydac/ridgeline
@@ -632,9 +641,10 @@ go build ./cmd/ridgeline
 ```
 
 Releases are produced by [goreleaser](https://goreleaser.com) on every
-`v*` tag and publish multi-arch binaries (linux-amd64,
-darwin-amd64, darwin-arm64) plus a Homebrew formula in
-[xydac/homebrew-tap](https://github.com/xydac/homebrew-tap).
+`v*` tag and publish multi-arch binaries (linux-amd64, darwin-amd64,
+darwin-arm64). macOS users get a Homebrew cask via
+[xydac/homebrew-tap](https://github.com/xydac/homebrew-tap); Linux
+users install from the tar.gz archive on the releases page.
 
 ## Contributing
 
