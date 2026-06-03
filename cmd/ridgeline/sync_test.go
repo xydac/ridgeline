@@ -241,6 +241,7 @@ func TestRunSync_Config_UnknownConnectorType(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "ridgeline.yaml")
 	cfg := `
+version: 1
 state_path: ` + filepath.Join(dir, "state.db") + `
 key_path: ` + filepath.Join(dir, "key") + `
 products:
@@ -248,13 +249,55 @@ products:
     connectors:
       - name: demo
         type: not-a-real-connector
+        streams: [pages]
         sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "out") + ` } }
 `
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if err := runSync(context.Background(), []string{"--config", cfgPath}); err == nil {
+	err := runSync(context.Background(), []string{"--config", cfgPath})
+	if err == nil {
 		t.Fatal("expected error for unknown connector type")
+	}
+	if !strings.Contains(err.Error(), "not-a-real-connector") {
+		t.Errorf("error should name the bad type: %v", err)
+	}
+	if !strings.Contains(err.Error(), "known:") {
+		t.Errorf("error should list known types: %v", err)
+	}
+}
+
+func TestRunSync_Config_UnknownEnricherType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "out") + ` } }
+        enrichers:
+          - type: not-a-real-enricher
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath})
+	if err == nil {
+		t.Fatal("expected error for unknown enricher type")
+	}
+	if !strings.Contains(err.Error(), "not-a-real-enricher") {
+		t.Errorf("error should name the bad type: %v", err)
+	}
+	if !strings.Contains(err.Error(), "known:") {
+		t.Errorf("error should list known types: %v", err)
 	}
 }
 

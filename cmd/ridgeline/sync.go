@@ -319,7 +319,7 @@ func validateConnectors(ctx context.Context, cfg *config.File) error {
 		for _, inst := range product.Connectors {
 			conn, ok := connectors.Get(inst.Type)
 			if !ok {
-				return fmt.Errorf("product %s connector %s: type %q is not registered", pid, inst.Name, inst.Type)
+				return fmt.Errorf("product %s connector %s: unknown connector type %q (known: %s)", pid, inst.Name, inst.Type, strings.Join(connectors.List(), ", "))
 			}
 			connCfg := connectors.ConnectorConfig{}
 			for k, v := range inst.Config {
@@ -330,7 +330,7 @@ func validateConnectors(ctx context.Context, cfg *config.File) error {
 			}
 			for _, er := range inst.Enrichers {
 				if _, ok := enrichers.Get(er.Type); !ok {
-					return fmt.Errorf("product %s connector %s: enricher type %q is not registered", pid, inst.Name, er.Type)
+					return fmt.Errorf("product %s connector %s: unknown enricher type %q (known: %s)", pid, inst.Name, er.Type, strings.Join(enrichers.List(), ", "))
 				}
 			}
 		}
