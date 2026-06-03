@@ -152,6 +152,9 @@ func Load(path string) (*File, error) {
 // embed the config in a larger document or read from a non-file
 // source can use Parse directly.
 func Parse(b []byte) (*File, error) {
+	if strings.TrimSpace(string(b)) == "" {
+		return nil, fmt.Errorf("config: file is empty; add 'version: 1' and at least one product under 'products:'")
+	}
 	var f File
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
 	dec.KnownFields(true)

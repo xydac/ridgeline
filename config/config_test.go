@@ -182,6 +182,18 @@ products:
 	}
 }
 
+func TestParse_RejectsEmptyInput(t *testing.T) {
+	for _, src := range []string{"", "   ", "\n\n\t\n"} {
+		_, err := config.Parse([]byte(src))
+		if err == nil {
+			t.Fatalf("expected error for empty input %q, got nil", src)
+		}
+		if !strings.Contains(err.Error(), "empty") {
+			t.Errorf("expected actionable empty-file message, got %v", err)
+		}
+	}
+}
+
 func TestParse_RejectsNoProducts(t *testing.T) {
 	src := `version: 1`
 	_, err := config.Parse([]byte(src))
