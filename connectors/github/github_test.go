@@ -19,7 +19,9 @@ func fakeTraffic(t *testing.T, viewsEntries, clonesEntries []map[string]any, wan
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if wantToken != "" && auth != "Bearer "+wantToken {
-			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}`))
 			return
 		}
 		switch {
@@ -273,8 +275,13 @@ func TestExtract_AlreadyUpToDate(t *testing.T) {
 }
 
 func TestExtract_Unauthorized(t *testing.T) {
+	// Use the real GitHub error shape: message + documentation_url + status.
+	// The connector must parse out only the "message" field and produce a
+	// single-line error; documentation_url must not appear in the output.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}`))
 	}))
 	defer srv.Close()
 
@@ -294,14 +301,22 @@ func TestExtract_Unauthorized(t *testing.T) {
 	if fatal == nil {
 		t.Fatal("expected ErrorMsg for 401, got nil")
 	}
-	if !strings.Contains(fatal.Error(), "401") && !strings.Contains(fatal.Error(), "Unauthorized") {
-		t.Errorf("unexpected error: %v", fatal)
+	if !strings.Contains(fatal.Error(), "Bad credentials") {
+		t.Errorf("expected parsed message in error, got: %v", fatal)
+	}
+	if strings.Contains(fatal.Error(), "documentation_url") {
+		t.Errorf("raw JSON body leaked into error (documentation_url present): %v", fatal)
+	}
+	if strings.Contains(fatal.Error(), "\n") {
+		t.Errorf("error spans multiple lines: %v", fatal)
 	}
 }
 
 func TestExtract_Forbidden(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"message":"Must have push access to repository"}`, http.StatusForbidden)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Must have push access to repository","documentation_url":"https://docs.github.com/rest","status":"403"}`))
 	}))
 	defer srv.Close()
 
@@ -321,8 +336,14 @@ func TestExtract_Forbidden(t *testing.T) {
 	if fatal == nil {
 		t.Fatal("expected ErrorMsg for 403, got nil")
 	}
-	if !strings.Contains(fatal.Error(), "403") && !strings.Contains(fatal.Error(), "Forbidden") {
-		t.Errorf("unexpected error: %v", fatal)
+	if !strings.Contains(fatal.Error(), "Must have push access") {
+		t.Errorf("expected parsed message in error, got: %v", fatal)
+	}
+	if strings.Contains(fatal.Error(), "documentation_url") {
+		t.Errorf("raw JSON body leaked into error (documentation_url present): %v", fatal)
+	}
+	if strings.Contains(fatal.Error(), "\n") {
+		t.Errorf("error spans multiple lines: %v", fatal)
 	}
 }
 

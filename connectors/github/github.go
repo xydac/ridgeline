@@ -227,11 +227,11 @@ func (c *Connector) fetchTraffic(ctx context.Context, client *http.Client, baseU
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("401 Unauthorized: %s", strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("401 Unauthorized: %s", parseGitHubMsg(body))
 	}
 	if resp.StatusCode == http.StatusForbidden {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("403 Forbidden (push access required): %s", strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("403 Forbidden (push access required): %s", parseGitHubMsg(body))
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -266,6 +266,20 @@ func (c *Connector) fetchTraffic(ctx context.Context, client *http.Client, baseU
 		})
 	}
 	return out, nil
+}
+
+// parseGitHubMsg extracts the "message" field from a GitHub API error
+// body. If the body is not valid JSON or has no message field, the raw
+// body is returned trimmed of whitespace so the caller always gets a
+// single-line error string.
+func parseGitHubMsg(body []byte) string {
+	var e struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &e); err == nil && e.Message != "" {
+		return e.Message
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // parseCursor reads the per-stream cursor from state and returns zero time
