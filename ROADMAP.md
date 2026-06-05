@@ -43,7 +43,6 @@
 - Unknown `connector` and `enricher` `type:` values reject with no list of valid types. Sinks already enumerate known types on rejection; connectors and enrichers should match that, or expose a discovery verb.
 - An empty or whitespace-only `ridgeline.yaml` returns `config: parse: EOF` instead of an actionable "file is empty; add `version: 1` and at least one product" message.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
-- GitHub 401 error responses are logged as raw multi-line JSON. Parse the response and surface only `message` and `documentation_url`.
 
 ## Phase 2+
 
