@@ -42,6 +42,7 @@
 - Unknown `connector` and `enricher` `type:` values reject with no list of valid types. Sinks already enumerate known types on rejection; connectors and enrichers should match that, or expose a discovery verb.
 - An empty or whitespace-only `ridgeline.yaml` returns `config: parse: EOF` instead of an actionable "file is empty; add `version: 1` and at least one product" message.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
+- `status` and `tui --render-once` validate connector config but skip sink and enricher checks, so a config that `sync` would reject up-front is green-lit by the pre-flight commands. Run the same validation path across all three entrypoints.
 
 ## Phase 2+
 
