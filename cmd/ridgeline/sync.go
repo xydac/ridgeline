@@ -14,7 +14,8 @@ import (
 	"github.com/xydac/ridgeline/connectors/testsrc"
 	"github.com/xydac/ridgeline/creds"
 	"github.com/xydac/ridgeline/enrichers"
-	_ "github.com/xydac/ridgeline/enrichers/urlhost" // register url_host enricher
+	_ "github.com/xydac/ridgeline/enrichers/tsnormalize" // register ts_normalize enricher
+	_ "github.com/xydac/ridgeline/enrichers/urlhost"     // register url_host enricher
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 	"github.com/xydac/ridgeline/sinks/jsonl"
