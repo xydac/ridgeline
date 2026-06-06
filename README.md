@@ -538,9 +538,10 @@ the sync for that connector.
 
 Built-in enrichers:
 
-| Type       | What it adds                                            | Config keys                                        |
-|------------|---------------------------------------------------------|----------------------------------------------------|
-| `url_host` | `host` - the hostname extracted from a URL field        | `url_field` (default `url`), `host_field` (default `host`) |
+| Type           | What it adds                                                                | Config keys                                                                        |
+|----------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `url_host`     | `host` - the hostname extracted from a URL field                            | `url_field` (default `url`), `host_field` (default `host`)                        |
+| `ts_normalize` | rewrites a timestamp field to a canonical UTC RFC 3339 string               | `ts_field` (default `timestamp`), `out_field` (default: same as `ts_field`)       |
 
 ### Querying with `ridgeline query`
 
@@ -599,6 +600,7 @@ go test ./...
 | `sinks/parquet`             | Apache Parquet file sink with a `{stream, timestamp, data_json}` schema. |
 | `enrichers`                 | `Enricher` interface, `EnrichConfig` accessors, init-time registry.      |
 | `enrichers/urlhost`         | Built-in `url_host` enricher: extracts hostname from a URL field.        |
+| `enrichers/tsnormalize`     | Built-in `ts_normalize` enricher: normalizes timestamps to UTC RFC 3339. |
 | `protocol`                  | JSON-lines `Encoder`/`Decoder` for external plugins.                     |
 | `pipeline`                  | ETL lifecycle: Connector -> batch -> Sink -> Flush -> StateStore.Save.   |
 | `manifest`                  | Atomic partition index written alongside sink output.                    |
