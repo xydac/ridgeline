@@ -35,6 +35,7 @@ import (
 	_ "github.com/xydac/ridgeline/connectors/gsc"
 	_ "github.com/xydac/ridgeline/connectors/hackernews"
 	_ "github.com/xydac/ridgeline/connectors/plausible"
+	_ "github.com/xydac/ridgeline/connectors/posthog"
 	_ "github.com/xydac/ridgeline/connectors/testsrc"
 	_ "github.com/xydac/ridgeline/connectors/umami"
 	_ "github.com/xydac/ridgeline/sinks/jsonl"
