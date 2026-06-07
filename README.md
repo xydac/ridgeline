@@ -12,8 +12,9 @@ matters. One binary. Pluggable connectors in any language. DuckDB-powered.
 > API), Umami (self-hosted analytics, API key or username/password
 > login), Google Search Console (OAuth 2.0 via a browser PKCE flow
 > or a bring-your-own refresh token), Plausible Analytics (daily
-> timeseries via API token), and GitHub repository traffic (daily views
-> and clones via PAT), an external runner that lets you wire any
+> timeseries via API token), GitHub repository traffic (daily views
+> and clones via PAT), and PostHog (individual events via Personal API
+> Key), an external runner that lets you wire any
 > executable that speaks JSON-lines as a connector, and an in-process
 > DuckDB `ridgeline query` command. See [ROADMAP.md](ROADMAP.md). Built
 > in public.
@@ -437,6 +438,49 @@ The GitHub traffic API always returns the last 14 days of data. Each
 sync filters server-returned rows through the per-stream cursor so only
 new days are written to the sink.
 
+### Pulling PostHog events
+
+The `posthog` connector reads individual analytics events from
+[PostHog](https://posthog.com) (cloud or self-hosted) via a Personal
+API Key. Each event lands as a row with typed `timestamp`, `event`, and
+`distinct_id` columns plus a `data_json` payload for all other properties.
+
+Create a Personal API Key in PostHog under Settings -> Personal API keys,
+then store it:
+
+```
+echo "phx_..." | ./ridgeline creds put --config ridgeline.yaml posthog_key
+```
+
+Add the connector to your config:
+
+```yaml
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: analytics
+        type: posthog
+        config:
+          project_id: "12345"          # numeric project ID from PostHog
+          api_key_ref: posthog_key
+          # base_url: https://app.posthog.com  # omit for cloud; set for self-hosted
+          # lookback_days: 30                  # initial backfill window
+        streams:
+          - name: events
+        sinks:
+          - type: parquet
+            options:
+              dir: ./posthog-out
+```
+
+Query events after a sync:
+
+```
+./ridgeline query "SELECT event, COUNT(*) AS n FROM read_parquet('posthog-out/*/*.parquet') GROUP BY event ORDER BY n DESC LIMIT 10"
+```
+
 ### Wiring an external connector (any language)
 
 The `external` connector type spawns any executable that speaks the
@@ -594,6 +638,7 @@ go test ./...
 | `connectors/gsc`            | Google Search Console daily Search Analytics; OAuth 2.0 refresh token.   |
 | `connectors/plausible`      | Plausible Analytics daily timeseries (visitors, pageviews, bounce rate). |
 | `connectors/github`         | GitHub repository traffic: daily views and clones (PAT auth).           |
+| `connectors/posthog`        | PostHog individual events; typed timestamp, event, distinct_id columns.  |
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |

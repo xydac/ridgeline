@@ -24,6 +24,7 @@
 - [x] Native connector: Google Search Console (OAuth 2.0 via `creds oauth gsc` browser PKCE flow or a bring-your-own refresh token)
 - [x] Native connector: Plausible Analytics (daily timeseries via API token; typed `visitors`, `pageviews`, `bounce_rate`, `visit_duration` columns)
 - [x] Native connector: GitHub repository traffic (daily views and clones via PAT; typed `count` and `uniques` columns; incremental cursor per stream)
+- [x] Native connector: PostHog (individual events via Personal API Key; typed `timestamp`, `event`, and `distinct_id` columns; cursor-based incremental with pagination)
 - [x] First external connector in Python (worked example under `examples/external/`)
 - [x] `ridgeline status` CLI command (per-connector cursor and last-sync time)
 - [x] `ridgeline query` CLI command (runs SQL against DuckDB)
