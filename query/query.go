@@ -41,6 +41,84 @@ type stmtMeta struct {
 	} `json:"statements"`
 }
 
+// hasNonCommentContent reports whether s contains any content outside of
+// whitespace and SQL comments (-- line comments and /* block */ comments).
+// Used to determine whether content follows a semicolon.
+func hasNonCommentContent(s string) bool {
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+		switch {
+		case ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r':
+			i++
+		case ch == '-' && i+1 < len(s) && s[i+1] == '-':
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+		case ch == '/' && i+1 < len(s) && s[i+1] == '*':
+			i += 2
+			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			i += 2
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// hasStatementDelimiter reports whether s contains a semicolon that appears
+// outside single-quoted strings, double-quoted identifiers, line comments
+// (--...\n), or block comments (/* ... */), and is followed by non-comment
+// SQL content. A trailing semicolon (followed only by whitespace/comments)
+// does NOT count. This is a pre-flight check to reject multi-statement input
+// before DuckDB's json_serialize_sql is called, closing the injection class
+// where a leading allowed statement (SELECT, WITH) opens the gate for
+// arbitrary trailing writes.
+func hasStatementDelimiter(s string) bool {
+	inSingle := false
+	inDouble := false
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+		switch {
+		case !inSingle && !inDouble && ch == '-' && i+1 < len(s) && s[i+1] == '-':
+			// Line comment: advance to end of line.
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+		case !inSingle && !inDouble && ch == '/' && i+1 < len(s) && s[i+1] == '*':
+			// Block comment: advance to closing */.
+			i += 2
+			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			i += 2
+		case !inDouble && ch == '\'':
+			// Single-quoted string; '' is an escaped quote inside.
+			if inSingle && i+1 < len(s) && s[i+1] == '\'' {
+				i += 2
+				continue
+			}
+			inSingle = !inSingle
+			i++
+		case !inSingle && ch == '"':
+			inDouble = !inDouble
+			i++
+		case !inSingle && !inDouble && ch == ';':
+			// Reject if actual SQL content (not just whitespace/comments) follows.
+			if hasNonCommentContent(s[i+1:]) {
+				return true
+			}
+			i++
+		default:
+			i++
+		}
+	}
+	return false
+}
+
 // checkReadOnly validates stmt using DuckDB's json_serialize_sql:
 //   - Multi-statement input is rejected.
 //   - Non-SELECT statements not in the safe-keyword list are rejected.
@@ -52,6 +130,15 @@ type stmtMeta struct {
 // When the inspection query itself fails (syntax error, etc.), we return
 // nil and let the actual execution surface the real error.
 func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
+	// Pre-scan for statement delimiters. This catches multi-statement
+	// input like "SELECT 1; COPY ... TO '/tmp/x'" before json_serialize_sql
+	// sees it. json_serialize_sql cannot serialize multi-type sequences and
+	// returns an error; a leading SELECT keyword previously caused an early
+	// nil return, opening the gate for trailing write statements.
+	if hasStatementDelimiter(stmt) {
+		return fmt.Errorf("multi-statement SQL is not permitted; run one statement at a time")
+	}
+
 	// Escape single quotes for embedding in a SQL literal (standard SQL: '' = one quote).
 	escaped := strings.ReplaceAll(stmt, "'", "''")
 	inspectSQL := "SELECT CAST(json_serialize_sql('" + escaped + "') AS VARCHAR)"

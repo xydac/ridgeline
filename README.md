@@ -609,13 +609,21 @@ without a separate load step:
 
 Pass the entire SQL statement as a single quoted argument.
 
-The default mode is read-only: only `SELECT`, `EXPLAIN`, `DESCRIBE`,
-`SHOW`, and `PRAGMA` statements are accepted, multi-statement input
-(semicolon-separated) is rejected, and network reads (HTTP, S3, GCS)
-are blocked by disabling DuckDB's `httpfs` extension. Local filesystem
-reads (`read_parquet`, `read_csv_auto`, `read_json_auto`) remain
-unrestricted. Pass `--write` to allow modifications (INSERT, DELETE,
-COPY, ATTACH, DDL) and to lift the network restriction.
+The default mode is read-only. The constraints are:
+
+- Only `SELECT`, `EXPLAIN`, `DESCRIBE`, `SHOW`, and `PRAGMA` statements
+  are accepted as the sole statement in the input.
+- Multi-statement input (a semicolon followed by additional SQL content)
+  is rejected before DuckDB executes anything. This closes the injection
+  class where a leading `SELECT` or `WITH` would otherwise open the gate
+  for trailing `CREATE`, `COPY`, `ATTACH`, or other write statements.
+- Network reads (HTTP, S3, GCS) are blocked by disabling DuckDB's
+  `httpfs` extension. Local filesystem reads (`read_parquet`,
+  `read_csv_auto`, `read_json_auto`) remain unrestricted.
+
+Pass `--write` to allow modifications (INSERT, DELETE, COPY, ATTACH, DDL)
+and to lift the network restriction. Multi-statement input is also
+permitted in write mode.
 
 pandas, pyarrow, and the external `duckdb` CLI read the same files
 with no translation layer, so `ridgeline query` is one convenient

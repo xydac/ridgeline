@@ -115,6 +115,75 @@ func TestRunReadOnlyRejectsMultiStatement(t *testing.T) {
 	}
 }
 
+// TestRunReadOnlyRejectsSelectPlusCopy verifies that the F-065 bypass
+// is closed: a leading SELECT followed by COPY TO is rejected even though
+// the first statement is an otherwise-allowed read-only statement.
+func TestRunReadOnlyRejectsSelectPlusCopy(t *testing.T) {
+	tmp := t.TempDir()
+	stmt := "SELECT 1; COPY (SELECT 99 AS x) TO '" + tmp + "/pwn.csv'"
+	var buf bytes.Buffer
+	err := Run(context.Background(), stmt, &buf, Options{})
+	if err == nil {
+		t.Fatal("expected multi-statement rejection, got nil (F-065 bypass still open)")
+	}
+	if !strings.Contains(err.Error(), "multi-statement") {
+		t.Errorf("expected multi-statement error, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyRejectsSelectPlusCreate verifies that SELECT 1; CREATE TABLE
+// is rejected in read-only mode (F-065 bypass shape 2).
+func TestRunReadOnlyRejectsSelectPlusCreate(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "SELECT 1; CREATE TABLE z AS SELECT 42 AS v", &buf, Options{})
+	if err == nil {
+		t.Fatal("expected multi-statement rejection, got nil (F-065 bypass still open)")
+	}
+	if !strings.Contains(err.Error(), "multi-statement") {
+		t.Errorf("expected multi-statement error, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyRejectsWithPlusCopy verifies that a WITH-led statement
+// followed by COPY TO is rejected (F-065 bypass shape 3).
+func TestRunReadOnlyRejectsWithPlusCopy(t *testing.T) {
+	tmp := t.TempDir()
+	stmt := "WITH t AS (SELECT 1) SELECT * FROM t; COPY (SELECT 7 AS x) TO '" + tmp + "/pwn2.csv'"
+	var buf bytes.Buffer
+	err := Run(context.Background(), stmt, &buf, Options{})
+	if err == nil {
+		t.Fatal("expected multi-statement rejection, got nil (F-065 bypass still open)")
+	}
+	if !strings.Contains(err.Error(), "multi-statement") {
+		t.Errorf("expected multi-statement error, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyRejectsAttach verifies that ATTACH to a new writable
+// database is rejected in read-only mode (F-065 bypass shape 4).
+func TestRunReadOnlyRejectsAttach(t *testing.T) {
+	tmp := t.TempDir()
+	stmt := "ATTACH '" + tmp + "/rw.db' AS rw"
+	var buf bytes.Buffer
+	err := Run(context.Background(), stmt, &buf, Options{})
+	if err == nil {
+		t.Fatal("expected read-only rejection for ATTACH, got nil (F-065 bypass)")
+	}
+}
+
+// TestRunReadOnlyAllowsTrailingSemicolon verifies that a single statement
+// with a trailing semicolon is accepted (trailing ';' is not a delimiter).
+func TestRunReadOnlyAllowsTrailingSemicolon(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "SELECT 42 AS answer;", &buf, Options{})
+	if err != nil {
+		t.Fatalf("trailing semicolon should be allowed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "42") {
+		t.Errorf("expected result 42, got\n%s", buf.String())
+	}
+}
+
 // TestRunReadOnlyRejectsInsert verifies INSERT is rejected.
 func TestRunReadOnlyRejectsInsert(t *testing.T) {
 	var buf bytes.Buffer
@@ -263,6 +332,34 @@ func TestRunReadOnlySandboxBlocksHTTP(t *testing.T) {
 	}
 	if !strings.Contains(msg, "httpfs") && !strings.Contains(msg, "extension") {
 		t.Logf("unexpected error format (sandbox may still work): %v", err)
+	}
+}
+
+// TestHasStatementDelimiter covers the tokenizer edge cases.
+func TestHasStatementDelimiter(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		// Single statements: no delimiter.
+		{"SELECT 1", false},
+		{"SELECT 'a;b' AS x", false},               // semicolon inside string
+		{"SELECT \"a;b\" AS x", false},             // semicolon inside double-quoted ident
+		{"SELECT 1 -- trailing; comment\n", false}, // semicolon inside line comment
+		{"SELECT 1 /* inline; comment */", false},  // semicolon inside block comment
+		{"SELECT 1;", false},                       // trailing semicolon, no content after
+		{"SELECT 1; -- comment\n  ", false},        // semicolon then only comment/whitespace
+		// Multi-statement: delimiter present.
+		{"SELECT 1; SELECT 2", true},
+		{"SELECT 1; CREATE TABLE t AS SELECT 1", true},
+		{"WITH t AS (SELECT 1) SELECT * FROM t; COPY (SELECT 1) TO '/x'", true},
+		{"SELECT 'ok'; SELECT 'bypass'", true},
+	}
+	for _, tc := range cases {
+		got := hasStatementDelimiter(tc.input)
+		if got != tc.want {
+			t.Errorf("hasStatementDelimiter(%q) = %v, want %v", tc.input, got, tc.want)
+		}
 	}
 }
 
