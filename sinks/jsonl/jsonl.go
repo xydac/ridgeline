@@ -129,10 +129,18 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 		return err
 	}
 	for _, r := range kept {
+		data := r.Data
+		if data == nil {
+			data = map[string]any{}
+		}
+		dataBytes, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("jsonl: marshal data %s: %w", stream, err)
+		}
 		payload := map[string]any{
 			"stream":    stream,
-			"timestamp": r.Timestamp,
-			"data":      r.Data,
+			"timestamp": r.Timestamp.UTC().UnixMicro(),
+			"data_json": string(dataBytes),
 		}
 		line, err := json.Marshal(payload)
 		if err != nil {

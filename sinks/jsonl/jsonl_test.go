@@ -60,7 +60,7 @@ func TestSink_WriteAndClose(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("lines = %d, want 2", len(lines))
 	}
-	// Each line is valid JSON with stream, timestamp, data keys.
+	// Each line is valid JSON with stream, timestamp (int64 unix micros), data_json keys.
 	for i, l := range lines {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(l), &m); err != nil {
@@ -69,6 +69,25 @@ func TestSink_WriteAndClose(t *testing.T) {
 		if m["stream"] != "pages" {
 			t.Errorf("line %d stream = %v, want pages", i, m["stream"])
 		}
+		// timestamp must be a number (unix microseconds), not a string.
+		if _, ok := m["timestamp"].(float64); !ok {
+			t.Errorf("line %d timestamp type = %T, want float64 (unix micros)", i, m["timestamp"])
+		}
+		// data_json must be a JSON string, not a nested object.
+		if _, ok := m["data_json"].(string); !ok {
+			t.Errorf("line %d data_json type = %T, want string", i, m["data_json"])
+		}
+		// old "data" key must not appear.
+		if _, hasData := m["data"]; hasData {
+			t.Errorf("line %d contains legacy 'data' key; expected 'data_json'", i)
+		}
+	}
+	// Verify timestamp value matches the record's unix micros.
+	var row0 map[string]any
+	_ = json.Unmarshal([]byte(lines[0]), &row0)
+	gotMicros := int64(row0["timestamp"].(float64))
+	if gotMicros != t1.UnixMicro() {
+		t.Errorf("line 0 timestamp = %d, want %d (t1 unix micros)", gotMicros, t1.UnixMicro())
 	}
 
 	// Manifest has exactly one partition with correct time range.
@@ -378,4 +397,72 @@ func TestSink_DoubleCloseIsNoop(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close #2: %v", err)
 	}
+}
+
+// TestSink_ColumnNamesMatchParquetSchema verifies that jsonl output uses the
+// same top-level column names as the parquet sink: stream, timestamp, data_json.
+// This ensures that a DuckDB query written against one sink works against the other.
+func TestSink_ColumnNamesMatchParquetSchema(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := newSink(t, dir)
+
+	ts := time.Unix(1700000000, 0).UTC()
+	rec := connectors.Record{
+		Stream:    "events",
+		Timestamp: ts,
+		Data:      map[string]any{"id": "abc", "val": 42},
+	}
+	if err := s.Write(context.Background(), "events", []connectors.Record{rec}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	path := filepath.Join(dir, "run1", "events.jsonl")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw[:len(raw)-1], &row); err != nil {
+		t.Fatalf("unmarshal: %v: %s", err, raw)
+	}
+
+	// Must have exactly the three parquet-compatible columns.
+	for _, key := range []string{"stream", "timestamp", "data_json"} {
+		if _, ok := row[key]; !ok {
+			t.Errorf("missing column %q in jsonl output; got keys: %v", key, keys(row))
+		}
+	}
+	// Must NOT have the legacy "data" nested-object column.
+	if _, ok := row["data"]; ok {
+		t.Errorf("jsonl output contains legacy 'data' column; expected 'data_json'")
+	}
+	// timestamp must be unix microseconds (numeric), not an ISO string.
+	tsVal, ok := row["timestamp"].(float64)
+	if !ok {
+		t.Fatalf("timestamp type = %T, want float64 (unix micros)", row["timestamp"])
+	}
+	if int64(tsVal) != ts.UnixMicro() {
+		t.Errorf("timestamp = %d, want %d", int64(tsVal), ts.UnixMicro())
+	}
+	// data_json must be a JSON string containing the record body.
+	dataStr, ok := row["data_json"].(string)
+	if !ok {
+		t.Fatalf("data_json type = %T, want string", row["data_json"])
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(dataStr), &body); err != nil {
+		t.Fatalf("data_json is not valid JSON: %v: %s", err, dataStr)
+	}
+}
+
+func keys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

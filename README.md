@@ -519,25 +519,26 @@ the child writes to stderr is surfaced as a warn-level log.
 Cancelling the parent kills the child, so a stuck connector cannot
 block the orchestrator.
 
-### Writing Parquet
+### Writing Parquet or JSON-lines
 
-Swap `type: jsonl` for `type: parquet` on any sink block to write
-Apache Parquet files instead of JSON-lines:
+Both the `parquet` and `jsonl` sinks write the same logical columns, so
+you can swap `type: parquet` for `type: jsonl` (or vice versa) on any
+sink block without changing your queries:
 
 ```yaml
 sink:
-  type: parquet
+  type: parquet   # or: type: jsonl
   options:
     dir: ./pq-out
 ```
 
-Every file has at minimum these three columns:
+Every output file has at minimum these three columns:
 
-| Column      | Type           | Meaning                                    |
-|-------------|----------------|--------------------------------------------|
-| `stream`    | UTF8           | Stream name (also encoded in the filename) |
-| `timestamp` | INT64          | Record timestamp, unix microseconds, UTC   |
-| `data_json` | UTF8           | Record body encoded as JSON                |
+| Column      | Type (parquet)  | Type (jsonl)   | Meaning                                    |
+|-------------|-----------------|----------------|--------------------------------------------|
+| `stream`    | UTF8            | string         | Stream name (also encoded in the filename) |
+| `timestamp` | INT64           | number         | Record timestamp, unix microseconds, UTC   |
+| `data_json` | UTF8            | string         | Record body encoded as JSON                |
 
 Connectors that declare a stream Schema (currently `gsc` and `umami`)
 get typed columns for the declared fields alongside the `data_json`
