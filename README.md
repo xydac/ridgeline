@@ -467,12 +467,11 @@ products:
           api_key_ref: posthog_key
           # base_url: https://app.posthog.com  # omit for cloud; set for self-hosted
           # lookback_days: 30                  # initial backfill window
-        streams:
-          - name: events
-        sinks:
-          - type: parquet
-            options:
-              dir: ./posthog-out
+        streams: [events]
+        sink:
+          type: parquet
+          options:
+            dir: ./posthog-out
 ```
 
 Query events after a sync:

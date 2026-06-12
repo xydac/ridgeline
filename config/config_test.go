@@ -375,6 +375,27 @@ products:
 	}
 }
 
+func TestLoad_READMEExamplesParseClean(t *testing.T) {
+	// Each file in testdata/ is a verbatim copy of a README example block.
+	// This test ensures every example parses without error so a user can
+	// copy-paste from the README and have it work.
+	files := []string{
+		"testdata/readme_posthog.yaml",
+		"testdata/readme_hackernews.yaml",
+	}
+	for _, f := range files {
+		t.Run(filepath.Base(f), func(t *testing.T) {
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatalf("read %s: %v", f, err)
+			}
+			if _, err := config.Parse(raw); err != nil {
+				t.Fatalf("Parse(%s): %v", f, err)
+			}
+		})
+	}
+}
+
 func TestParse_UnknownFieldNoGoType(t *testing.T) {
 	// KnownFields(true) emits "field X not found in type config.T"
 	src := `

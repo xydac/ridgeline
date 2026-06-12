@@ -1,0 +1,15 @@
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: analytics
+        type: posthog
+        config:
+          project_id: "12345"
+          api_key_ref: posthog_key
+        streams: [events]
+        sink:
+          type: parquet
+          options:
+            dir: ./posthog-out

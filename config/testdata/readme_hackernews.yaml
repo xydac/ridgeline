@@ -1,0 +1,16 @@
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: hn
+        type: hackernews
+        config:
+          query: golang
+          hits_per_page: 50
+          max_pages: 1
+        streams: [stories]
+        sink:
+          type: jsonl
+          options:
+            dir: ./hn-out
