@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -282,5 +283,102 @@ func TestTUIModel_SyncError_SetsErrorStatus(t *testing.T) {
 	view := mm.View()
 	if !strings.Contains(view, "boom") {
 		t.Errorf("view should surface error message, got:\n%s", view)
+	}
+}
+
+func TestRunTUI_RenderOnce_UnknownConnectorType_Rejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: not-a-real-connector
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "out") + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	err := runTUI(context.Background(), []string{"--config", cfgPath, "--render-once"}, &buf)
+	if err == nil {
+		t.Fatal("expected error for unknown connector type")
+	}
+	if !strings.Contains(err.Error(), "not-a-real-connector") {
+		t.Errorf("error should name the bad type: %v", err)
+	}
+	if !strings.Contains(err.Error(), "known:") {
+		t.Errorf("error should enumerate known types: %v", err)
+	}
+}
+
+func TestRunTUI_RenderOnce_UnknownSinkType_Rejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: not-a-real-sink, options: { dir: ` + filepath.Join(dir, "out") + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	err := runTUI(context.Background(), []string{"--config", cfgPath, "--render-once"}, &buf)
+	if err == nil {
+		t.Fatal("expected error for unknown sink type")
+	}
+	if !strings.Contains(err.Error(), "not-a-real-sink") {
+		t.Errorf("error should name the bad sink type: %v", err)
+	}
+	if !strings.Contains(err.Error(), "known:") {
+		t.Errorf("error should enumerate known sink types: %v", err)
+	}
+}
+
+func TestRunTUI_RenderOnce_UnknownEnricherType_Rejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "out") + ` } }
+        enrichers:
+          - type: not-a-real-enricher
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	err := runTUI(context.Background(), []string{"--config", cfgPath, "--render-once"}, &buf)
+	if err == nil {
+		t.Fatal("expected error for unknown enricher type")
+	}
+	if !strings.Contains(err.Error(), "not-a-real-enricher") {
+		t.Errorf("error should name the bad enricher type: %v", err)
+	}
+	if !strings.Contains(err.Error(), "known:") {
+		t.Errorf("error should enumerate known enricher types: %v", err)
 	}
 }

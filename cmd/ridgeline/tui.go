@@ -67,6 +67,9 @@ func collectTUIRows(ctx context.Context, cfgPath string, now time.Time) ([]tuiRo
 	if err != nil {
 		return nil, err
 	}
+	if err := validateRegistrations(cfg); err != nil {
+		return nil, err
+	}
 
 	stateEntries, _, err := loadStateEntries(ctx, cfg.StatePath)
 	if err != nil {

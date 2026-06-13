@@ -307,32 +307,25 @@ func openCredStore(cfg *config.File, store *sqlitestate.Store) (*creds.Store, er
 	return cs, nil
 }
 
-// validateConnectors asks every registered connector in cfg to check
-// its own config map before any sink is opened or record is written.
-// Connector types that are not registered are also reported here, so
-// the user does not have to wait for extract time to learn about the
-// typo. Unknown enricher types are also rejected here. Validation walks
-// products in sorted id order and connectors in their declared YAML
-// order so error messages are stable.
+// validateConnectors checks every connector, sink, and enricher type
+// against their registries, then calls each connector's Validate method
+// to verify its config map. Registry checks happen first via
+// validateRegistrations so unknown types produce enumerated errors before
+// any connector is asked to validate its specific options.
 func validateConnectors(ctx context.Context, cfg *config.File) error {
+	if err := validateRegistrations(cfg); err != nil {
+		return err
+	}
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			conn, ok := connectors.Get(inst.Type)
-			if !ok {
-				return fmt.Errorf("product %s connector %s: unknown connector type %q (known: %s)", pid, inst.Name, inst.Type, strings.Join(connectors.List(), ", "))
-			}
+			conn, _ := connectors.Get(inst.Type) // safe: validateRegistrations confirmed presence
 			connCfg := connectors.ConnectorConfig{}
 			for k, v := range inst.Config {
 				connCfg[k] = v
 			}
 			if err := conn.Validate(ctx, connCfg); err != nil {
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
-			}
-			for _, er := range inst.Enrichers {
-				if _, ok := enrichers.Get(er.Type); !ok {
-					return fmt.Errorf("product %s connector %s: unknown enricher type %q (known: %s)", pid, inst.Name, er.Type, strings.Join(enrichers.List(), ", "))
-				}
 			}
 		}
 	}

@@ -144,22 +144,20 @@ func formatStreams(streams []string) string {
 	return "[" + strings.Join(streams, " ") + "]"
 }
 
-// validateConnectorsForStatus calls each connector's Validate method
-// using the config as declared. Credentials accessed through _ref keys
-// are not loaded (status is read-only), but a non-empty *_ref value is
-// treated as satisfying the corresponding bare requirement so that a
-// properly-configured _ref config does not produce a false failure.
-// Connectors whose type is not registered or whose required fields are
-// absent cause a hard error, matching the behavior of sync's pre-flight
-// validation.
+// validateConnectorsForStatus checks connector, sink, and enricher type
+// registrations via validateRegistrations, then calls each connector's
+// Validate method with synthesized credential refs (credentials are not
+// loaded for status - it is a read-only operation). A non-empty *_ref
+// value is treated as satisfying the corresponding bare requirement so
+// a properly-configured _ref config does not produce a false failure.
 func validateConnectorsForStatus(ctx context.Context, cfg *config.File) error {
+	if err := validateRegistrations(cfg); err != nil {
+		return err
+	}
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			conn, ok := connectors.Get(inst.Type)
-			if !ok {
-				return fmt.Errorf("product %s connector %s: type %q is not registered", pid, inst.Name, inst.Type)
-			}
+			conn, _ := connectors.Get(inst.Type) // safe: validateRegistrations confirmed presence
 			connCfg := connectors.ConnectorConfig{}
 			for k, v := range inst.Config {
 				connCfg[k] = v
