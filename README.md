@@ -29,8 +29,8 @@ cd ridgeline
 go build -o ridgeline ./cmd/ridgeline
 ./ridgeline sync --dry-run --out ./out --records 3
 # wrote 6 records across 2 streams into ./out
-#   pages: 3 records
 #   events: 3 records
+#   pages: 3 records
 # manifest: out/manifest.json
 ```
 
