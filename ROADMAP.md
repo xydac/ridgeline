@@ -40,10 +40,8 @@
 - `ridgeline query` rejects SQL that begins with a `--` line comment because Go's flag parser claims the argument as an unknown flag. The end-of-flags `--` separator works but is undocumented. Stop flag parsing after the `query` subcommand, or document the separator in `--help` and the README.
 - `ridgeline query` misclassifies syntax errors as read-only-mode rejections. A typo'd verb like `SELEKT 1` is reported as "read-only mode rejects SELEKT; pass --write", which steers the user to drop safety guards to debug a spelling mistake. Only emit the "pass --write" message when the leading token is a recognized mutating or DDL keyword.
 - The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
-- Unknown `connector` and `enricher` `type:` values reject with no list of valid types. Sinks already enumerate known types on rejection; connectors and enrichers should match that, or expose a discovery verb.
 - An empty or whitespace-only `ridgeline.yaml` returns `config: parse: EOF` instead of an actionable "file is empty; add `version: 1` and at least one product" message.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
-- `status` and `tui --render-once` validate connector config but skip sink and enricher checks, so a config that `sync` would reject up-front is green-lit by the pre-flight commands. Run the same validation path across all three entrypoints.
 
 ## Phase 2+
 
