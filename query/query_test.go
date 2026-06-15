@@ -237,6 +237,54 @@ func TestRunMalformedSelectSurfacesSyntaxError(t *testing.T) {
 	}
 }
 
+// TestRunTypoedKeywordSurfacesDuckDBError verifies that a misspelled
+// statement keyword (e.g. SELEKT) produces a real DuckDB parse error
+// rather than the misleading "read-only mode rejects SELEKT; pass --write"
+// message. Closes F-056.
+func TestRunTypoedKeywordSurfacesDuckDBError(t *testing.T) {
+	cases := []string{
+		"SELEKT 1",
+		"INSRT INTO t VALUES (1)",
+	}
+	for _, stmt := range cases {
+		t.Run(stmt, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Run(context.Background(), stmt, &buf, Options{})
+			if err == nil {
+				t.Fatalf("expected error for %q, got nil", stmt)
+			}
+			if strings.Contains(err.Error(), "pass --write") {
+				t.Errorf("typo'd keyword %q should not produce --write hint, got: %v", stmt, err)
+			}
+		})
+	}
+}
+
+// TestRunKnownMutatingKeywordGetsWriteHint verifies that recognized write
+// keywords (DELETE, INSERT, CREATE) in read-only mode produce the
+// "pass --write" remediation hint rather than a raw DuckDB error.
+func TestRunKnownMutatingKeywordGetsWriteHint(t *testing.T) {
+	cases := []string{
+		"DELETE FROM t",
+		"INSERT INTO t VALUES (1)",
+		"CREATE TABLE t (x INT)",
+		"DROP TABLE t",
+		"UPDATE t SET x = 1",
+	}
+	for _, stmt := range cases {
+		t.Run(stmt, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Run(context.Background(), stmt, &buf, Options{})
+			if err == nil {
+				t.Fatalf("expected error for %q in read-only mode, got nil", stmt)
+			}
+			if !strings.Contains(err.Error(), "pass --write") {
+				t.Errorf("mutating keyword %q should get --write hint, got: %v", stmt, err)
+			}
+		})
+	}
+}
+
 // TestRunReadsParquet exercises the round-trip a user will actually
 // hit: write a parquet file with the ridgeline parquet sink's schema,
 // then select from it via read_parquet. Uses the glob pattern the

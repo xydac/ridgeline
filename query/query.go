@@ -30,6 +30,32 @@ var safeNonSelectKeywords = map[string]bool{
 	"DESCRIBE": true,
 }
 
+// mutatingKeywords is the set of statement-opening keywords that indicate
+// a write or DDL operation. Only when the leading keyword is in this set do
+// we emit the "read-only mode rejects ... pass --write" message. An unknown
+// keyword (e.g. a typo like "SELEKT") falls through to actual execution so
+// DuckDB surfaces a real parse error rather than a misleading remediation hint.
+var mutatingKeywords = map[string]bool{
+	"ALTER":      true,
+	"ATTACH":     true,
+	"CALL":       true,
+	"CHECKPOINT": true,
+	"COPY":       true,
+	"CREATE":     true,
+	"DELETE":     true,
+	"DETACH":     true,
+	"DROP":       true,
+	"EXPORT":     true,
+	"IMPORT":     true,
+	"INSERT":     true,
+	"INSTALL":    true,
+	"LOAD":       true,
+	"MERGE":      true,
+	"TRUNCATE":   true,
+	"UPDATE":     true,
+	"VACUUM":     true,
+}
+
 // stmtMeta holds the subset of DuckDB json_serialize_sql output we inspect.
 type stmtMeta struct {
 	Error      bool   `json:"error"`
@@ -155,15 +181,20 @@ func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
 
 	if meta.Error {
 		// json_serialize_sql could not parse the statement. This happens for
-		// non-SELECT statements (DELETE, COPY, ATTACH, ...) but also for a
-		// malformed SELECT that the SELECT-only parser cannot reach. If the
-		// opening keyword is itself SELECT or WITH, treat the statement as a
-		// malformed SELECT and let DuckDB surface the real syntax error.
+		// non-SELECT statements (DELETE, COPY, ATTACH, ...) and for malformed
+		// input that the parser cannot reach. Only emit the "pass --write"
+		// remediation when the opening keyword is a known mutating verb; an
+		// unknown keyword (a typo, an unrecognized statement type) should fall
+		// through to execution so DuckDB surfaces the real error.
 		kw := firstKeyword(stmt)
 		if safeNonSelectKeywords[kw] || kw == "SELECT" || kw == "WITH" {
 			return nil
 		}
-		return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)
+		if mutatingKeywords[kw] {
+			return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)
+		}
+		// Unknown keyword: let DuckDB produce the real parse error.
+		return nil
 	}
 
 	if len(meta.Statements) > 1 {
