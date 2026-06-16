@@ -1,6 +1,6 @@
 // Package tsnormalize provides an enricher that parses timestamp fields
-// from various formats (RFC 3339, Unix epoch seconds or milliseconds,
-// common date strings) into a canonical UTC RFC 3339 string.
+// from various formats into a canonical UTC RFC 3339 string with
+// nanosecond precision (trailing zeros omitted).
 //
 // Configuration keys:
 //
@@ -9,12 +9,17 @@
 //	out_field - destination field written with the normalized value
 //	            (default: same as ts_field)
 //
-// The enricher handles the following input types:
+// Accepted input formats (tried in order):
 //
-//   - string: tried against RFC 3339, RFC 3339 without nanoseconds,
-//     date-only "2006-01-02", and "2006-01-02 15:04:05"
-//   - int, int64, float64: treated as Unix seconds when the value is
-//     <= 1e10, or Unix milliseconds when larger
+//   - string: RFC 3339 with optional sub-second digits, RFC 3339 without
+//     sub-seconds, "2006-01-02T15:04:05" (no timezone, treated as UTC),
+//     "2006-01-02 15:04:05", date-only "2006-01-02"
+//   - int, int64, float64: Unix epoch; values <= 1e10 are seconds,
+//     larger values are milliseconds
+//
+// Sub-second precision from the input is preserved in the output.
+// A whole-second input produces a whole-second RFC 3339 output (no
+// trailing ".000000000").
 //
 // Records whose ts_field is missing, is an unsupported type, or cannot
 // be parsed are passed through unchanged (partial-success behaviour).
@@ -108,7 +113,7 @@ func (e *Enricher) Enrich(ctx context.Context, cfg enrichers.EnrichConfig, recs 
 		if !parsed {
 			continue
 		}
-		recs[i].Data[outField] = t.Format(time.RFC3339)
+		recs[i].Data[outField] = t.Format(time.RFC3339Nano)
 	}
 	return recs, nil
 }

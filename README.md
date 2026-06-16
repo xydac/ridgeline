@@ -585,7 +585,7 @@ Built-in enrichers:
 | Type           | What it adds                                                                | Config keys                                                                        |
 |----------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|
 | `url_host`     | `host` - the hostname extracted from a URL field                            | `url_field` (default `url`), `host_field` (default `host`)                        |
-| `ts_normalize` | rewrites a timestamp field to a canonical UTC RFC 3339 string               | `ts_field` (default `timestamp`), `out_field` (default: same as `ts_field`)       |
+| `ts_normalize` | rewrites a timestamp field to UTC RFC 3339 (sub-second precision preserved) | `ts_field` (default `timestamp`), `out_field` (default: same as `ts_field`)       |
 
 ### Querying with `ridgeline query`
 
