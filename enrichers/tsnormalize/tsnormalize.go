@@ -14,6 +14,7 @@
 //   - string: RFC 3339 with optional sub-second digits, RFC 3339 without
 //     sub-seconds, "2006-01-02T15:04:05" (no timezone, treated as UTC),
 //     "2006-01-02 15:04:05", date-only "2006-01-02"
+//   - string: a numeric epoch encoded as a string (e.g. "1710495000")
 //   - int, int64, float64: Unix epoch; values <= 1e10 are seconds,
 //     larger values are milliseconds
 //
@@ -23,6 +24,7 @@
 //
 // Records whose ts_field is missing, is an unsupported type, or cannot
 // be parsed are passed through unchanged (partial-success behaviour).
+// A debug-level log entry is emitted for each unparseable value.
 // The enricher never returns an error for individual record failures;
 // only context cancellation returns a non-nil error.
 //
@@ -33,6 +35,9 @@ package tsnormalize
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/xydac/ridgeline/connectors"
@@ -69,6 +74,13 @@ func parseTimestamp(v any) (time.Time, bool) {
 			if t, err := time.Parse(layout, raw); err == nil {
 				return t.UTC(), true
 			}
+		}
+		// Fall back to numeric epoch encoded as a string.
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return fromEpoch(n), true
+		}
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			return fromEpoch(int64(f)), true
 		}
 	case int:
 		return fromEpoch(int64(raw)), true
@@ -111,6 +123,8 @@ func (e *Enricher) Enrich(ctx context.Context, cfg enrichers.EnrichConfig, recs 
 		}
 		t, parsed := parseTimestamp(v)
 		if !parsed {
+			slog.DebugContext(ctx, "ts_normalize: unparseable value; record unchanged",
+				"field", tsField, "type", fmt.Sprintf("%T", v))
 			continue
 		}
 		recs[i].Data[outField] = t.Format(time.RFC3339Nano)

@@ -587,6 +587,18 @@ Built-in enrichers:
 | `url_host`     | `host` - the hostname extracted from a URL field                            | `url_field` (default `url`), `host_field` (default `host`)                        |
 | `ts_normalize` | rewrites a timestamp field to UTC RFC 3339 (sub-second precision preserved) | `ts_field` (default `timestamp`), `out_field` (default: same as `ts_field`)       |
 
+Accepted input formats for `ts_normalize`:
+
+- RFC 3339 with optional sub-seconds: `2006-01-02T15:04:05Z`, `2006-01-02T15:04:05.123Z`
+- RFC 3339 with timezone offset: `2006-01-02T15:04:05+02:00`
+- Datetime without timezone (treated as UTC): `2006-01-02T15:04:05`, `2006-01-02 15:04:05`
+- Date only: `2006-01-02`
+- Unix epoch as int, int64, or float64: values up to 1e10 are seconds, larger are milliseconds
+- Numeric epoch encoded as a string: `"1710495000"` or `"1710495000000"`
+
+Records whose `ts_field` is absent, holds an unsupported type, or cannot be parsed pass through
+unchanged. A debug-level log entry is emitted for each skipped value.
+
 ### Querying with `ridgeline query`
 
 `ridgeline query <SQL>` runs a SQL statement against an in-process

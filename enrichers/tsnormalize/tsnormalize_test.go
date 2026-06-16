@@ -2,6 +2,8 @@ package tsnormalize_test
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +43,10 @@ func TestTSNormalizeFormats(t *testing.T) {
 		{"unix seconds float64", float64(1710495000), "2024-03-15T09:30:00Z"},
 		{"unix millis int64", int64(1710495000000), "2024-03-15T09:30:00Z"},
 		{"unix millis float64", float64(1710495000000), "2024-03-15T09:30:00Z"},
+		// F-068: numeric epoch encoded as a string
+		{"unix seconds string", "1710495000", "2024-03-15T09:30:00Z"},
+		{"unix millis string", "1710495000000", "2024-03-15T09:30:00Z"},
+		{"unix seconds float string", "1710495000.0", "2024-03-15T09:30:00Z"},
 	}
 
 	for _, tc := range cases {
@@ -121,6 +127,32 @@ func TestTSNormalizeCustomFields(t *testing.T) {
 	// original field unchanged
 	if got := out[0].Data["created_at"]; got != "2024-03-15T10:30:00Z" {
 		t.Errorf("created_at = %v; want original value (should not be modified when out_field differs)", got)
+	}
+}
+
+// TestTSNormalizeParseFailureDebugLog verifies that an unparseable value
+// emits a debug-level log entry (F-068).
+func TestTSNormalizeParseFailureDebugLog(t *testing.T) {
+	e, _ := enrichers.Get("ts_normalize")
+
+	var buf strings.Builder
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	old := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(old)
+
+	in := []connectors.Record{rec(map[string]any{"timestamp": "not-a-date-or-epoch"})}
+	out, err := e.Enrich(context.Background(), enrichers.EnrichConfig{}, in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Record must pass through unchanged.
+	if got := out[0].Data["timestamp"]; got != "not-a-date-or-epoch" {
+		t.Errorf("record unchanged expected; got %v", got)
+	}
+	// A debug log line must have been emitted.
+	if !strings.Contains(buf.String(), "ts_normalize") {
+		t.Errorf("expected debug log mentioning ts_normalize; got: %s", buf.String())
 	}
 }
 
