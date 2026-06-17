@@ -87,6 +87,38 @@ Exit code is `0` when all connectors pass, `2` when some fail and some
 succeed (partial), and `1` when all connectors fail or a configuration
 error prevents any connector from starting.
 
+### Run on a schedule
+
+`ridgeline serve` runs the sync pipeline on a repeating interval. The
+first sync starts immediately; subsequent syncs run after each interval
+elapses. A single-line outcome is printed after each run:
+
+```sh
+./ridgeline serve --config ridgeline.yaml --interval 1h
+# loaded ridgeline.yaml
+# state: ./ridgeline.db
+# myapp/analytics: 150 records, 1 states saved
+# done: 150 records total
+# 2026-06-17T12:00:03Z serve: sync ok (2.1s)
+# ...repeats every hour...
+```
+
+`serve` does not daemonize. Use systemd, launchd, or any process
+supervisor to keep it alive. SIGINT or SIGTERM exits cleanly between
+sync runs; a signal during a sync propagates to the connector and
+causes an orderly stop.
+
+```sh
+# Example systemd service (save as ~/.config/systemd/user/ridgeline.service)
+# [Unit]
+# Description=Ridgeline sync daemon
+# [Service]
+# ExecStart=/usr/local/bin/ridgeline serve --config /home/alice/ridgeline.yaml --interval 1h
+# Restart=on-failure
+# [Install]
+# WantedBy=default.target
+```
+
 ### Inspecting state
 
 `ridgeline status` reads the same `ridgeline.yaml` and prints each
