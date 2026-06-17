@@ -8,6 +8,8 @@
 //	sync --config PATH      run every connector configured in PATH against
 //	                        its configured sink, persisting state to the
 //	                        SQLite file at config.state_path
+//	serve --config PATH     run sync on a repeating interval; exits cleanly
+//	  --interval DUR        on SIGINT or SIGTERM; does not daemonize
 //	status --config PATH    show per-connector state and last-sync time
 //	                        recorded in the SQLite file at config.state_path
 //	query <SQL>             run SQL against an in-process DuckDB and
@@ -75,6 +77,11 @@ func main() {
 			}
 			os.Exit(1)
 		}
+	case "serve":
+		if err := runServe(context.Background(), os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+			os.Exit(1)
+		}
 	case "status":
 		if err := runStatus(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "status: %v\n", err)
@@ -108,6 +115,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline version")
 	fmt.Fprintln(w, "  ridgeline sync --dry-run [--records N] [--out DIR]")
 	fmt.Fprintln(w, "  ridgeline sync --config PATH [--continue-on-error]")
+	fmt.Fprintln(w, "  ridgeline serve --config PATH --interval DUR")
 	fmt.Fprintln(w, "  ridgeline status --config PATH")
 	fmt.Fprintln(w, "  ridgeline query <SQL>")
 	fmt.Fprintln(w, "  ridgeline creds list|put|get|rm --config PATH [NAME]")
