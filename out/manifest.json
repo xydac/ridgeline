@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "updated_at": "2026-06-18T19:04:23.988893729Z",
+  "partitions": [
+    {
+      "stream": "events",
+      "path": "1781809463966568030/events.jsonl",
+      "format": "jsonl",
+      "rows": 3,
+      "size_bytes": 357,
+      "start_time": "2023-11-14T22:13:20Z",
+      "end_time": "2023-11-14T22:15:20Z",
+      "created_at": "2026-06-18T19:04:23.982452747Z"
+    },
+    {
+      "stream": "pages",
+      "path": "1781809463966568030/pages.jsonl",
+      "format": "jsonl",
+      "rows": 3,
+      "size_bytes": 348,
+      "start_time": "2023-11-14T22:13:20Z",
+      "end_time": "2023-11-14T22:15:20Z",
+      "created_at": "2026-06-18T19:04:23.988873383Z"
+    }
+  ]
+}

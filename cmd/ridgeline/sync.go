@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/xydac/ridgeline/config"
@@ -159,8 +160,13 @@ func runDryRun(ctx context.Context, out string, records int) error {
 		return fmt.Errorf("sink close: %w", err)
 	}
 	fmt.Printf("wrote %d records across %d streams into %s\n", res.Records, len(res.PerStream), dir)
-	for stream, sr := range res.PerStream {
-		fmt.Printf("  %s: %d records\n", stream, sr.Records)
+	streams := make([]string, 0, len(res.PerStream))
+	for stream := range res.PerStream {
+		streams = append(streams, stream)
+	}
+	sort.Strings(streams)
+	for _, stream := range streams {
+		fmt.Printf("  %s: %d records\n", stream, res.PerStream[stream].Records)
 	}
 	fmt.Printf("manifest: %s\n", filepath.Join(dir, "manifest.json"))
 	return nil
