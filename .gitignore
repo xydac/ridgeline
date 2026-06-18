@@ -28,3 +28,6 @@
 
 # Env
 .env
+
+# Local sync output (manual testing scratch)
+/out/
