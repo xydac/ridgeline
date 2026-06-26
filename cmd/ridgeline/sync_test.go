@@ -689,3 +689,67 @@ products:
 		t.Fatalf("expected nil on all-pass with --continue-on-error: %v", err)
 	}
 }
+
+func TestRunSync_Config_TimedOutConnector_ContinueOnError(t *testing.T) {
+	// F-072: a hanging external connector must time out (via the per-connector
+	// timeout config field) and, with --continue-on-error, let the remaining
+	// connectors finish and commit their data.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	goodOut := filepath.Join(dir, "good")
+	stuckOut := filepath.Join(dir, "stuck")
+
+	// Build the stuck connector config using a shell loop that blocks until killed.
+	// Using /bin/sh avoids test-binary re-exec complications (coverage env vars, etc.).
+	stuckConnector := `
+      - name: stuck
+        type: external
+        config:
+          command: /bin/sh
+          args: ["-c", "while :; do sleep 1; done"]
+          timeout: "500ms"
+        streams: [events]
+        sink: { type: jsonl, options: { dir: ` + stuckOut + ` } }`
+
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: good
+        type: testsrc
+        config: { records: 2 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + goodOut + ` } }` +
+		stuckConnector + `
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath, "--continue-on-error"})
+	if err == nil {
+		t.Fatal("expected PartialSyncError from the timed-out connector")
+	}
+	var pse *PartialSyncError
+	if !errors.As(err, &pse) {
+		t.Fatalf("want *PartialSyncError, got %T: %v", err, err)
+	}
+	if len(pse.failures) != 1 {
+		t.Errorf("failures = %d, want 1", len(pse.failures))
+	}
+	if pse.failures[0].connector != "stuck" {
+		t.Errorf("failed connector = %q, want stuck", pse.failures[0].connector)
+	}
+	if !strings.Contains(pse.failures[0].err.Error(), "timed out") {
+		t.Errorf("failure error %q does not mention timed out", pse.failures[0].err)
+	}
+	if pse.succeeded != 1 {
+		t.Errorf("succeeded = %d, want 1", pse.succeeded)
+	}
+	// The good connector must have written output.
+	if _, err := os.Stat(goodOut); err != nil {
+		t.Errorf("good connector output missing: %v", err)
+	}
+}

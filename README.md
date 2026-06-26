@@ -548,8 +548,11 @@ The runner sends one `extract` command on the child's stdin (with the
 configured streams and the persisted incremental state) and reads
 RECORD, STATE, LOG, SCHEMA, ERROR, and DONE messages back. Anything
 the child writes to stderr is surfaced as a warn-level log.
-Cancelling the parent kills the child, so a stuck connector cannot
-block the orchestrator.
+Each external connector runs under a per-connector timeout (default 5 minutes;
+configurable via `timeout: 10m` in the connector's `config:` block). On expiry
+the child is killed and, with `--continue-on-error`, the remaining connectors
+still run. Cancelling the parent context (SIGTERM to `ridgeline sync`) also
+kills the child.
 
 ### Writing Parquet or JSON-lines
 

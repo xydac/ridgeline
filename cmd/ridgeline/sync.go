@@ -400,6 +400,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 		Streams:   streams,
 		Enrichers: buildEnricherSteps(inst),
 	}
+	fmt.Fprintf(stdout, "starting %s/%s (%s)...\n", pid, inst.Name, inst.Type)
 	res, err := pipeline.Run(ctx, conn, sink, store, req)
 	if err != nil {
 		return 0, err
