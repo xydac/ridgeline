@@ -54,6 +54,8 @@ func TestValidate(t *testing.T) {
 			"env":     map[string]any{"K": "V"},
 			"dir":     "/tmp",
 		}, false, ""},
+		{"valid-timeout", connectors.ConnectorConfig{"command": "/bin/echo", "timeout": "10m"}, false, ""},
+		{"bad-timeout", connectors.ConnectorConfig{"command": "/bin/echo", "timeout": "notaduration"}, true, "timeout"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,6 +196,48 @@ func TestExtractContextCancelKillsChild(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Extract did not return after ctx cancel")
+	}
+}
+
+// hangShellConfig returns a ConnectorConfig that spawns a shell loop that
+// blocks until killed. Unlike helperConfig("hang"), it does not re-execute
+// the test binary and is safe to use under go test -cover.
+func hangShellConfig(timeoutStr string) connectors.ConnectorConfig {
+	cfg := connectors.ConnectorConfig{
+		"command": "/bin/sh",
+		"args":    []any{"-c", "while :; do sleep 1; done"},
+	}
+	if timeoutStr != "" {
+		cfg["timeout"] = timeoutStr
+	}
+	return cfg
+}
+
+func TestExtractTimeout_KillsStuckChild(t *testing.T) {
+	t.Parallel()
+	c := external.New()
+	cfg := hangShellConfig("300ms")
+	streams := []connectors.Stream{{Name: "events", Mode: connectors.FullRefresh}}
+	ch, err := c.Extract(context.Background(), cfg, streams, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	done := make(chan struct{})
+	var errs []error
+	go func() {
+		_, _, _, errs = collect(ch)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Extract did not return after timeout")
+	}
+	if len(errs) == 0 {
+		t.Fatal("expected an ErrorMsg on timeout; got none")
+	}
+	if !strings.Contains(errs[0].Error(), "timed out") {
+		t.Errorf("err = %v, want to mention timed out", errs[0])
 	}
 }
 

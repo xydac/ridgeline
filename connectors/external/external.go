@@ -49,8 +49,11 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 	}
 }
 
+// defaultTimeout is applied when no timeout config key is set.
+const defaultTimeout = 5 * time.Minute
+
 // knownConfigKeys enumerates every config key this connector reads.
-var knownConfigKeys = []string{"command", "args", "env", "dir"}
+var knownConfigKeys = []string{"command", "args", "env", "dir", "timeout"}
 
 // Validate checks that a command is configured and that every supplied
 // config key is one the runner recognizes. It does not invoke the
@@ -64,7 +67,26 @@ func (c *Connector) Validate(_ context.Context, cfg connectors.ConnectorConfig) 
 	if strings.TrimSpace(cfg.String("command")) == "" {
 		return fmt.Errorf("external: command must not be empty")
 	}
+	if s := strings.TrimSpace(cfg.String("timeout")); s != "" {
+		if _, err := time.ParseDuration(s); err != nil {
+			return fmt.Errorf("external: timeout %q: %w", s, err)
+		}
+	}
 	return nil
+}
+
+// connectorTimeout parses the optional timeout config field.
+// Returns defaultTimeout when the field is absent or empty.
+func connectorTimeout(cfg connectors.ConnectorConfig) time.Duration {
+	s := strings.TrimSpace(cfg.String("timeout"))
+	if s == "" {
+		return defaultTimeout
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return defaultTimeout
+	}
+	return d
 }
 
 // Discover returns an empty catalog. The runner does not currently
@@ -97,14 +119,23 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 	env := stringMap(cfg["env"])
 	workDir := strings.TrimSpace(cfg.String("dir"))
 
+	timeout := connectorTimeout(cfg)
+	tctx, tcancel := context.WithTimeout(ctx, timeout)
+
 	ch := make(chan connectors.Message, 64)
-	go run(ctx, ch, command, args, env, workDir, streams, state)
+	go func() {
+		defer tcancel()
+		run(tctx, ctx, ch, command, args, env, workDir, streams, state, timeout)
+	}()
 	return ch, nil
 }
 
 // run is the body of Extract's goroutine. It owns the lifecycle of one
-// child process and is the only place that closes ch.
-func run(ctx context.Context, ch chan<- connectors.Message, command string, args []string, env map[string]string, workDir string, streams []connectors.Stream, state connectors.State) {
+// child process and is the only place that closes ch. ctx is the
+// per-connector sub-context (may have a tighter deadline than parentCtx);
+// parentCtx is used to distinguish a connector timeout from a caller
+// cancellation so a meaningful error can be emitted on timeout.
+func run(ctx, parentCtx context.Context, ch chan<- connectors.Message, command string, args []string, env map[string]string, workDir string, streams []connectors.Stream, state connectors.State, timeout time.Duration) {
 	defer close(ch)
 
 	cmd := exec.CommandContext(ctx, command, args...)
@@ -158,8 +189,14 @@ func run(ctx context.Context, ch chan<- connectors.Message, command string, args
 	<-stderrDone
 	waitErr := cmd.Wait()
 
-	// Context cancel is not a failure; everything else might be.
+	// If ctx is done, check whether it was a connector timeout or a
+	// parent cancellation. A timeout surfaces as an error so
+	// --continue-on-error can skip and move on; a parent cancellation
+	// is not a failure and returns silently.
 	if ctx.Err() != nil {
+		if parentCtx.Err() == nil {
+			emitError(parentCtx, ch, fmt.Errorf("external: timed out after %s", timeout))
+		}
 		return
 	}
 
