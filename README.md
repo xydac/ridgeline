@@ -61,9 +61,14 @@ Run it:
 ./ridgeline sync --config ridgeline.yaml
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
+# starting myapp/demo (testsrc)...
 # myapp/demo: 4 records, 2 states saved
 # done: 4 records total
 ```
+
+A `starting <product>/<name> (<type>)...` line prints before each
+connector runs, so an unattended log shows which connector is in flight
+when the process is interrupted or hangs.
 
 State lives in `./ridgeline.db` (SQLite, 0600 permissions, schema
 created on first run). A second invocation reuses the same database,
@@ -77,8 +82,11 @@ data from connectors that succeed:
 ./ridgeline sync --config ridgeline.yaml --continue-on-error
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
+# starting myapp/analytics (umami)...
 # myapp/analytics: 150 records, 1 states saved
+# starting myapp/events (umami)...
 # sync error (continuing): product myapp connector events: ...
+# starting myapp/search (gsc)...
 # myapp/search: 42 records, 1 states saved
 # done: 192 records total (1 connector(s) failed)
 ```
@@ -97,6 +105,7 @@ elapses. A single-line outcome is printed after each run:
 ./ridgeline serve --config ridgeline.yaml --interval 1h
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
+# starting myapp/analytics (umami)...
 # myapp/analytics: 150 records, 1 states saved
 # done: 150 records total
 # 2026-06-17T12:00:03Z serve: sync ok (2.1s)
@@ -294,12 +303,14 @@ products:
 ./ridgeline sync --config ridgeline.yaml
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
+# starting myapp/hn (hackernews)...
 # myapp/hn: 50 records, 1 states saved
 # done: 50 records total
 
 ./ridgeline sync --config ridgeline.yaml
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
+# starting myapp/hn (hackernews)...
 # myapp/hn: 0 records, 1 states saved      # cursor sees no new items yet
 # done: 0 records total
 ```
@@ -540,6 +551,7 @@ products:
 ./ridgeline sync --config ridgeline.yaml
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
+# starting myapp/pydemo (external)...
 # myapp/pydemo: 3 records, 1 states saved
 # done: 3 records total
 ```
