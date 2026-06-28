@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	_ "github.com/marcboeker/go-duckdb/v2"
+	"github.com/mattn/go-runewidth"
 )
 
 // Options configures a Run call.
@@ -321,27 +322,53 @@ func formatValue(v any) string {
 	}
 }
 
+// escapeCell replaces control characters that would break the table layout
+// with their backslash representations.
+func escapeCell(s string) string {
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\t", `\t`)
+	return s
+}
+
 // writeTable prints header and rows in a fixed-width aligned layout.
+// Column widths are measured in terminal display columns (not UTF-8 bytes)
+// so multi-byte and wide characters (CJK, emoji) align correctly.
+// Control characters in cell values are escaped before rendering.
 // Zero rows still prints the header so the caller can see the schema.
 func writeTable(w io.Writer, cols []string, rows [][]string) {
-	widths := make([]int, len(cols))
+	// Escape control characters before measuring or rendering anything.
+	eCols := make([]string, len(cols))
 	for i, c := range cols {
-		widths[i] = len(c)
+		eCols[i] = escapeCell(c)
 	}
-	for _, r := range rows {
+	eRows := make([][]string, len(rows))
+	for i, r := range rows {
+		ec := make([]string, len(r))
+		for j, cell := range r {
+			ec[j] = escapeCell(cell)
+		}
+		eRows[i] = ec
+	}
+
+	widths := make([]int, len(eCols))
+	for i, c := range eCols {
+		widths[i] = runewidth.StringWidth(c)
+	}
+	for _, r := range eRows {
 		for i, cell := range r {
-			if len(cell) > widths[i] {
-				widths[i] = len(cell)
+			if dw := runewidth.StringWidth(cell); dw > widths[i] {
+				widths[i] = dw
 			}
 		}
 	}
-	writeRow(w, cols, widths)
-	sep := make([]string, len(cols))
+	writeRow(w, eCols, widths)
+	sep := make([]string, len(eCols))
 	for i, width := range widths {
 		sep[i] = strings.Repeat("-", width)
 	}
 	writeRow(w, sep, widths)
-	for _, r := range rows {
+	for _, r := range eRows {
 		writeRow(w, r, widths)
 	}
 	fmt.Fprintf(w, "(%d row%s)\n", len(rows), plural(len(rows)))
@@ -355,11 +382,15 @@ func writeRow(w io.Writer, cells []string, widths []int) {
 	fmt.Fprintln(w, strings.Join(parts, "  "))
 }
 
+// padRight pads s with spaces to reach the target display width.
+// Width is measured in terminal columns, not bytes, so multi-byte
+// characters (accented Latin, CJK, emoji) are accounted for correctly.
 func padRight(s string, width int) string {
-	if len(s) >= width {
+	dw := runewidth.StringWidth(s)
+	if dw >= width {
 		return s
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	return s + strings.Repeat(" ", width-dw)
 }
 
 func plural(n int) string {

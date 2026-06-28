@@ -411,6 +411,92 @@ func TestHasStatementDelimiter(t *testing.T) {
 	}
 }
 
+// TestWriteTableMultiByteAlignment verifies that columns containing multi-byte
+// characters (accented Latin, CJK full-width glyphs) align correctly.
+// The separator must match the display width of the widest cell, not its byte length.
+func TestWriteTableMultiByteAlignment(t *testing.T) {
+	// "café" (NFD) would work too, but DuckDB returns precomposed NFC.
+	// "café" = café: 4 display columns, 5 UTF-8 bytes.
+	// "xy"       = 2 display columns.
+	// Column width should be 4 (display width of café), separator "----".
+	var buf bytes.Buffer
+	err := Run(context.Background(),
+		"SELECT 'café' AS a UNION ALL SELECT 'xy' ORDER BY a",
+		&buf, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "café") {
+		t.Errorf("output missing café:\n%s", out)
+	}
+	// Separator must be exactly 4 dashes (display width), not 5 (byte length).
+	if !strings.Contains(out, "----") {
+		t.Errorf("expected 4-dash separator for display-width-4 column:\n%s", out)
+	}
+	if strings.Contains(out, "-----") {
+		t.Errorf("separator is 5 dashes (byte-length bug not fixed):\n%s", out)
+	}
+
+	// CJK: each glyph is 2 display columns wide.
+	// "日本語" = 3 glyphs * 2 = 6 display columns, 9 UTF-8 bytes.
+	// "ab"    = 2 display columns.
+	var buf2 bytes.Buffer
+	err = Run(context.Background(),
+		"SELECT '日本語' AS j UNION ALL SELECT 'ab' ORDER BY j",
+		&buf2, Options{})
+	if err != nil {
+		t.Fatalf("Run (CJK): %v", err)
+	}
+	out2 := buf2.String()
+	if !strings.Contains(out2, "日本語") {
+		t.Errorf("output missing 日本語:\n%s", out2)
+	}
+	// Separator must be 6 dashes (display width), not 9 (byte length).
+	if !strings.Contains(out2, "------") {
+		t.Errorf("expected 6-dash separator for CJK column:\n%s", out2)
+	}
+	if strings.Contains(out2, "---------") {
+		t.Errorf("separator is 9 dashes (byte-length bug not fixed):\n%s", out2)
+	}
+}
+
+// TestWriteTableNewlineEscape verifies that embedded newlines in cell values
+// are rendered as the two-character literal \n rather than breaking the row.
+func TestWriteTableNewlineEscape(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(),
+		"SELECT 'line1\nline2' AS v",
+		&buf, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out := buf.String()
+	if strings.Count(out, "\n") != 4 {
+		// Expected: header line, separator, data row, row-count footer = 4 newlines.
+		t.Errorf("expected 4 lines (header+sep+data+count), got output:\n%s", out)
+	}
+	if !strings.Contains(out, `\n`) {
+		t.Errorf("embedded newline not escaped to \\n literal:\n%s", out)
+	}
+}
+
+// TestWriteTableTabEscape verifies that embedded tab characters in cell values
+// are rendered as the two-character literal \t rather than expanding the cell.
+func TestWriteTableTabEscape(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(),
+		"SELECT 'col1\tcol2' AS v",
+		&buf, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `\t`) {
+		t.Errorf("embedded tab not escaped to \\t literal:\n%s", out)
+	}
+}
+
 // TestMain guards against leaving temp dirs behind if a test panics.
 func TestMain(m *testing.M) {
 	code := m.Run()
