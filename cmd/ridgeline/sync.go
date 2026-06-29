@@ -112,7 +112,7 @@ func runSync(ctx context.Context, args []string) error {
 		return fmt.Errorf("--out must not be empty")
 	}
 	if *cfgPath != "" {
-		return runConfigSync(ctx, *cfgPath, *continueOnError)
+		return runConfigSync(ctx, *cfgPath, *continueOnError, os.Stdout)
 	}
 	if *dryRun {
 		return runDryRun(ctx, *out, *records)
@@ -193,7 +193,10 @@ func runDryRun(ctx context.Context, out string, records int) error {
 // is logged and the remaining connectors are still attempted. The
 // caller receives a *PartialSyncError whose IsTotal method
 // distinguishes a run where all connectors failed from a partial one.
-func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool) error {
+//
+// stdout receives informational lines (loaded, state, per-connector
+// counts, done summary). Pass io.Discard to suppress them all.
+func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, stdout io.Writer) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
@@ -212,8 +215,8 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool) er
 		return err
 	}
 
-	fmt.Printf("loaded %s\n", cfgPath)
-	fmt.Printf("state: %s\n", cfg.StatePath)
+	fmt.Fprintf(stdout, "loaded %s\n", cfgPath)
+	fmt.Fprintf(stdout, "state: %s\n", cfg.StatePath)
 
 	var totalRecords int
 	var failures []syncFailure
@@ -221,7 +224,7 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool) er
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			n, err := runConnectorInstance(ctx, store, pid, inst, os.Stdout, cs)
+			n, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs)
 			if err != nil {
 				if continueOnError {
 					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
@@ -235,10 +238,10 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool) er
 		}
 	}
 	if len(failures) > 0 {
-		fmt.Printf("done: %d records total (%d connector(s) failed)\n", totalRecords, len(failures))
+		fmt.Fprintf(stdout, "done: %d records total (%d connector(s) failed)\n", totalRecords, len(failures))
 		return &PartialSyncError{failures: failures, succeeded: succeeded}
 	}
-	fmt.Printf("done: %d records total\n", totalRecords)
+	fmt.Fprintf(stdout, "done: %d records total\n", totalRecords)
 	return nil
 }
 

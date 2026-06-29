@@ -112,6 +112,16 @@ elapses. A single-line outcome is printed after each run:
 # ...repeats every hour...
 ```
 
+For unattended use (systemd, cron, log aggregators), add `--quiet` to
+suppress the per-sync preamble and per-connector lines. Only one
+timestamped result line is written per tick, making it easy to tail:
+
+```sh
+./ridgeline serve --config ridgeline.yaml --interval 1h --quiet
+# 2026-06-17T12:00:03Z serve: sync ok (2.1s)
+# 2026-06-17T13:00:04Z serve: sync ok (1.8s)
+```
+
 `serve` does not daemonize. Use systemd, launchd, or any process
 supervisor to keep it alive. SIGINT or SIGTERM exits cleanly between
 sync runs; a signal during a sync propagates to the connector and
@@ -122,7 +132,7 @@ causes an orderly stop.
 # [Unit]
 # Description=Ridgeline sync daemon
 # [Service]
-# ExecStart=/usr/local/bin/ridgeline serve --config /home/alice/ridgeline.yaml --interval 1h
+# ExecStart=/usr/local/bin/ridgeline serve --config /home/alice/ridgeline.yaml --interval 1h --quiet
 # Restart=on-failure
 # [Install]
 # WantedBy=default.target
