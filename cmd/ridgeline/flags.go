@@ -7,6 +7,20 @@ import (
 	"io"
 )
 
+// usageError is returned by subcommand handlers when the caller invoked
+// the CLI incorrectly (missing required verb, unknown option). main.go
+// exits 2 for this error class - the conventional usage-error sentinel.
+// Regular runtime failures (IO errors, missing config) exit 1.
+type usageError struct {
+	msg string
+}
+
+func (e *usageError) Error() string { return e.msg }
+
+func usageErrorf(format string, a ...any) error {
+	return &usageError{msg: fmt.Sprintf(format, a...)}
+}
+
 // parseSubcommandFlags parses args into fs and normalizes two cross-cutting
 // behaviors every subcommand wants:
 //

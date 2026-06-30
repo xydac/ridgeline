@@ -63,8 +63,8 @@ func errCreds(err error) error {
 // will then find the credentials the CLI put there.
 func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		credsUsage(stdout)
-		return nil
+		credsUsage(stderr)
+		return usageErrorf("creds: a verb is required (list, put, get, rm, oauth)")
 	}
 	verb, rest := args[0], args[1:]
 	switch verb {
@@ -82,7 +82,7 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	case "oauth":
 		return credsOAuth(ctx, rest, stdin, stdout, stderr)
 	}
-	return fmt.Errorf("unknown creds verb %q (known: list, put, get, rm, oauth)", verb)
+	return usageErrorf("unknown creds verb %q (known: list, put, get, rm, oauth)", verb)
 }
 
 func credsUsage(w io.Writer) {

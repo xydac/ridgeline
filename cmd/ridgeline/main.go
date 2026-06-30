@@ -47,10 +47,21 @@ import (
 // Version is the build version. Overridden at release time via -ldflags.
 var Version = "0.0.0-dev"
 
+// cmdExit exits with the appropriate code for err.
+// Usage errors (missing required verb, unknown subcommand) exit 2.
+// Runtime errors exit 1.
+func cmdExit(err error) {
+	var ue *usageError
+	if errors.As(err, &ue) {
+		os.Exit(2)
+	}
+	os.Exit(1)
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		printUsage(os.Stdout)
-		return
+		printUsage(os.Stderr)
+		os.Exit(2)
 	}
 	switch os.Args[1] {
 	case "version", "--version", "-v":
@@ -80,27 +91,27 @@ func main() {
 	case "serve":
 		if err := runServe(context.Background(), os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: %v\n", err)
-			os.Exit(1)
+			cmdExit(err)
 		}
 	case "status":
 		if err := runStatus(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "status: %v\n", err)
-			os.Exit(1)
+			cmdExit(err)
 		}
 	case "query":
 		if err := runQuery(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "query: %v\n", err)
-			os.Exit(1)
+			cmdExit(err)
 		}
 	case "creds":
 		if err := runCreds(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintf(os.Stderr, "creds: %v\n", err)
-			os.Exit(1)
+			cmdExit(err)
 		}
 	case "tui":
 		if err := runTUI(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "tui: %v\n", err)
-			os.Exit(1)
+			cmdExit(err)
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])

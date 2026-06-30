@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -44,16 +46,17 @@ func TestCLI_HelpFlags(t *testing.T) {
 	}
 }
 
-func TestCLI_NoArgs_PrintsUsage(t *testing.T) {
+func TestCLI_NoArgs_ExitsTwoWithUsage(t *testing.T) {
 	t.Parallel()
 	bin := buildRidgeline(t)
 	cmd := exec.Command(bin)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("exit %v\n%s", err, out)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit 2, got: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "Usage:") {
-		t.Errorf("usage missing: %s", out)
+		t.Errorf("usage missing from output: %s", out)
 	}
 }
 
@@ -181,5 +184,69 @@ func TestCLI_UnknownSubcommand_PointsAtHelp(t *testing.T) {
 	}
 	if !strings.Contains(got, "--help") {
 		t.Errorf("output should mention --help: %s", got)
+	}
+}
+
+// TestCLI_MisinvocationExitCodes asserts that every form of "you invoked
+// me wrong" exits 2, not 0 or 1. Covers F-079.
+func TestCLI_MisinvocationExitCodes(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	cases := []struct {
+		desc string
+		args []string
+	}{
+		{"bare ridgeline", []string{}},
+		{"creds with no verb", []string{"creds"}},
+		{"unknown creds verb", []string{"creds", "bogus"}},
+		{"unknown top-level command", []string{"frobnicate"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			cmd := exec.Command(bin, tc.args...)
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("%s: expected non-zero exit, got nil", tc.desc)
+			}
+			if exitErr.ExitCode() != 2 {
+				t.Errorf("%s: got exit %d, want 2", tc.desc, exitErr.ExitCode())
+			}
+		})
+	}
+}
+
+// TestCLI_DuplicateConnectorOrdinal1Based asserts that the error message
+// for a duplicate connector name uses 1-based list indices. Covers F-074.
+func TestCLI_DuplicateConnectorOrdinal1Based(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	// Three connectors; the 3rd (index 2 in Go, but #3 to the user) duplicates
+	// the name of the 1st. The error should say "#3", not "#2".
+	cfg := `version: 1
+state_path: /tmp/dup3test.db
+products:
+  myapp:
+    connectors:
+      - {name: a, type: testsrc, config: {records: 1}, streams: [pages], sink: {type: jsonl, options: {dir: /tmp/o1}}}
+      - {name: b, type: testsrc, config: {records: 1}, streams: [pages], sink: {type: jsonl, options: {dir: /tmp/o2}}}
+      - {name: a, type: testsrc, config: {records: 1}, streams: [pages], sink: {type: jsonl, options: {dir: /tmp/o3}}}
+`
+	tmpFile := filepath.Join(t.TempDir(), "dup3.yaml")
+	if err := os.WriteFile(tmpFile, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "sync", "--config", tmpFile)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("expected non-zero exit for duplicate connector name")
+	}
+	if !strings.Contains(string(out), "#3") {
+		t.Errorf("expected 1-based ordinal (#3) in error output; got: %s", out)
+	}
+	if strings.Contains(string(out), "#2") {
+		t.Errorf("got 0-based ordinal (#2) in error output; want #3: %s", out)
 	}
 }

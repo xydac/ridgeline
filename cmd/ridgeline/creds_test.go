@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -127,14 +128,20 @@ func TestRunCreds_UnknownVerb(t *testing.T) {
 	}
 }
 
-func TestRunCreds_NoArgsPrintsHelp(t *testing.T) {
+func TestRunCreds_NoArgsPrintsUsageToStderr(t *testing.T) {
 	t.Parallel()
 	var out, errOut bytes.Buffer
-	if err := runCreds(context.Background(), nil, bytes.NewReader(nil), &out, &errOut); err != nil {
-		t.Fatalf("help: %v", err)
+	err := runCreds(context.Background(), nil, bytes.NewReader(nil), &out, &errOut)
+	if err == nil {
+		t.Fatal("want usage error when no verb given, got nil")
 	}
-	if !strings.Contains(out.String(), "creds list") {
-		t.Errorf("help output missing usage: %q", out.String())
+	var ue *usageError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want usageError, got %T: %v", err, err)
+	}
+	// Usage goes to stderr so the caller can exit 2 without stdout noise.
+	if !strings.Contains(errOut.String(), "creds list") {
+		t.Errorf("stderr missing usage; got: %q", errOut.String())
 	}
 }
 
