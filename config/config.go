@@ -193,7 +193,7 @@ func (f *File) Validate() error {
 		}
 		seen := map[string]struct{}{}
 		for i, c := range p.Connectors {
-			where := fmt.Sprintf("product %q connector #%d", id, i)
+			where := fmt.Sprintf("product %q connector #%d", id, i+1)
 			if c.Name == "" {
 				return fmt.Errorf("config: %s: name is required", where)
 			}
