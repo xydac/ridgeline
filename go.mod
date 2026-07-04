@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/marcboeker/go-duckdb/v2 v2.4.3
+	github.com/mattn/go-runewidth v0.0.16
 	github.com/parquet-go/parquet-go v0.29.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.49.1
@@ -38,7 +39,6 @@ require (
 	github.com/marcboeker/go-duckdb/mapping v0.0.21 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
