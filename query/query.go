@@ -68,6 +68,33 @@ type stmtMeta struct {
 	} `json:"statements"`
 }
 
+// hasExecutableContent reports whether s contains any executable SQL,
+// treating whitespace, SQL comments (-- line and /* block */), and semicolons
+// as non-content. Callers use it to reject inputs that carry no statement.
+func hasExecutableContent(s string) bool {
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+		switch {
+		case ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == ';':
+			i++
+		case ch == '-' && i+1 < len(s) && s[i+1] == '-':
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+		case ch == '/' && i+1 < len(s) && s[i+1] == '*':
+			i += 2
+			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			i += 2
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 // hasNonCommentContent reports whether s contains any content outside of
 // whitespace and SQL comments (-- line comments and /* block */ comments).
 // Used to determine whether content follows a semicolon.
@@ -250,9 +277,10 @@ func applySandbox(ctx context.Context, db *sql.DB) error {
 // Local filesystem reads remain unrestricted. Pass Options{Write: true}
 // to bypass these guardrails for full DuckDB access.
 //
-// Empty or whitespace-only input is rejected before any DuckDB call.
+// Input that contains no executable SQL (empty, whitespace-only,
+// comment-only, or a bare semicolon) is rejected before any DuckDB call.
 func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
-	if strings.TrimSpace(stmt) == "" {
+	if !hasExecutableContent(stmt) {
 		return fmt.Errorf("query must not be empty")
 	}
 	db, err := sql.Open("duckdb", "")

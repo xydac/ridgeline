@@ -53,13 +53,28 @@ func TestRunEmptyResultSetPrintsHeaderAndCount(t *testing.T) {
 }
 
 func TestRunRejectsEmptyQuery(t *testing.T) {
-	var buf bytes.Buffer
-	err := Run(context.Background(), "   \n\t  ", &buf, Options{})
-	if err == nil {
-		t.Fatal("expected error for empty query, got nil")
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"empty", ""},
+		{"whitespace", "   \n\t  "},
+		{"line comment only", "-- just a comment"},
+		{"block comment only", "/* nothing here */"},
+		{"bare semicolon", ";"},
+		{"semicolons and comments", "  ;; -- x\n /* y */ ; "},
 	}
-	if !strings.Contains(err.Error(), "empty") {
-		t.Errorf("error should mention empty query, got %q", err.Error())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Run(context.Background(), tc.input, &buf, Options{})
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), "query must not be empty") {
+				t.Errorf("want canonical empty-query message, got %q", err.Error())
+			}
+		})
 	}
 }
 
