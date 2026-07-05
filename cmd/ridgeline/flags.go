@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // usageError is returned by subcommand handlers when the caller invoked
@@ -57,4 +58,40 @@ func rejectExtraArgs(fs *flag.FlagSet) error {
 		return nil
 	}
 	return fmt.Errorf("unexpected argument %q", fs.Arg(0))
+}
+
+// prescanStringFlag extracts every occurrence of --name VALUE or --name=VALUE
+// from args, wherever they appear (including after positional tokens), and
+// returns the last value found together with a copy of args with those tokens
+// removed. This lets callers honor a flag regardless of its position relative
+// to positional arguments, working around flag.FlagSet's stop-at-first-
+// non-flag behavior.
+//
+// If the flag does not appear, found is false and rest == args (no copy made).
+func prescanStringFlag(name string, args []string) (val string, rest []string, found bool) {
+	prefix := "--" + name + "="
+	flag2 := "--" + name
+	out := args[:0:0] // share backing array only if we mutate
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if a == flag2 && i+1 < len(args) {
+			val = args[i+1]
+			found = true
+			i += 2
+			continue
+		}
+		if strings.HasPrefix(a, prefix) {
+			val = strings.TrimPrefix(a, prefix)
+			found = true
+			i++
+			continue
+		}
+		out = append(out, a)
+		i++
+	}
+	if !found {
+		return "", args, false
+	}
+	return val, out, true
 }

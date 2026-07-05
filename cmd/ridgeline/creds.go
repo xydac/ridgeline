@@ -89,7 +89,7 @@ func credsUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  ridgeline creds list  --config PATH")
 	fmt.Fprintln(w, "  ridgeline creds put   --config PATH [--raw] NAME        # reads secret from stdin")
-	fmt.Fprintln(w, "  ridgeline creds get   --config PATH NAME                # writes plaintext to stdout")
+	fmt.Fprintln(w, "  ridgeline creds get   --config PATH [--raw] NAME        # writes plaintext to stdout")
 	fmt.Fprintln(w, "  ridgeline creds rm    --config PATH NAME")
 	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID (--client-secret SEC | --client-secret-file PATH | --client-secret-stdin) [--name PREFIX]")
 }
@@ -98,9 +98,18 @@ func credsUsage(w io.Writer) {
 // alongside the remaining positional arguments. Errors here are the
 // same flavor as runSync: missing --config is a hard error.
 //
+// --config is honored regardless of position relative to NAME positionals
+// by prescanning for it before handing off to flag.FlagSet.
+//
 // stdout is used as the destination for help output so --help exits 0
 // with usage printed to the right writer.
 func credsFlags(verb string, args []string, stdout io.Writer) (*config.File, []string, bool, error) {
+	// Pre-scan so --config is honored whether the user writes it before or
+	// after the NAME positional. flag.FlagSet stops at the first non-flag
+	// token, so without this a flag-after-positional is silently dropped.
+	if cfgVal, rest, found := prescanStringFlag("config", args); found {
+		args = append([]string{"--config", cfgVal}, rest...)
+	}
 	fs := flag.NewFlagSet("creds "+verb, flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	fs.Usage = func() {
@@ -191,6 +200,11 @@ func credsList(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	// Pre-scan so --config is honored whether the user writes it before or
+	// after the NAME positional.
+	if cfgVal, rest, found := prescanStringFlag("config", args); found {
+		args = append([]string{"--config", cfgVal}, rest...)
+	}
 	fs := flag.NewFlagSet("creds put", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	rawMode := fs.Bool("raw", false, "store bytes verbatim without stripping a trailing newline")
@@ -262,19 +276,47 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 }
 
 func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
-	cfg, rest, help, err := credsFlags("get", args, stdout)
+	// Pre-scan so --config is honored whether the user writes it before or
+	// after the NAME positional.
+	if cfgVal, rest, found := prescanStringFlag("config", args); found {
+		args = append([]string{"--config", cfgVal}, rest...)
+	}
+	fs := flag.NewFlagSet("creds get", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	rawMode := fs.Bool("raw", false, "write secret bytes verbatim without appending a trailing newline")
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintln(w, "Usage: ridgeline creds get --config PATH [--raw] NAME")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Decrypts and writes the secret to stdout.")
+		fmt.Fprintln(w, "Without --raw a trailing newline is appended when the secret lacks one,")
+		fmt.Fprintln(w, "matching the behavior of echo so the value is shell-friendly.")
+		fmt.Fprintln(w, "Pass --raw to retrieve the exact bytes as stored.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
 	if err != nil {
 		return err
 	}
 	if help {
 		return nil
 	}
+	if *cfgPath == "" {
+		return fmt.Errorf("--config PATH is required")
+	}
+	rest := fs.Args()
 	if len(rest) != 1 {
 		return fmt.Errorf("get: exactly one NAME argument is required")
 	}
 	name := rest[0]
 	if err := validateCredName(name); err != nil {
 		return fmt.Errorf("get: %w", err)
+	}
+	cfg, err := config.LoadCreds(*cfgPath)
+	if err != nil {
+		return err
 	}
 	cs, store, err := openCreds(cfg)
 	if err != nil {
@@ -291,11 +333,13 @@ func credsGet(ctx context.Context, args []string, stdout io.Writer) error {
 	if _, err := stdout.Write(plain); err != nil {
 		return err
 	}
-	// Match `echo`: append a trailing newline when the plaintext has
-	// none, so piping into $(...) yields the expected string without
-	// mangling a shell prompt.
-	if len(plain) == 0 || plain[len(plain)-1] != '\n' {
-		fmt.Fprintln(stdout)
+	if !*rawMode {
+		// Match `echo`: append a trailing newline when the plaintext has
+		// none, so piping into $(...) yields the expected string without
+		// mangling a shell prompt.
+		if len(plain) == 0 || plain[len(plain)-1] != '\n' {
+			fmt.Fprintln(stdout)
+		}
 	}
 	return nil
 }
