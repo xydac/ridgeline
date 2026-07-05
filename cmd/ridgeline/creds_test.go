@@ -297,6 +297,87 @@ func TestRunCreds_RejectsInvalidNames(t *testing.T) {
 	}
 }
 
+// F-077: creds get --raw must suppress the trailing newline so the byte count
+// equals the byte count of the stored secret exactly.
+func TestRunCreds_GetRawSuppressesNewline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+	var out, errOut bytes.Buffer
+
+	// Store exactly 3 bytes ("tok", no newline) with put --raw.
+	if err := runCreds(ctx, []string{"put", "--raw", "--config", cfgPath, "tok"},
+		bytes.NewBufferString("tok"), &out, &errOut); err != nil {
+		t.Fatalf("put --raw: %v", err)
+	}
+
+	out.Reset()
+	if err := runCreds(ctx, []string{"get", "--raw", "--config", cfgPath, "tok"},
+		bytes.NewReader(nil), &out, &errOut); err != nil {
+		t.Fatalf("get --raw: %v", err)
+	}
+	got := out.Bytes()
+	if string(got) != "tok" {
+		t.Errorf("get --raw: got %q (%d bytes), want %q (3 bytes)", got, len(got), "tok")
+	}
+}
+
+// F-077: without --raw, get still appends a newline for shell friendliness.
+func TestRunCreds_GetWithoutRawAppendsNewline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+	var out, errOut bytes.Buffer
+
+	if err := runCreds(ctx, []string{"put", "--raw", "--config", cfgPath, "notrail"},
+		bytes.NewBufferString("val"), &out, &errOut); err != nil {
+		t.Fatalf("put --raw: %v", err)
+	}
+
+	out.Reset()
+	if err := runCreds(ctx, []string{"get", "--config", cfgPath, "notrail"},
+		bytes.NewReader(nil), &out, &errOut); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got := out.String(); got != "val\n" {
+		t.Errorf("get without --raw: got %q, want %q", got, "val\n")
+	}
+}
+
+// F-064: --config is honored when placed after the NAME positional.
+func TestRunCreds_ConfigFlagAfterName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+	var out, errOut bytes.Buffer
+
+	// put with --config after NAME
+	if err := runCreds(ctx, []string{"put", "cfgafter", "--config", cfgPath},
+		bytes.NewBufferString("afterval\n"), &out, &errOut); err != nil {
+		t.Fatalf("put with --config after NAME: %v", err)
+	}
+
+	// get with --config after NAME
+	out.Reset()
+	if err := runCreds(ctx, []string{"get", "cfgafter", "--config", cfgPath},
+		bytes.NewReader(nil), &out, &errOut); err != nil {
+		t.Fatalf("get with --config after NAME: %v", err)
+	}
+	if got := strings.TrimRight(out.String(), "\n"); got != "afterval" {
+		t.Errorf("get after-name: got %q, want %q", got, "afterval")
+	}
+
+	// rm with --config after NAME
+	out.Reset()
+	if err := runCreds(ctx, []string{"rm", "cfgafter", "--config", cfgPath},
+		bytes.NewReader(nil), &out, &errOut); err != nil {
+		t.Fatalf("rm with --config after NAME: %v", err)
+	}
+}
+
 // F-032: creds error messages must not double the "creds:" prefix.
 func TestRunCreds_ErrorPrefixNotDoubled(t *testing.T) {
 	t.Parallel()

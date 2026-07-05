@@ -210,6 +210,13 @@ printf 'secret-with-newline\n' | ./ridgeline creds put --raw --config ridgeline.
 ./ridgeline creds get --config ridgeline.yaml umami_main
 # my-umami-api-key
 
+# --raw retrieves the exact bytes stored without appending a trailing newline:
+./ridgeline creds get --raw --config ridgeline.yaml umami_raw | wc -c
+# 20  (exactly the bytes that were put, newline included)
+
+# --config may appear before or after the credential name in all verbs:
+./ridgeline creds get umami_main --config ridgeline.yaml
+
 ./ridgeline creds rm --config ridgeline.yaml umami_main
 ```
 
