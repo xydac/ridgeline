@@ -328,6 +328,49 @@ func TestRunKnownMutatingKeywordGetsWriteHint(t *testing.T) {
 	}
 }
 
+// TestRunReadOnlyRejectsCommentedWriteNamesVerb verifies that a write statement
+// preceded by a SQL comment is rejected with the real write keyword in the
+// error message, not the comment delimiter (F-071).
+func TestRunReadOnlyRejectsCommentedWriteNamesVerb(t *testing.T) {
+	cases := []struct {
+		name   string
+		stmt   string
+		wantKW string
+	}{
+		{
+			name:   "block comment before COPY",
+			stmt:   "/* annotate */ COPY (SELECT 1) TO '/tmp/x.csv'",
+			wantKW: "COPY",
+		},
+		{
+			name:   "line comment before INSERT",
+			stmt:   "-- step 1\nINSERT INTO t VALUES (1)",
+			wantKW: "INSERT",
+		},
+		{
+			name:   "two block comments before DELETE",
+			stmt:   "/* a */ /* b */ DELETE FROM t",
+			wantKW: "DELETE",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Run(context.Background(), tc.stmt, &buf, Options{})
+			if err == nil {
+				t.Fatal("expected read-only rejection, got nil")
+			}
+			msg := strings.ToUpper(err.Error())
+			if !strings.Contains(msg, tc.wantKW) {
+				t.Errorf("rejection message should name %q, got: %q", tc.wantKW, err.Error())
+			}
+			if strings.Contains(err.Error(), "rejects /*") || strings.Contains(err.Error(), "rejects --") {
+				t.Errorf("rejection message must not name comment delimiter, got: %q", err.Error())
+			}
+		})
+	}
+}
+
 // TestRunReadsParquet exercises the round-trip a user will actually
 // hit: write a parquet file with the ridgeline parquet sink's schema,
 // then select from it via read_parquet. Uses the glob pattern the

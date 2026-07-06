@@ -232,10 +232,39 @@ func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
 	return nil
 }
 
-// firstKeyword returns the uppercased first whitespace-separated token
-// of stmt, used for error messages.
+// skipLeadingComments advances past any leading whitespace and SQL comments
+// (-- line comments and /* block */ comments) in s, returning the rest.
+// The result starts at the first non-comment, non-whitespace character.
+func skipLeadingComments(s string) string {
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+		switch {
+		case ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r':
+			i++
+		case ch == '-' && i+1 < len(s) && s[i+1] == '-':
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+		case ch == '/' && i+1 < len(s) && s[i+1] == '*':
+			i += 2
+			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			i += 2
+		default:
+			return s[i:]
+		}
+	}
+	return ""
+}
+
+// firstKeyword returns the uppercased first non-comment token of stmt,
+// used to build rejection messages. Leading SQL comments (-- and /* */)
+// are skipped so the message names the real write verb rather than the
+// comment delimiter.
 func firstKeyword(stmt string) string {
-	fields := strings.Fields(strings.TrimSpace(stmt))
+	fields := strings.Fields(skipLeadingComments(stmt))
 	if len(fields) == 0 {
 		return "UNKNOWN"
 	}
