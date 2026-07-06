@@ -94,8 +94,30 @@ func TestDecoderRejectsMissingType(t *testing.T) {
 func TestDecoderRejectsMalformedJSON(t *testing.T) {
 	dec := NewDecoder(strings.NewReader("{not json}\n"))
 	_, err := dec.Read()
-	if err == nil || !strings.Contains(err.Error(), "decode line") {
-		t.Errorf("expected decode error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "non-protocol output") {
+		t.Errorf("expected non-protocol error, got %v", err)
+	}
+}
+
+// TestDecoderStrayStdoutLineNamesContract verifies that a plain-text line on
+// stdout (the most common plugin porting mistake) produces an error message
+// that names the stdout/stderr contract and echoes the offending line (F-073).
+func TestDecoderStrayStdoutLineNamesContract(t *testing.T) {
+	stray := "starting up...\n"
+	dec := NewDecoder(strings.NewReader(stray))
+	_, err := dec.Read()
+	if err == nil {
+		t.Fatal("expected error for non-JSON stdout line, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "non-protocol output") {
+		t.Errorf("error should mention 'non-protocol output', got: %q", msg)
+	}
+	if !strings.Contains(msg, "starting up") {
+		t.Errorf("error should echo the offending line, got: %q", msg)
+	}
+	if !strings.Contains(msg, "stderr") {
+		t.Errorf("error should name stderr as the correct channel, got: %q", msg)
 	}
 }
 

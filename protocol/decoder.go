@@ -59,7 +59,11 @@ func (d *Decoder) Read() (Output, error) {
 			dec.DisallowUnknownFields()
 		}
 		if err := dec.Decode(&out); err != nil {
-			return Output{}, fmt.Errorf("protocol: decode line: %w", err)
+			preview := string(line)
+			if len(preview) > 80 {
+				preview = preview[:80]
+			}
+			return Output{}, fmt.Errorf("external connector wrote non-protocol output to stdout (got: %q); stdout must carry only JSON protocol messages, send logs/debug to stderr", preview)
 		}
 		if out.Type == "" {
 			return Output{}, errors.New("protocol: message missing required field \"type\"")
