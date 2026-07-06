@@ -26,14 +26,42 @@ func TestRunLiteralSelect(t *testing.T) {
 	}
 }
 
+// TestRunNullRendering verifies that a SQL NULL and the string 'NULL' are
+// visually distinct in query output (F-076). SQL NULL renders as an empty
+// cell; the literal string 'NULL' renders as the four characters NULL.
 func TestRunNullRendering(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "SELECT NULL AS empty", &buf, Options{})
+	err := Run(context.Background(), "SELECT NULL AS realnull, 'NULL' AS strnull", &buf, Options{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "NULL") {
-		t.Errorf("expected NULL token in output, got\n%s", buf.String())
+	out := buf.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	// Find the data row (skip header and separator lines).
+	var dataRow string
+	for _, l := range lines {
+		if strings.Contains(l, "NULL") && !strings.HasPrefix(l, "realnull") && !strings.HasPrefix(l, "---") {
+			dataRow = l
+			break
+		}
+	}
+	if dataRow == "" {
+		t.Fatalf("could not find data row in output:\n%s", out)
+	}
+	// The two cells must not render identically. The string 'NULL' column
+	// must contain "NULL"; the real-null column must be empty (blank cells).
+	// Check by splitting on two-or-more spaces and verifying the first cell is blank.
+	parts := strings.SplitN(strings.TrimRight(dataRow, " "), "  ", 2)
+	if len(parts) < 2 {
+		t.Fatalf("expected two cells separated by spaces, got: %q", dataRow)
+	}
+	nullCell := strings.TrimSpace(parts[0])
+	strCell := strings.TrimSpace(parts[1])
+	if nullCell != "" {
+		t.Errorf("SQL NULL should render as empty cell, got %q", nullCell)
+	}
+	if strCell != "NULL" {
+		t.Errorf("string 'NULL' should render as NULL, got %q", strCell)
 	}
 }
 

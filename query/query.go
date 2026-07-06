@@ -337,10 +337,12 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 }
 
 // formatValue renders a single scanned column value.
+// SQL NULL is rendered as an empty string so it is visually distinct from
+// the four-character string 'NULL' in query output.
 func formatValue(v any) string {
 	switch x := v.(type) {
 	case nil:
-		return "NULL"
+		return ""
 	case []byte:
 		return string(x)
 	case string:
