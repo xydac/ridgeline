@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/xydac/ridgeline/query"
 )
@@ -68,7 +69,14 @@ func runQuery(ctx context.Context, args []string, stdout io.Writer) error {
 		case a == "--help" || a == "-help" || a == "-h":
 			flagArgs = append(flagArgs, a)
 		default:
-			positional = append(positional, a)
+			// Route flag-shaped args (starts with '-', no whitespace) through
+			// the FlagSet so unrecognized flags produce the standard diagnostic
+			// instead of a misleading "N words received" SQL error.
+			if strings.HasPrefix(a, "-") && !strings.ContainsAny(a, " \t\n") {
+				flagArgs = append(flagArgs, a)
+			} else {
+				positional = append(positional, a)
+			}
 		}
 	}
 
@@ -80,10 +88,10 @@ func runQuery(ctx context.Context, args []string, stdout io.Writer) error {
 		return nil
 	}
 	if len(positional) == 0 {
-		return fmt.Errorf("usage: ridgeline query [--write] \"<SQL>\"")
+		return usageErrorf("usage: ridgeline query [--write] \"<SQL>\"")
 	}
 	if len(positional) > 1 {
-		return fmt.Errorf("SQL must be a single quoted argument (%d words received); use: ridgeline query \"<SQL>\"", len(positional))
+		return usageErrorf("SQL must be a single quoted argument (%d words received); use: ridgeline query \"<SQL>\"", len(positional))
 	}
 	return query.Run(ctx, positional[0], stdout, query.Options{Write: *write})
 }
