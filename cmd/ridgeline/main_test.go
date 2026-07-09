@@ -188,7 +188,7 @@ func TestCLI_UnknownSubcommand_PointsAtHelp(t *testing.T) {
 }
 
 // TestCLI_MisinvocationExitCodes asserts that every form of "you invoked
-// me wrong" exits 2, not 0 or 1. Covers F-079.
+// me wrong" exits 2, not 0 or 1. Covers F-079 and F-087.
 func TestCLI_MisinvocationExitCodes(t *testing.T) {
 	t.Parallel()
 	bin := buildRidgeline(t)
@@ -196,10 +196,25 @@ func TestCLI_MisinvocationExitCodes(t *testing.T) {
 		desc string
 		args []string
 	}{
+		// verb/dispatch errors
 		{"bare ridgeline", []string{}},
 		{"creds with no verb", []string{"creds"}},
 		{"unknown creds verb", []string{"creds", "bogus"}},
 		{"unknown top-level command", []string{"frobnicate"}},
+		// flag-parse errors (previously exited 1 - F-087)
+		{"sync unknown flag", []string{"sync", "--nope"}},
+		{"status unknown flag", []string{"status", "--nope"}},
+		{"creds put unknown flag", []string{"creds", "put", "--nope", "NAME"}},
+		{"serve unknown flag", []string{"serve", "--nope"}},
+		{"tui unknown flag", []string{"tui", "--nope"}},
+		// required-arg errors (previously exited 1 - F-087)
+		{"status missing required config", []string{"status"}},
+		// query arg-count errors (previously exited 1 - F-087)
+		{"query no args", []string{"query"}},
+		{"query multiple positional args", []string{"query", "SELECT", "1"}},
+		// query unknown flag (F-082)
+		{"query unknown flag", []string{"query", "--write-mode", "SELECT 1"}},
+		{"query typo of --write", []string{"query", "--writ", "SELECT 1"}},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -215,6 +230,49 @@ func TestCLI_MisinvocationExitCodes(t *testing.T) {
 				t.Errorf("%s: got exit %d, want 2", tc.desc, exitErr.ExitCode())
 			}
 		})
+	}
+}
+
+// TestCLI_SyncPartialFailureExitsThree asserts that --continue-on-error with
+// at least one success and at least one runtime failure exits 3 (not 2 - F-087).
+func TestCLI_SyncPartialFailureExitsThree(t *testing.T) {
+	t.Parallel()
+	bin := buildRidgeline(t)
+	dir := t.TempDir()
+	// Place a regular file where the second connector's sink expects a directory.
+	// The first connector succeeds; the second fails at sink init (runtime error).
+	blockPath := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blockPath, []byte("not a dir"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `version: 1
+state_path: ` + dir + `/state.db
+products:
+  myapp:
+    connectors:
+      - name: good
+        type: testsrc
+        config: {records: 1}
+        streams: [pages]
+        sink: {type: jsonl, options: {dir: ` + dir + `/out}}
+      - name: bad
+        type: testsrc
+        config: {records: 1}
+        streams: [pages]
+        sink: {type: jsonl, options: {dir: ` + blockPath + `}}
+`
+	cfgFile := dir + "/test.yaml"
+	if err := os.WriteFile(cfgFile, []byte(cfg), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "sync", "--config", cfgFile, "--continue-on-error")
+	out, err := cmd.CombinedOutput()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected non-zero exit, got nil; output: %s", out)
+	}
+	if exitErr.ExitCode() != 3 {
+		t.Errorf("got exit %d, want 3 (partial failure); output: %s", exitErr.ExitCode(), out)
 	}
 }
 

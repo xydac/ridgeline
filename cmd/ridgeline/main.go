@@ -84,9 +84,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "sync: %v\n", err)
 			var pse *PartialSyncError
 			if errors.As(err, &pse) && !pse.IsTotal() {
-				os.Exit(2)
+				os.Exit(3)
 			}
-			os.Exit(1)
+			cmdExit(err)
 		}
 	case "serve":
 		if err := runServe(context.Background(), os.Args[2:]); err != nil {
