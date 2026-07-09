@@ -43,7 +43,7 @@ func parseSubcommandFlags(fs *flag.FlagSet, stdout io.Writer, args []string) (he
 		if errors.Is(err, flag.ErrHelp) {
 			return true, nil
 		}
-		return false, err
+		return false, usageErrorf("%s", err)
 	}
 	return false, nil
 }

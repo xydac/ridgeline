@@ -53,7 +53,7 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	if *cfgPath == "" {
-		return fmt.Errorf("--config PATH is required")
+		return usageErrorf("--config PATH is required")
 	}
 
 	cfg, err := config.Load(*cfgPath)
