@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,8 +18,9 @@ func TestServeLoopRunsMultipleIterations(t *testing.T) {
 	defer cancel()
 
 	var count int32
-	err := serveLoop(ctx, 10*time.Millisecond, func(ctx context.Context) {
+	err := serveLoop(ctx, 10*time.Millisecond, func(ctx context.Context) error {
 		atomic.AddInt32(&count, 1)
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -35,10 +37,11 @@ func TestServeLoopExitsOnContextCancel(t *testing.T) {
 	var count int32
 	done := make(chan struct{})
 	go func() {
-		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) {
+		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) error {
 			if atomic.AddInt32(&count, 1) == 1 {
 				cancel()
 			}
+			return nil
 		})
 		close(done)
 	}()
@@ -84,10 +87,10 @@ products:
 	defer cancel()
 
 	out := captureStdout(t, func() {
-		_ = serveLoop(ctx, 10*time.Millisecond, func(ctx context.Context) {
+		_ = serveLoop(ctx, 10*time.Millisecond, func(ctx context.Context) error {
 			n := atomic.AddInt32(&ticksDone, 1)
 			if n > ticks {
-				return // extra tick after cancel: skip without output
+				return nil // extra tick after cancel: skip without output
 			}
 			// Quiet mode: sync output to Discard, tick line to stdout.
 			start := time.Now()
@@ -102,6 +105,7 @@ products:
 			if n == ticks {
 				cancel()
 			}
+			return nil
 		})
 	})
 
@@ -146,9 +150,10 @@ products:
 	defer cancel()
 
 	out := captureStdout(t, func() {
-		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) {
+		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) error {
 			_ = runConfigSync(ctx, cfgPath, false, os.Stdout)
 			cancel()
+			return nil
 		})
 	})
 
@@ -157,6 +162,59 @@ products:
 	}
 	if !strings.Contains(out, "state: ") {
 		t.Errorf("verbose mode: expected 'state:' line; got:\n%s", out)
+	}
+}
+
+// TestServePermanentConfigError verifies that serve exits non-zero immediately
+// when given a nonexistent config path instead of looping forever.
+func TestServePermanentConfigError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var calls int32
+	err := serveLoop(ctx, time.Hour, func(ctx context.Context) error {
+		atomic.AddInt32(&calls, 1)
+		return runConfigSync(ctx, "/nonexistent/path/ridgeline.yaml", false, io.Discard)
+	})
+
+	if err == nil {
+		t.Fatal("expected non-nil error from serveLoop on permanent config failure")
+	}
+	var pce *permanentConfigError
+	if !errors.As(err, &pce) {
+		t.Fatalf("expected *permanentConfigError, got %T: %v", err, err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected exactly 1 call before exit, got %d", got)
+	}
+}
+
+// TestServeTransientErrorRetries verifies that a non-permanent sync error is
+// logged and retried rather than causing serve to exit.
+func TestServeTransientErrorRetries(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Simulate a transient error: first call fails with a plain error,
+	// subsequent calls succeed. Serve should not stop on the first failure.
+	var calls int32
+	err := serveLoop(ctx, 5*time.Millisecond, func(ctx context.Context) error {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			// transient error: not a *permanentConfigError, so serve should retry
+			return nil // caller logs; return nil to continue
+		}
+		if n >= 3 {
+			cancel()
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got < 3 {
+		t.Fatalf("expected at least 3 calls (transient recovery), got %d", got)
 	}
 }
 

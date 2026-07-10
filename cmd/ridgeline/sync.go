@@ -199,7 +199,7 @@ func runDryRun(ctx context.Context, out string, records int) error {
 func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, stdout io.Writer) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return err
+		return &permanentConfigError{err: err}
 	}
 	store, err := sqlitestate.Open(cfg.StatePath)
 	if err != nil {
@@ -212,7 +212,7 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, st
 		return err
 	}
 	if err := validateConnectors(ctx, cfg); err != nil {
-		return err
+		return &permanentConfigError{err: err}
 	}
 
 	fmt.Fprintf(stdout, "loaded %s\n", cfgPath)
