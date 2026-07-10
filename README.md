@@ -127,6 +127,13 @@ supervisor to keep it alive. SIGINT or SIGTERM exits cleanly between
 sync runs; a signal during a sync propagates to the connector and
 causes an orderly stop.
 
+Structural config errors (missing file, unparseable YAML, unknown
+connector type) cause `serve` to exit non-zero on the first tick so a
+process supervisor with `Restart=on-failure` will page you instead of
+silently looping. Transient IO errors (a momentary permissions flip, an
+editor writing the config mid-tick) are logged and retried on the next
+interval.
+
 ```sh
 # Example systemd service (save as ~/.config/systemd/user/ridgeline.service)
 # [Unit]
