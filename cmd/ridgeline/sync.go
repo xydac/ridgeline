@@ -219,12 +219,13 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, st
 	fmt.Fprintf(stdout, "state: %s\n", cfg.StatePath)
 
 	var totalRecords int
+	var totalSkipped int
 	var failures []syncFailure
 	var succeeded int
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			n, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs)
+			res, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs)
 			if err != nil {
 				if continueOnError {
 					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
@@ -233,15 +234,24 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, st
 				}
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
-			totalRecords += n
+			totalRecords += res.Records
+			totalSkipped += res.Skipped
 			succeeded++
 		}
 	}
 	if len(failures) > 0 {
-		fmt.Fprintf(stdout, "done: %d records total (%d connector(s) failed)\n", totalRecords, len(failures))
+		if totalSkipped > 0 {
+			fmt.Fprintf(stdout, "done: %d records total, %d skipped (%d connector(s) failed)\n", totalRecords, totalSkipped, len(failures))
+		} else {
+			fmt.Fprintf(stdout, "done: %d records total (%d connector(s) failed)\n", totalRecords, len(failures))
+		}
 		return &PartialSyncError{failures: failures, succeeded: succeeded}
 	}
-	fmt.Fprintf(stdout, "done: %d records total\n", totalRecords)
+	if totalSkipped > 0 {
+		fmt.Fprintf(stdout, "done: %d records total, %d skipped\n", totalRecords, totalSkipped)
+	} else {
+		fmt.Fprintf(stdout, "done: %d records total\n", totalRecords)
+	}
 	return nil
 }
 
@@ -363,13 +373,13 @@ func buildEnricherSteps(inst config.ConnectorInstance) []pipeline.EnricherStep {
 }
 
 // runConnectorInstance runs one connector from the config against its
-// configured sink. Returns the number of records written. The per-
-// connector progress line is written to stdout so callers that want
-// silent runs (TUI, tests) can pass io.Discard.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store) (int, error) {
+// configured sink. Returns the pipeline result. The per-connector
+// progress line is written to stdout so callers that want silent runs
+// (TUI, tests) can pass io.Discard.
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store) (pipeline.Result, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
-		return 0, fmt.Errorf("connector type %q is not registered", inst.Type)
+		return pipeline.Result{}, fmt.Errorf("connector type %q is not registered", inst.Type)
 	}
 	if cs != nil {
 		if ts, ok := conn.(connectors.TokenStorer); ok {
@@ -378,14 +388,14 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	}
 	sink, err := sinks.New(inst.Sink.Type)
 	if err != nil {
-		return 0, err
+		return pipeline.Result{}, err
 	}
 	sinkCfg := sinks.SinkConfig{}
 	for k, v := range inst.Sink.Options {
 		sinkCfg[k] = v
 	}
 	if err := sink.Init(ctx, sinkCfg); err != nil {
-		return 0, fmt.Errorf("sink init: %w", err)
+		return pipeline.Result{}, fmt.Errorf("sink init: %w", err)
 	}
 	defer sink.Close()
 
@@ -406,8 +416,12 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	fmt.Fprintf(stdout, "starting %s/%s (%s)...\n", pid, inst.Name, inst.Type)
 	res, err := pipeline.Run(ctx, conn, sink, store, req)
 	if err != nil {
-		return 0, err
+		return pipeline.Result{}, err
 	}
-	fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved\n", pid, inst.Name, res.Records, res.States)
-	return res.Records, nil
+	if res.Skipped > 0 {
+		fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved, %d skipped\n", pid, inst.Name, res.Records, res.States, res.Skipped)
+	} else {
+		fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved\n", pid, inst.Name, res.Records, res.States)
+	}
+	return res, nil
 }
