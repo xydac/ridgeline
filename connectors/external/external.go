@@ -247,6 +247,14 @@ func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reade
 		}
 		switch out.Type {
 		case protocol.MsgRecord:
+			if out.Data == nil {
+				emitLog(ctx, ch, connectors.LevelWarn,
+					fmt.Sprintf("external: skipping RECORD on stream %q: missing or non-object data field", out.Stream))
+				if !send(ctx, ch, connectors.SkippedMessage()) {
+					return ctx.Err()
+				}
+				continue
+			}
 			rec := connectors.Record{
 				Stream: out.Stream,
 				Data:   out.Data,

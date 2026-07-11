@@ -78,6 +78,9 @@ type Result struct {
 	// SchemaMessages counts schema announcements received. Useful for
 	// tests that assert connectors emit schemas.
 	SchemaMessages int
+	// Skipped is the number of records dropped before reaching the
+	// pipeline (e.g. external RECORD messages with a missing data field).
+	Skipped int
 }
 
 // Run drives one extraction from conn through sink, persisting state
@@ -230,6 +233,8 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 				}
 			case connectors.SchemaMsg:
 				result.SchemaMessages++
+			case connectors.SkippedMsg:
+				result.Skipped++
 			case connectors.ErrorMsg:
 				// Terminal: discard any records still in memory,
 				// do not flush, do not save state, surface the

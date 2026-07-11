@@ -24,6 +24,10 @@ const (
 	// when a connector has decided it cannot continue. Non-fatal
 	// conditions belong in LogMsg at an appropriate level.
 	ErrorMsg
+	// SkippedMsg signals that one incoming record was dropped before
+	// reaching the pipeline. The pipeline counts these in Result.Skipped
+	// so callers can surface them in sync summaries.
+	SkippedMsg
 )
 
 // LogLevel categorizes LogEntry severity.
@@ -108,4 +112,11 @@ func SchemaMessage(stream string, schema Schema) Message {
 // buffered records are discarded, and err is returned to the caller.
 func ErrorMessage(err error) Message {
 	return Message{Type: ErrorMsg, Err: err}
+}
+
+// SkippedMessage signals that one incoming record was dropped without
+// being written. Use it alongside a LogMessage(LevelWarn, ...) so the
+// pipeline can count dropped records separately from extracted ones.
+func SkippedMessage() Message {
+	return Message{Type: SkippedMsg}
 }
