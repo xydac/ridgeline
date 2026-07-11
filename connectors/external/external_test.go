@@ -307,6 +307,57 @@ func TestExtractDecodeErrorEmitsErrorMsgAndDropsPartialState(t *testing.T) {
 	}
 }
 
+// TestExtractSkipsRecordWithMissingData verifies that RECORD messages with
+// a nil or absent data field are skipped (not forwarded as records) and
+// that a warn-level log and a SkippedMsg are emitted for each such record.
+func TestExtractSkipsRecordWithMissingData(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		mode string
+	}{
+		{"missing-data-field", "missing-data"},
+		{"non-object-data", "non-object-data"},
+		{"valid-record-passes", "valid-data"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := external.New()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			streams := []connectors.Stream{{Name: "events", Mode: connectors.Incremental}}
+			ch, err := c.Extract(ctx, helperConfig(tc.mode), streams, nil)
+			if err != nil {
+				t.Fatalf("Extract: %v", err)
+			}
+			records, _, logs, errs := collect(ch)
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			switch tc.mode {
+			case "missing-data", "non-object-data":
+				if len(records) != 0 {
+					t.Errorf("records = %d, want 0 (bad record must be skipped)", len(records))
+				}
+				var warned bool
+				for _, l := range logs {
+					if l.Level == connectors.LevelWarn && strings.Contains(l.Message, "skipping") {
+						warned = true
+					}
+				}
+				if !warned {
+					t.Errorf("expected a warn-level log mentioning skipping; got logs: %v", logs)
+				}
+			case "valid-data":
+				if len(records) != 1 {
+					t.Errorf("records = %d, want 1 (valid record must pass through)", len(records))
+				}
+			}
+		})
+	}
+}
+
 func TestExtractStdinCarriesStreamsAndState(t *testing.T) {
 	t.Parallel()
 	c := external.New()
@@ -383,6 +434,14 @@ func TestHelperProcess(t *testing.T) {
 			Level:   "info",
 			Message: string(buf),
 		})
+	case "missing-data":
+		// Emit a RECORD without a data field; the orchestrator must skip it.
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\"}\n"))
+	case "non-object-data":
+		// Emit a RECORD whose data field is a string, not an object; must be skipped.
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"data\":null}\n"))
+	case "valid-data":
+		writeOutputs(outRecord("events", map[string]any{"i": 1}))
 	}
 }
 

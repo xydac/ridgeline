@@ -498,3 +498,27 @@ func TestRun_EnricherErrorAbortsRun(t *testing.T) {
 		t.Errorf("error = %v; want to contain 'enricher failed'", err)
 	}
 }
+
+func TestRun_SkippedMsgCountedInResult(t *testing.T) {
+	t.Parallel()
+	msgs := []connectors.Message{
+		connectors.SkippedMessage(),
+		connectors.SkippedMessage(),
+		connectors.LogMessage(connectors.LevelWarn, "external: skipping RECORD on stream \"events\": missing or non-object data field"),
+		rec("s", "1"),
+	}
+	conn := &fakeConnector{msgs: msgs}
+	sink := newRecordingSink()
+	store := pipeline.NewMemoryStateStore()
+
+	res, err := pipeline.Run(context.Background(), conn, sink, store, pipeline.Request{Key: "k"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Skipped != 2 {
+		t.Errorf("Skipped = %d, want 2", res.Skipped)
+	}
+	if res.Records != 1 {
+		t.Errorf("Records = %d, want 1", res.Records)
+	}
+}
