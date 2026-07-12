@@ -91,9 +91,10 @@ data from connectors that succeed:
 # done: 192 records total (1 connector(s) failed)
 ```
 
-Exit code is `0` when all connectors pass, `2` when some fail and some
+Exit code is `0` when all connectors pass, `3` when some fail and some
 succeed (partial), and `1` when all connectors fail or a configuration
-error prevents any connector from starting.
+error prevents any connector from starting. Exit code `2` is reserved
+for misinvocation (unknown flag, missing required argument).
 
 ### Run on a schedule
 

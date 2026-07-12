@@ -61,7 +61,7 @@ func (e *PartialSyncError) IsTotal() bool { return e.succeeded == 0 }
 //	                        connector name order.
 //	--continue-on-error     when used with --config, continue running
 //	                        remaining connectors after one fails. Exit
-//	                        code 2 signals partial failure; exit code 1
+//	                        code 3 signals partial failure; exit code 1
 //	                        signals total failure (all connectors failed).
 //	--dry-run               run the built-in testsrc connector against a
 //	                        JSON-lines sink with an in-memory state store.
@@ -73,7 +73,7 @@ func runSync(ctx context.Context, args []string) error {
 	records := fs.Int("records", testsrc.DefaultRecords, "records per stream for dry-run")
 	out := fs.String("out", "", "output directory (default: $TMPDIR/ridgeline-dryrun)")
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
-	continueOnError := fs.Bool("continue-on-error", false, "continue after a connector failure; exit 2 on partial, 1 on total")
+	continueOnError := fs.Bool("continue-on-error", false, "continue after a connector failure; exit 3 on partial, 1 on total")
 	fs.Usage = func() {
 		w := fs.Output()
 		fmt.Fprintln(w, "Usage: ridgeline sync --config PATH [--continue-on-error]")
