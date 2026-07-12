@@ -37,15 +37,11 @@
 ## Known gaps
 
 - `sync` reports `done: N records total` from records extracted, not records persisted. On a steady-state re-run the sink writes nothing new but the CLI still prints a non-zero count; only the manifest's `updated_at` refresh signals freshness. Either distinguish "N new" from "N extracted" in the CLI output or document the counting rule.
-- `ridgeline query` rejects SQL that begins with a `--` line comment because Go's flag parser claims the argument as an unknown flag. The end-of-flags `--` separator works but is undocumented. Stop flag parsing after the `query` subcommand, or document the separator in `--help` and the README.
 - The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
-- An empty or whitespace-only `ridgeline.yaml` returns `config: parse: EOF` instead of an actionable "file is empty; add `version: 1` and at least one product" message. A comments-only config produces the same unhelpful phrasing.
+- A comments-only `ridgeline.yaml` (no `version:` or `products:`, only YAML comment lines) still returns the generic `config: parse: EOF` rather than the actionable "file is empty" message that empty and whitespace-only files now surface.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
-- `ridgeline serve` treats an unloadable config (missing file, unparseable YAML) as a transient per-tick error and loops forever without exiting nonzero, so a systemd unit with `Restart=on-failure` never restarts and the daemon reads as healthy while syncing nothing. A config-load failure at the first tick should fail fast with the same exit shape as `ridgeline sync`.
-- `ridgeline creds get` has no `--raw` flag counterpart to `creds put --raw`; a value stored with a trailing newline round-trips through `get` with the newline stripped by the terminal shell, giving no way to retrieve the exact bytes.
 - `ridgeline query` on a Parquet file that stores DuckDB lists, structs, or DATE values renders them as Go-native `fmt` output (`[1 2 3]`, `map[k:1]`, `... 00:00:00 +0000 UTC`) rather than as SQL literals or a documented projection.
 - The `jsonl` and `parquet` sinks always nest output under `<run-id>/`, so the natural glob `out/*.jsonl` from the README does not match anything; only `out/*/*.jsonl` works. Either flatten the layout or document the run-id directory explicitly in the sink examples.
-- `ridgeline query` renders a genuine SQL `NULL` identically to the string `'NULL'`, so a `SELECT NULL, 'NULL'` result shows two indistinguishable cells.
 - A read of a network URL (`read_csv_auto('https://...')`) is correctly blocked in read-only mode but the error text leaks DuckDB's `INSTALL httpfs; LOAD httpfs` remediation, which cannot succeed under the sandbox and misleads the user.
 
 ## Phase 2+
