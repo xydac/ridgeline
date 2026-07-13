@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/marcboeker/go-duckdb/v2"
 )
@@ -580,6 +581,79 @@ func TestWriteTableTabEscape(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, `\t`) {
 		t.Errorf("embedded tab not escaped to \\t literal:\n%s", out)
+	}
+}
+
+// TestFormatValue covers the SQL-faithful cell formatter (F-084).
+func TestFormatValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+		want  string
+	}{
+		{"nil", nil, ""},
+		{"string", "hello", "hello"},
+		{"int64", int64(42), "42"},
+		{"float64", float64(3.14), "3.14"},
+		{"blob empty", []byte{}, "blob:"},
+		{"blob bytes", []byte{0x01, 0xab}, `blob:\x01\xab`},
+		{"list empty", []any{}, "[]"},
+		{"list ints", []any{int64(1), int64(2), int64(3)}, "[1, 2, 3]"},
+		{"list nested", []any{[]any{int64(1), int64(2)}, "x"}, "[[1, 2], x]"},
+		{"struct", map[string]any{"b": "x", "a": int64(1)}, "{a: 1, b: x}"},
+		{"date midnight UTC", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "2026-01-01"},
+		{"timestamp non-midnight", time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC), "2026-01-15T10:30:00Z"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatValue(tt.input); got != tt.want {
+				t.Errorf("formatValue(%v) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRunTypeRendering verifies SQL-faithful output through the full Run pipeline (F-084).
+func TestRunTypeRendering(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{"list integers", "SELECT [1, 2, 3] AS v", "[1, 2, 3]"},
+		{"list strings", "SELECT ['a', 'b'] AS v", "[a, b]"},
+		{"date column", "SELECT DATE '2026-01-01' AS d", "2026-01-01"},
+		{"timestamp column", "SELECT TIMESTAMP '2026-01-15 10:30:00' AS ts", "2026-01-15T10:30:00Z"},
+		{"blob column", "SELECT 'AB'::BLOB AS b", `blob:\x41\x42`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := Run(context.Background(), tt.sql, &buf, Options{}); err != nil {
+				t.Fatalf("Run(%q): %v", tt.sql, err)
+			}
+			if !strings.Contains(buf.String(), tt.want) {
+				t.Errorf("output missing %q:\n%s", tt.want, buf.String())
+			}
+		})
+	}
+}
+
+// TestRunStructRendering verifies STRUCT output is {k: v} formatted (F-084).
+func TestRunStructRendering(t *testing.T) {
+	var buf bytes.Buffer
+	// DuckDB struct literal syntax
+	err := Run(context.Background(), "SELECT {'name': 'alice', 'age': 30} AS s", &buf, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out := buf.String()
+	// Must contain braces and colon-separated key/value pairs, not map[...] Go notation.
+	if strings.Contains(out, "map[") {
+		t.Errorf("struct rendered as Go map; want SQL notation:\n%s", out)
+	}
+	if !strings.Contains(out, "{") || !strings.Contains(out, "}") {
+		t.Errorf("struct missing braces in output:\n%s", out)
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
+	"time"
 
 	_ "github.com/marcboeker/go-duckdb/v2"
 	"github.com/mattn/go-runewidth"
@@ -365,20 +367,64 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 	return nil
 }
 
-// formatValue renders a single scanned column value.
-// SQL NULL is rendered as an empty string so it is visually distinct from
-// the four-character string 'NULL' in query output.
+// formatValue renders a single scanned column value in SQL-faithful notation.
+// SQL NULL renders as an empty string (visually distinct from the string "NULL").
+// Lists render as [a, b, c]; structs as {k: v}; blobs as blob:\xHH...;
+// TIME/TIMESTAMP columns render as RFC 3339; DATE (midnight UTC) as YYYY-MM-DD.
 func formatValue(v any) string {
 	switch x := v.(type) {
 	case nil:
 		return ""
-	case []byte:
-		return string(x)
 	case string:
 		return x
+	case []byte:
+		return formatBlob(x)
+	case time.Time:
+		if x.Hour() == 0 && x.Minute() == 0 && x.Second() == 0 && x.Nanosecond() == 0 && x.Location() == time.UTC {
+			return x.Format("2006-01-02")
+		}
+		return x.Format(time.RFC3339)
+	case []any:
+		return formatList(x)
+	case map[string]any:
+		return formatStruct(x)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// formatBlob renders a binary blob as blob:\xHH... hex notation.
+func formatBlob(b []byte) string {
+	var sb strings.Builder
+	sb.WriteString("blob:")
+	for _, byt := range b {
+		fmt.Fprintf(&sb, `\x%02x`, byt)
+	}
+	return sb.String()
+}
+
+// formatList renders a DuckDB LIST value as [a, b, c] with recursive formatting.
+func formatList(items []any) string {
+	parts := make([]string, len(items))
+	for i, item := range items {
+		parts[i] = formatValue(item)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// formatStruct renders a DuckDB STRUCT value as {k1: v1, k2: v2}.
+// Keys are sorted for deterministic output.
+func formatStruct(m map[string]any) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = k + ": " + formatValue(m[k])
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 // escapeCell replaces control characters that would break the table layout
