@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -159,6 +160,9 @@ func Parse(b []byte) (*File, error) {
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("config: file is empty or contains only comments; add 'version: 1' and at least one product under 'products:'")
+		}
 		return nil, translateYAMLErr(err)
 	}
 	if err := f.applyDefaults(); err != nil {

@@ -421,3 +421,31 @@ nonsense_field: true
 		t.Errorf("error leaks Go type name: %s", msg)
 	}
 }
+
+// TestParse_CommentsOnlyYAML verifies that a YAML file containing only comments
+// returns an actionable message instead of the raw "config: parse: EOF" (F-062).
+func TestParse_CommentsOnlyYAML(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"single comment", "# hello\n"},
+		{"multiple comments", "# line1\n# line2\n# line3\n"},
+		{"comment with blank lines", "\n# comment\n\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := config.Parse([]byte(tc.input))
+			if err == nil {
+				t.Fatal("expected error for comment-only config, got nil")
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "empty") && !strings.Contains(msg, "comments") {
+				t.Errorf("want actionable message mentioning 'empty' or 'comments', got %q", msg)
+			}
+			if strings.Contains(msg, "EOF") {
+				t.Errorf("should not expose raw EOF to user, got %q", msg)
+			}
+		})
+	}
+}
