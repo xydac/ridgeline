@@ -331,6 +331,9 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 
 	rows, err := db.QueryContext(ctx, stmt)
 	if err != nil {
+		if !opts.Write && strings.Contains(err.Error(), "httpfs") {
+			return fmt.Errorf("network reads are disabled in read-only mode; pass --write to opt in")
+		}
 		return err
 	}
 	defer rows.Close()

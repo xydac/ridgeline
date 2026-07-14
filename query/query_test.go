@@ -657,6 +657,23 @@ func TestRunStructRendering(t *testing.T) {
 	}
 }
 
+// TestRunReadOnlyBlocksNetworkRead verifies that a SELECT using read_json_auto
+// with an HTTP URL is rejected in read-only mode with a user-friendly message,
+// not DuckDB's internal "INSTALL httpfs" suggestion (F-081).
+func TestRunReadOnlyBlocksNetworkRead(t *testing.T) {
+	var buf bytes.Buffer
+	err := Run(context.Background(), "SELECT * FROM read_json_auto('https://example.com/x.jsonl')", &buf, Options{})
+	if err == nil {
+		t.Fatal("expected error for network read in read-only mode, got nil")
+	}
+	if strings.Contains(err.Error(), "httpfs") {
+		t.Errorf("error leaks internal httpfs message: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "network reads are disabled") {
+		t.Errorf("expected network-read rejection message, got %q", err.Error())
+	}
+}
+
 // TestMain guards against leaving temp dirs behind if a test panics.
 func TestMain(m *testing.M) {
 	code := m.Run()
