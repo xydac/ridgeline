@@ -79,7 +79,7 @@ func runServe(ctx context.Context, args []string) error {
 
 	return serveLoop(ctx, *interval, func(ctx context.Context) error {
 		start := time.Now()
-		err := runConfigSync(ctx, *cfgPath, false, syncOut)
+		err := runConfigSync(ctx, *cfgPath, false, false, syncOut)
 		elapsed := time.Since(start).Truncate(time.Millisecond)
 		ts := time.Now().UTC().Format(time.RFC3339)
 		if err != nil {

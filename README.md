@@ -34,6 +34,22 @@ go build -o ridgeline ./cmd/ridgeline
 # manifest: out/manifest.json
 ```
 
+By default, output files are nested under a per-run directory
+(`out/<run-id>/stream.jsonl`) so consecutive runs append without
+overwriting. Query with the `*/*` glob to match all runs:
+
+```sh
+./ridgeline query "SELECT count(*) FROM read_json_auto('out/*/*.jsonl')"
+```
+
+For one-shot use where you want files directly at `out/stream.jsonl`, add
+`--out-dir-root`. This overwrites any previous output on the next run:
+
+```sh
+./ridgeline sync --dry-run --out ./out --records 3 --out-dir-root
+./ridgeline query "SELECT count(*) FROM read_json_auto('out/*.jsonl')"
+```
+
 ### Config-driven sync (durable state)
 
 Write a `ridgeline.yaml`:

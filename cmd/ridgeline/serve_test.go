@@ -94,7 +94,7 @@ products:
 			}
 			// Quiet mode: sync output to Discard, tick line to stdout.
 			start := time.Now()
-			err := runConfigSync(ctx, cfgPath, false, io.Discard)
+			err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
 			elapsed := time.Since(start).Truncate(time.Millisecond)
 			ts := time.Now().UTC().Format(time.RFC3339)
 			if err != nil {
@@ -151,7 +151,7 @@ products:
 
 	out := captureStdout(t, func() {
 		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) error {
-			_ = runConfigSync(ctx, cfgPath, false, os.Stdout)
+			_ = runConfigSync(ctx, cfgPath, false, false, os.Stdout)
 			cancel()
 			return nil
 		})
@@ -174,7 +174,7 @@ func TestServePermanentConfigError(t *testing.T) {
 	var calls int32
 	err := serveLoop(ctx, time.Hour, func(ctx context.Context) error {
 		atomic.AddInt32(&calls, 1)
-		return runConfigSync(ctx, "/nonexistent/path/ridgeline.yaml", false, io.Discard)
+		return runConfigSync(ctx, "/nonexistent/path/ridgeline.yaml", false, false, io.Discard)
 	})
 
 	if err == nil {

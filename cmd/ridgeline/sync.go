@@ -74,14 +74,21 @@ func runSync(ctx context.Context, args []string) error {
 	out := fs.String("out", "", "output directory (default: $TMPDIR/ridgeline-dryrun)")
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	continueOnError := fs.Bool("continue-on-error", false, "continue after a connector failure; exit 3 on partial, 1 on total")
+	outDirRoot := fs.Bool("out-dir-root", false, "write output files directly under the sink dir (no per-run subdirectory); disables idempotent re-runs")
 	fs.Usage = func() {
 		w := fs.Output()
-		fmt.Fprintln(w, "Usage: ridgeline sync --config PATH [--continue-on-error]")
-		fmt.Fprintln(w, "       ridgeline sync --dry-run [--records N] [--out DIR]")
+		fmt.Fprintln(w, "Usage: ridgeline sync --config PATH [--continue-on-error] [--out-dir-root]")
+		fmt.Fprintln(w, "       ridgeline sync --dry-run [--records N] [--out DIR] [--out-dir-root]")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "Runs the sync pipeline. With --config, drives all configured connectors")
 		fmt.Fprintln(w, "against their configured sinks using durable SQLite state. With --dry-run,")
 		fmt.Fprintln(w, "runs the built-in test source and prints results without writing state.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "By default, output files are nested under a per-run timestamp directory")
+		fmt.Fprintln(w, "inside the sink dir (e.g. out/<run-id>/events.jsonl), which keeps")
+		fmt.Fprintln(w, "successive runs append-safe. Use --out-dir-root for one-shot queries")
+		fmt.Fprintln(w, "where you want out/events.jsonl directly, but note this disables")
+		fmt.Fprintln(w, "idempotent re-runs: a second sync overwrites the previous output.")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "Flags:")
 		fs.PrintDefaults()
@@ -112,17 +119,17 @@ func runSync(ctx context.Context, args []string) error {
 		return fmt.Errorf("--out must not be empty")
 	}
 	if *cfgPath != "" {
-		return runConfigSync(ctx, *cfgPath, *continueOnError, os.Stdout)
+		return runConfigSync(ctx, *cfgPath, *continueOnError, *outDirRoot, os.Stdout)
 	}
 	if *dryRun {
-		return runDryRun(ctx, *out, *records)
+		return runDryRun(ctx, *out, *records, *outDirRoot)
 	}
 	return fmt.Errorf("specify --config PATH or --dry-run")
 }
 
 // runDryRun is the in-memory smoke test. It stays available so a new
 // user can observe the pipeline without writing a config.
-func runDryRun(ctx context.Context, out string, records int) error {
+func runDryRun(ctx context.Context, out string, records int, flat bool) error {
 	dir := out
 	if dir == "" {
 		dir = filepath.Join(os.TempDir(), "ridgeline-dryrun")
@@ -137,7 +144,11 @@ func runDryRun(ctx context.Context, out string, records int) error {
 		return fmt.Errorf("connector %q not registered", testsrc.Name)
 	}
 	sink := jsonl.New()
-	if err := sink.Init(ctx, sinks.SinkConfig{"dir": dir}); err != nil {
+	sinkCfg := sinks.SinkConfig{"dir": dir}
+	if flat {
+		sinkCfg["flat"] = true
+	}
+	if err := sink.Init(ctx, sinkCfg); err != nil {
 		return fmt.Errorf("sink init: %w", err)
 	}
 
@@ -196,7 +207,7 @@ func runDryRun(ctx context.Context, out string, records int) error {
 //
 // stdout receives informational lines (loaded, state, per-connector
 // counts, done summary). Pass io.Discard to suppress them all.
-func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, stdout io.Writer) error {
+func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, flatSinks bool, stdout io.Writer) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return &permanentConfigError{err: err}
@@ -225,7 +236,7 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, st
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			res, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs)
+			res, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs, flatSinks)
 			if err != nil {
 				if continueOnError {
 					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
@@ -376,7 +387,7 @@ func buildEnricherSteps(inst config.ConnectorInstance) []pipeline.EnricherStep {
 // configured sink. Returns the pipeline result. The per-connector
 // progress line is written to stdout so callers that want silent runs
 // (TUI, tests) can pass io.Discard.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store) (pipeline.Result, error) {
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool) (pipeline.Result, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
 		return pipeline.Result{}, fmt.Errorf("connector type %q is not registered", inst.Type)
@@ -393,6 +404,9 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	sinkCfg := sinks.SinkConfig{}
 	for k, v := range inst.Sink.Options {
 		sinkCfg[k] = v
+	}
+	if flatSinks {
+		sinkCfg["flat"] = true
 	}
 	if err := sink.Init(ctx, sinkCfg); err != nil {
 		return pipeline.Result{}, fmt.Errorf("sink init: %w", err)

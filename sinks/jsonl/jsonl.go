@@ -31,6 +31,7 @@ type Sink struct {
 	mu       sync.Mutex
 	dir      string
 	runID    string
+	flat     bool // when true, write directly to dir/<stream>.jsonl (no run-id subdir)
 	manifest *manifest.Store
 	covered  manifest.Manifest
 	streams  map[string]*streamFile
@@ -61,7 +62,7 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	if s.inited {
 		return fmt.Errorf("jsonl: Init called twice")
 	}
-	if err := sinks.CheckUnknownKeys(cfg, "dir", "run_id"); err != nil {
+	if err := sinks.CheckUnknownKeys(cfg, "dir", "run_id", "flat"); err != nil {
 		return fmt.Errorf("jsonl: %w", err)
 	}
 	dir := cfg.String("dir")
@@ -77,6 +78,7 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	// empty timestamped directory behind.
 	s.dir = dir
 	s.runID = runID
+	s.flat = cfg.Bool("flat", false)
 	s.manifest = manifest.NewStore(filepath.Join(dir, "manifest.json"))
 	covered, err := s.manifest.Load()
 	if err != nil {
@@ -170,7 +172,12 @@ func (s *Sink) streamFileLocked(stream string) (*streamFile, error) {
 	if sf, ok := s.streams[stream]; ok {
 		return sf, nil
 	}
-	rel := filepath.Join(s.runID, stream+".jsonl")
+	var rel string
+	if s.flat {
+		rel = stream + ".jsonl"
+	} else {
+		rel = filepath.Join(s.runID, stream+".jsonl")
+	}
 	abs := filepath.Join(s.dir, rel)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return nil, fmt.Errorf("jsonl: stream %s: %w", stream, err)

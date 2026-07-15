@@ -527,7 +527,7 @@ func realTUISyncer(ctx context.Context, cfgPath, pid, connName string) (int, err
 	}
 	for _, inst := range product.Connectors {
 		if inst.Name == connName {
-			res, err := runConnectorInstance(ctx, store, pid, inst, io.Discard, cs)
+			res, err := runConnectorInstance(ctx, store, pid, inst, io.Discard, cs, false)
 			return res.Records, err
 		}
 	}

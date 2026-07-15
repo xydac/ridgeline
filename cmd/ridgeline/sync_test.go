@@ -753,3 +753,66 @@ products:
 		t.Errorf("good connector output missing: %v", err)
 	}
 }
+
+// TestRunSync_OutDirRoot verifies that --out-dir-root writes stream
+// files directly under the output directory (no per-run subdirectory).
+func TestRunSync_OutDirRoot(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := runSync(context.Background(), []string{
+		"--dry-run", "--out", dir, "--records", "2", "--out-dir-root",
+	}); err != nil {
+		t.Fatalf("runSync: %v", err)
+	}
+	// With --out-dir-root, stream files land directly in dir.
+	for _, stream := range []string{"pages", "events"} {
+		path := filepath.Join(dir, stream+".jsonl")
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected flat file %s: %v", path, err)
+		}
+	}
+	// No per-run numeric subdirectory should exist.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Errorf("unexpected subdirectory under flat output dir: %s", e.Name())
+		}
+	}
+}
+
+// TestRunSync_DefaultNestedLayout verifies that without --out-dir-root
+// the default layout nests files under a per-run directory.
+func TestRunSync_DefaultNestedLayout(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := runSync(context.Background(), []string{
+		"--dry-run", "--out", dir, "--records", "2",
+	}); err != nil {
+		t.Fatalf("runSync: %v", err)
+	}
+	// Stream files must NOT be at the root.
+	for _, stream := range []string{"pages", "events"} {
+		path := filepath.Join(dir, stream+".jsonl")
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("flat file %s exists but should be nested under a run-id dir", path)
+		}
+	}
+	// At least one subdirectory (the run-id dir) must exist.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	foundSubdir := false
+	for _, e := range entries {
+		if e.IsDir() {
+			foundSubdir = true
+			break
+		}
+	}
+	if !foundSubdir {
+		t.Error("no per-run subdirectory found in default output layout")
+	}
+}

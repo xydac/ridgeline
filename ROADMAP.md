@@ -41,7 +41,6 @@
 - A comments-only `ridgeline.yaml` (no `version:` or `products:`, only YAML comment lines) still returns the generic `config: parse: EOF` rather than the actionable "file is empty" message that empty and whitespace-only files now surface.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
 - `ridgeline query` on a Parquet file that stores DuckDB lists, structs, or DATE values renders them as Go-native `fmt` output (`[1 2 3]`, `map[k:1]`, `... 00:00:00 +0000 UTC`) rather than as SQL literals or a documented projection.
-- The `jsonl` and `parquet` sinks always nest output under `<run-id>/`, so the natural glob `out/*.jsonl` from the README does not match anything; only `out/*/*.jsonl` works. Either flatten the layout or document the run-id directory explicitly in the sink examples.
 - A read of a network URL (`read_csv_auto('https://...')`) is correctly blocked in read-only mode but the error text leaks DuckDB's `INSTALL httpfs; LOAD httpfs` remediation, which cannot succeed under the sandbox and misleads the user.
 
 ## Phase 2+
