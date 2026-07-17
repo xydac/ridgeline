@@ -24,6 +24,32 @@ func buildRidgeline(t *testing.T) string {
 	return bin
 }
 
+// TestResolveVersion covers the ldflags-vs-module-version fallback logic.
+func TestResolveVersion(t *testing.T) {
+	cases := []struct {
+		ldflags string
+		module  string
+		want    string
+	}{
+		// ldflags already injected -- wins regardless of module version
+		{"v0.1.5", "(devel)", "v0.1.5"},
+		{"v0.1.5", "v0.1.5", "v0.1.5"},
+		{"v0.1.5", "", "v0.1.5"},
+		// dev placeholder + workspace build -- stays placeholder
+		{"0.0.0-dev", "(devel)", "0.0.0-dev"},
+		{"0.0.0-dev", "", "0.0.0-dev"},
+		// dev placeholder + go install path -- falls back to module version
+		{"0.0.0-dev", "v0.1.5", "v0.1.5"},
+		{"0.0.0-dev", "v0.2.0-rc1", "v0.2.0-rc1"},
+	}
+	for _, tc := range cases {
+		got := resolveVersion(tc.ldflags, tc.module)
+		if got != tc.want {
+			t.Errorf("resolveVersion(%q, %q) = %q, want %q", tc.ldflags, tc.module, got, tc.want)
+		}
+	}
+}
+
 func TestCLI_HelpFlags(t *testing.T) {
 	t.Parallel()
 	bin := buildRidgeline(t)
@@ -76,13 +102,32 @@ func TestCLI_Version_RejectsExtraArgs(t *testing.T) {
 func TestCLI_Version_BareSucceeds(t *testing.T) {
 	t.Parallel()
 	bin := buildRidgeline(t)
-	cmd := exec.Command(bin, "version")
-	out, err := cmd.CombinedOutput()
+	out, err := exec.Command(bin, "version").CombinedOutput()
 	if err != nil {
 		t.Fatalf("version: %v\n%s", err, out)
 	}
-	if strings.TrimSpace(string(out)) != Version {
-		t.Errorf("got %q, want %q", string(out), Version)
+	if strings.TrimSpace(string(out)) == "" {
+		t.Error("version printed empty output")
+	}
+}
+
+// TestCLI_Version_LdflagsInjectionWins verifies that a binary built with an
+// explicit -ldflags version reports that version, not the module fallback.
+func TestCLI_Version_LdflagsInjectionWins(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "ridgeline-ldflag")
+	cmd := exec.Command("go", "build", "-ldflags", "-X main.Version=v9.8.7-test", "-o", bin, ".")
+	cmd.Stderr = &bytes.Buffer{}
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, cmd.Stderr.(*bytes.Buffer).String())
+	}
+	out, err := exec.Command(bin, "version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("version: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "v9.8.7-test" {
+		t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "v9.8.7-test")
 	}
 }
 

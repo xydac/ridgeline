@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	// Side-effect imports register built-in connectors and sinks.
 	_ "github.com/xydac/ridgeline/connectors/external"
@@ -45,7 +46,32 @@ import (
 )
 
 // Version is the build version. Overridden at release time via -ldflags.
+// When the ldflags placeholder is unchanged, init() falls back to the module
+// version from debug.ReadBuildInfo so that `go install` builds self-identify.
 var Version = "0.0.0-dev"
+
+func init() {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	Version = resolveVersion(Version, info.Main.Version)
+}
+
+// resolveVersion returns moduleVersion when ldflagsVersion is still the dev
+// placeholder and moduleVersion is a real version string (not empty or "(devel)").
+// This lets `go install github.com/xydac/ridgeline@vX.Y.Z` self-identify; a
+// plain `go build ./cmd/ridgeline` from a local checkout still returns the
+// placeholder because Go reports "(devel)" for that case.
+func resolveVersion(ldflagsVersion, moduleVersion string) string {
+	if ldflagsVersion != "0.0.0-dev" {
+		return ldflagsVersion
+	}
+	if moduleVersion == "" || moduleVersion == "(devel)" {
+		return ldflagsVersion
+	}
+	return moduleVersion
+}
 
 // cmdExit exits with the appropriate code for err.
 // Usage errors (missing required verb, unknown subcommand) exit 2.
@@ -70,6 +96,12 @@ func main() {
 			fmt.Fprintln(os.Stdout, "Usage: ridgeline version")
 			fmt.Fprintln(os.Stdout, "")
 			fmt.Fprintln(os.Stdout, "Prints the build version and exits.")
+			fmt.Fprintln(os.Stdout, "")
+			fmt.Fprintln(os.Stdout, "Release builds (Homebrew, goreleaser, go install @vX.Y.Z) print the")
+			fmt.Fprintln(os.Stdout, "tagged version. A plain `go build ./cmd/ridgeline` from a local")
+			fmt.Fprintln(os.Stdout, "checkout prints 0.0.0-dev because Go does not inject version info")
+			fmt.Fprintln(os.Stdout, "for workspace builds; use `go install github.com/xydac/ridgeline@vX.Y.Z`")
+			fmt.Fprintln(os.Stdout, "or pass -ldflags \"-X main.Version=vX.Y.Z\" to get a tagged string.")
 			return
 		}
 		if len(extra) > 0 {
