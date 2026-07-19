@@ -146,60 +146,138 @@ func TestRunReadOnlyRejectsCopy(t *testing.T) {
 	}
 }
 
-// TestRunReadOnlyRejectsMultiStatement verifies that semicolon-joined
-// multi-statement input is rejected. This closes F-026.
-func TestRunReadOnlyRejectsMultiStatement(t *testing.T) {
+// TestRunReadOnlyAllowsMultiStatementAllReadOnly verifies that a
+// semicolon-separated batch is accepted in read-only mode when every
+// statement would be accepted on its own. Only the last statement's result
+// is returned (DuckDB's multi-statement behavior).
+func TestRunReadOnlyAllowsMultiStatementAllReadOnly(t *testing.T) {
 	var buf bytes.Buffer
-	err := Run(context.Background(), "SELECT 1; SELECT 2", &buf, Options{})
-	if err == nil {
-		t.Fatal("expected error for multi-statement input, got nil")
+	err := Run(context.Background(), "SELECT 1; SELECT 2 AS v", &buf, Options{})
+	if err != nil {
+		t.Fatalf("all-read-only multi-statement should be allowed, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "multi-statement") || !strings.Contains(err.Error(), "not permitted") {
-		t.Errorf("expected multi-statement error, got %q", err.Error())
+	if !strings.Contains(buf.String(), "2") {
+		t.Errorf("expected result from last statement, got\n%s", buf.String())
 	}
 }
 
-// TestRunReadOnlyRejectsSelectPlusCopy verifies that the F-065 bypass
-// is closed: a leading SELECT followed by COPY TO is rejected even though
-// the first statement is an otherwise-allowed read-only statement.
+// TestRunReadOnlyRejectsSelectPlusCopy verifies the F-065 bypass is closed:
+// a leading SELECT followed by COPY TO is rejected. A leading SELECT does not
+// license a trailing write; each statement in the batch is checked individually.
 func TestRunReadOnlyRejectsSelectPlusCopy(t *testing.T) {
 	tmp := t.TempDir()
 	stmt := "SELECT 1; COPY (SELECT 99 AS x) TO '" + tmp + "/pwn.csv'"
 	var buf bytes.Buffer
 	err := Run(context.Background(), stmt, &buf, Options{})
 	if err == nil {
-		t.Fatal("expected multi-statement rejection, got nil (F-065 bypass still open)")
+		t.Fatal("expected rejection, got nil (F-065 bypass still open)")
 	}
-	if !strings.Contains(err.Error(), "multi-statement") {
-		t.Errorf("expected multi-statement error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "read-only mode") {
+		t.Errorf("expected read-only rejection error, got %q", err.Error())
+	}
+	if _, statErr := os.Stat(filepath.Join(tmp, "pwn.csv")); statErr == nil {
+		t.Error("pwn.csv was written despite read-only mode (sandbox escape)")
 	}
 }
 
-// TestRunReadOnlyRejectsSelectPlusCreate verifies that SELECT 1; CREATE TABLE
+// TestRunReadOnlyRejectsSelectPlusCreate verifies SELECT 1; CREATE TABLE
 // is rejected in read-only mode (F-065 bypass shape 2).
 func TestRunReadOnlyRejectsSelectPlusCreate(t *testing.T) {
 	var buf bytes.Buffer
 	err := Run(context.Background(), "SELECT 1; CREATE TABLE z AS SELECT 42 AS v", &buf, Options{})
 	if err == nil {
-		t.Fatal("expected multi-statement rejection, got nil (F-065 bypass still open)")
+		t.Fatal("expected rejection, got nil (F-065 bypass still open)")
 	}
-	if !strings.Contains(err.Error(), "multi-statement") {
-		t.Errorf("expected multi-statement error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "read-only mode") {
+		t.Errorf("expected read-only rejection error, got %q", err.Error())
 	}
 }
 
-// TestRunReadOnlyRejectsWithPlusCopy verifies that a WITH-led statement
-// followed by COPY TO is rejected (F-065 bypass shape 3).
+// TestRunReadOnlyRejectsWithPlusCopy verifies a WITH-led statement followed by
+// COPY TO is rejected (F-065 bypass shape 3).
 func TestRunReadOnlyRejectsWithPlusCopy(t *testing.T) {
 	tmp := t.TempDir()
 	stmt := "WITH t AS (SELECT 1) SELECT * FROM t; COPY (SELECT 7 AS x) TO '" + tmp + "/pwn2.csv'"
 	var buf bytes.Buffer
 	err := Run(context.Background(), stmt, &buf, Options{})
 	if err == nil {
-		t.Fatal("expected multi-statement rejection, got nil (F-065 bypass still open)")
+		t.Fatal("expected rejection, got nil (F-065 bypass still open)")
 	}
-	if !strings.Contains(err.Error(), "multi-statement") {
-		t.Errorf("expected multi-statement error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "read-only mode") {
+		t.Errorf("expected read-only rejection error, got %q", err.Error())
+	}
+}
+
+// TestRunReadOnlyMultiStatementTable is a table-driven test covering the
+// full class of multi-statement injection shapes (L-016: close the whole
+// class, not just the demo).
+func TestRunReadOnlyMultiStatementTable(t *testing.T) {
+	tmp := t.TempDir()
+	cases := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		errFrag string
+	}{
+		{
+			name:    "all read-only allowed",
+			sql:     "SELECT 1 AS a; SELECT 2 AS b",
+			wantErr: false,
+		},
+		{
+			name:    "leading SELECT trailing CREATE",
+			sql:     "SELECT 1; CREATE TABLE z AS SELECT 42",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "WITH-led trailing ATTACH",
+			sql:     "WITH t AS (SELECT 1) SELECT * FROM t; ATTACH ':memory:' AS e",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "lone INSTALL httpfs",
+			sql:     "INSTALL httpfs",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "leading SELECT trailing INSTALL",
+			sql:     "SELECT 1; INSTALL httpfs",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "three statements last is COPY",
+			sql:     "SELECT 1; SELECT 2; COPY (SELECT 3 AS x) TO '" + filepath.Join(tmp, "out.csv") + "'",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "EXPLAIN then COPY rejected",
+			sql:     "EXPLAIN SELECT 1; COPY (SELECT 1 AS x) TO '" + filepath.Join(tmp, "e.csv") + "'",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Run(context.Background(), tc.sql, &buf, Options{})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.errFrag != "" && !strings.Contains(err.Error(), tc.errFrag) {
+					t.Errorf("expected %q in error, got %q", tc.errFrag, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }
 

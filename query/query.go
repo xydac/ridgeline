@@ -175,27 +175,75 @@ func hasStatementDelimiter(s string) bool {
 	return false
 }
 
-// checkReadOnly validates stmt using DuckDB's json_serialize_sql:
-//   - Multi-statement input is rejected.
-//   - Non-SELECT statements not in the safe-keyword list are rejected.
-//
-// json_serialize_sql only handles SELECT-type statements; anything else
-// returns an error JSON, which we treat as a non-SELECT indicator.
-// EXPLAIN, PRAGMA, SHOW, and DESCRIBE are exempted via safeNonSelectKeywords.
-//
-// When the inspection query itself fails (syntax error, etc.), we return
-// nil and let the actual execution surface the real error.
-func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
-	// Pre-scan for statement delimiters. This catches multi-statement
-	// input like "SELECT 1; COPY ... TO '/tmp/x'" before json_serialize_sql
-	// sees it. json_serialize_sql cannot serialize multi-type sequences and
-	// returns an error; a leading SELECT keyword previously caused an early
-	// nil return, opening the gate for trailing write statements.
-	if hasStatementDelimiter(stmt) {
-		return fmt.Errorf("multi-statement SQL is not permitted; run one statement at a time")
+// splitStatements splits sql into individual statement strings by scanning for
+// semicolons outside single-quoted strings, double-quoted identifiers, line
+// comments (-- to newline), and block comments (/* ... */). Segments that
+// contain no executable content are omitted from the result.
+func splitStatements(sql string) []string {
+	var stmts []string
+	var cur strings.Builder
+	inSingle := false
+	inDouble := false
+	i := 0
+	for i < len(sql) {
+		ch := sql[i]
+		switch {
+		case !inSingle && !inDouble && ch == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			for i < len(sql) && sql[i] != '\n' {
+				cur.WriteByte(sql[i])
+				i++
+			}
+		case !inSingle && !inDouble && ch == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			cur.WriteByte(sql[i])
+			cur.WriteByte(sql[i+1])
+			i += 2
+			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+				cur.WriteByte(sql[i])
+				i++
+			}
+			if i+1 < len(sql) {
+				cur.WriteByte(sql[i])
+				cur.WriteByte(sql[i+1])
+				i += 2
+			}
+		case !inDouble && ch == '\'':
+			if inSingle && i+1 < len(sql) && sql[i+1] == '\'' {
+				cur.WriteByte(ch)
+				cur.WriteByte(ch)
+				i += 2
+				continue
+			}
+			inSingle = !inSingle
+			cur.WriteByte(ch)
+			i++
+		case !inSingle && ch == '"':
+			inDouble = !inDouble
+			cur.WriteByte(ch)
+			i++
+		case !inSingle && !inDouble && ch == ';':
+			if hasExecutableContent(cur.String()) {
+				stmts = append(stmts, strings.TrimSpace(cur.String()))
+			}
+			cur.Reset()
+			i++
+		default:
+			cur.WriteByte(ch)
+			i++
+		}
 	}
+	if hasExecutableContent(cur.String()) {
+		stmts = append(stmts, strings.TrimSpace(cur.String()))
+	}
+	return stmts
+}
 
-	// Escape single quotes for embedding in a SQL literal (standard SQL: '' = one quote).
+// checkSingleStatement validates one SQL statement using DuckDB's
+// json_serialize_sql. Non-SELECT statements not in the safe-keyword set are
+// rejected. json_serialize_sql only handles SELECT-type statements; anything
+// else returns error JSON, which triggers keyword-based classification.
+// When the inspection query itself fails (network, syntax, etc.), the function
+// returns nil and lets actual execution surface the real error.
+func checkSingleStatement(ctx context.Context, db *sql.DB, stmt string) error {
 	escaped := strings.ReplaceAll(stmt, "'", "''")
 	inspectSQL := "SELECT CAST(json_serialize_sql('" + escaped + "') AS VARCHAR)"
 
@@ -210,12 +258,10 @@ func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
 	}
 
 	if meta.Error {
-		// json_serialize_sql could not parse the statement. This happens for
-		// non-SELECT statements (DELETE, COPY, ATTACH, ...) and for malformed
-		// input that the parser cannot reach. Only emit the "pass --write"
-		// remediation when the opening keyword is a known mutating verb; an
-		// unknown keyword (a typo, an unrecognized statement type) should fall
-		// through to execution so DuckDB surfaces the real error.
+		// json_serialize_sql could not parse the statement (non-SELECT, or
+		// malformed input). Only emit the "pass --write" remediation for known
+		// mutating verbs; typos and unrecognized keywords fall through to
+		// execution so DuckDB surfaces the real parse error.
 		kw := firstKeyword(stmt)
 		if safeNonSelectKeywords[kw] || kw == "SELECT" || kw == "WITH" {
 			return nil
@@ -223,14 +269,24 @@ func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
 		if mutatingKeywords[kw] {
 			return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)
 		}
-		// Unknown keyword: let DuckDB produce the real parse error.
 		return nil
 	}
 
-	if len(meta.Statements) > 1 {
-		return fmt.Errorf("multi-statement SQL is not permitted; run one statement at a time")
-	}
+	return nil
+}
 
+// checkReadOnly validates stmt for read-only mode. It splits the input into
+// individual statements using splitStatements and checks each one with
+// checkSingleStatement. Multi-statement input is permitted when every
+// statement is read-only; a leading SELECT does not license a trailing write.
+// Any statement that would be rejected on its own causes the whole batch to
+// be rejected before DuckDB executes anything.
+func checkReadOnly(ctx context.Context, db *sql.DB, stmt string) error {
+	for _, s := range splitStatements(stmt) {
+		if err := checkSingleStatement(ctx, db, s); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
