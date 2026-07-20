@@ -263,6 +263,19 @@ func checkSingleStatement(ctx context.Context, db *sql.DB, stmt string) error {
 		// mutating verbs; typos and unrecognized keywords fall through to
 		// execution so DuckDB surfaces the real parse error.
 		kw := firstKeyword(stmt)
+		if kw == "EXPLAIN" {
+			// EXPLAIN ANALYZE actually executes the wrapped statement, so an
+			// EXPLAIN ANALYZE COPY / INSERT / CREATE would bypass the read-only
+			// gate and perform the write. Plain EXPLAIN only prints the plan
+			// without executing, so it stays allowed. Reject only the analyze form.
+			if inner := unwrapExplainAnalyze(stmt); inner != "" {
+				innerKw := firstKeyword(inner)
+				if mutatingKeywords[innerKw] {
+					return fmt.Errorf("read-only mode rejects EXPLAIN ANALYZE %s; pass --write to permit modifications", innerKw)
+				}
+			}
+			return nil
+		}
 		if safeNonSelectKeywords[kw] || kw == "SELECT" || kw == "WITH" {
 			return nil
 		}
@@ -315,6 +328,27 @@ func skipLeadingComments(s string) string {
 		}
 	}
 	return ""
+}
+
+// unwrapExplainAnalyze returns the statement wrapped by a leading
+// EXPLAIN ANALYZE (with any leading whitespace and comments skipped),
+// or "" if stmt does not begin with EXPLAIN ANALYZE. Used by the
+// read-only gate: EXPLAIN ANALYZE executes its wrapped statement, so
+// EXPLAIN ANALYZE COPY would otherwise leak past the keyword check.
+func unwrapExplainAnalyze(stmt string) string {
+	rest := skipLeadingComments(stmt)
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return ""
+	}
+	if strings.ToUpper(fields[0]) != "EXPLAIN" || strings.ToUpper(fields[1]) != "ANALYZE" {
+		return ""
+	}
+	idx := strings.Index(strings.ToUpper(rest), "ANALYZE")
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[idx+len("ANALYZE"):])
 }
 
 // firstKeyword returns the uppercased first non-comment token of stmt,

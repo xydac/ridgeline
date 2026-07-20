@@ -260,6 +260,23 @@ func TestRunReadOnlyMultiStatementTable(t *testing.T) {
 			wantErr: true,
 			errFrag: "read-only mode",
 		},
+		{
+			name:    "EXPLAIN ANALYZE COPY rejected",
+			sql:     "EXPLAIN ANALYZE COPY (SELECT 1 AS x) TO '" + filepath.Join(tmp, "ea.csv") + "'",
+			wantErr: true,
+			errFrag: "EXPLAIN ANALYZE COPY",
+		},
+		{
+			name:    "EXPLAIN ANALYZE CREATE rejected",
+			sql:     "EXPLAIN ANALYZE CREATE TABLE q AS SELECT 1",
+			wantErr: true,
+			errFrag: "EXPLAIN ANALYZE CREATE",
+		},
+		{
+			name:    "EXPLAIN ANALYZE SELECT allowed",
+			sql:     "EXPLAIN ANALYZE SELECT 1",
+			wantErr: false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
