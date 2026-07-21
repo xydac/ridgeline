@@ -12,6 +12,7 @@ import (
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/connectors"
+	"github.com/xydac/ridgeline/sinks"
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
 
@@ -150,6 +151,9 @@ func formatStreams(streams []string) string {
 // loaded for status - it is a read-only operation). A non-empty *_ref
 // value is treated as satisfying the corresponding bare requirement so
 // a properly-configured _ref config does not produce a false failure.
+// Sink configs are validated via sinks.ConfigValidator when the sink
+// implements that interface, catching unknown option keys and missing
+// required fields that sync would reject on the first run.
 func validateConnectorsForStatus(ctx context.Context, cfg *config.File) error {
 	if err := validateRegistrations(cfg); err != nil {
 		return err
@@ -183,6 +187,18 @@ func validateConnectorsForStatus(ctx context.Context, cfg *config.File) error {
 			}
 			if err := conn.Validate(ctx, connCfg); err != nil {
 				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
+			}
+
+			// Validate sink options if the sink implements ConfigValidator.
+			sink, _ := sinks.New(inst.Sink.Type) // safe: validateRegistrations confirmed presence
+			if v, ok := sink.(sinks.ConfigValidator); ok {
+				sinkCfg := sinks.SinkConfig{}
+				for k, val := range inst.Sink.Options {
+					sinkCfg[k] = val
+				}
+				if err := v.ValidateConfig(sinkCfg); err != nil {
+					return fmt.Errorf("product %s connector %s: sink: %w", pid, inst.Name, err)
+				}
 			}
 		}
 	}

@@ -339,3 +339,65 @@ products:
 		t.Errorf("error should enumerate known enricher types: %v", err)
 	}
 }
+
+func TestRunStatus_UnknownSinkOptionKey_Rejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: parquet, options: { dir: ` + filepath.Join(dir, "out") + `, dirr: oops } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	err := runStatus(context.Background(), []string{"--config", cfgPath}, &buf)
+	if err == nil {
+		t.Fatal("expected error for unknown sink option key")
+	}
+	if !strings.Contains(err.Error(), `"dirr"`) {
+		t.Errorf("error should name the bad option key, got: %v", err)
+	}
+}
+
+func TestRunStatus_SinkDirIsFile_Rejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	aFile := filepath.Join(dir, "notadir")
+	if err := os.WriteFile(aFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: parquet, options: { dir: ` + aFile + ` } }
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	err := runStatus(context.Background(), []string{"--config", cfgPath}, &buf)
+	if err == nil {
+		t.Fatal("expected error when sink dir is a regular file")
+	}
+	if !strings.Contains(err.Error(), "regular file") {
+		t.Errorf("error should mention 'regular file', got: %v", err)
+	}
+}

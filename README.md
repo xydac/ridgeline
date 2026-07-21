@@ -184,6 +184,11 @@ database. State entries that no longer map to a configured connector
 are listed under an `orphan state entries` footer so a rename or
 removal is visible without inspecting the database by hand.
 
+`status` runs the same connector and sink schema validation as `sync`:
+unknown option keys, missing required fields, and a sink `dir` that
+points at a regular file are all reported by `status` before the first
+sync ever runs.
+
 ### Products view (TUI)
 
 `ridgeline tui --config ridgeline.yaml` opens a terminal UI that
