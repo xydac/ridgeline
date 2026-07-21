@@ -53,6 +53,22 @@ type streamFile struct {
 func (s *Sink) Name() string { return Name }
 
 // Init opens the sink for writing. cfg must contain a "dir" entry.
+// ValidateConfig checks option keys and required fields without any IO.
+// status calls this to surface config errors before the first sync.
+func (s *Sink) ValidateConfig(cfg sinks.SinkConfig) error {
+	if err := sinks.CheckUnknownKeys(cfg, "dir", "run_id", "flat"); err != nil {
+		return fmt.Errorf("jsonl: %w", err)
+	}
+	dir := cfg.String("dir")
+	if dir == "" {
+		return fmt.Errorf("jsonl: config key %q is required", "dir")
+	}
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		return fmt.Errorf("jsonl: sink dir is a regular file, not a directory: %s", dir)
+	}
+	return nil
+}
+
 // Unknown option keys are rejected at Init with a did-you-mean hint,
 // so a mistyped "dirr" surfaces here instead of downstream as
 // "dir is required".
@@ -62,13 +78,10 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	if s.inited {
 		return fmt.Errorf("jsonl: Init called twice")
 	}
-	if err := sinks.CheckUnknownKeys(cfg, "dir", "run_id", "flat"); err != nil {
-		return fmt.Errorf("jsonl: %w", err)
+	if err := s.ValidateConfig(cfg); err != nil {
+		return err
 	}
 	dir := cfg.String("dir")
-	if dir == "" {
-		return fmt.Errorf("jsonl: config key %q is required", "dir")
-	}
 	runID := cfg.String("run_id")
 	if runID == "" {
 		runID = strconv.FormatInt(time.Now().UnixNano(), 10)

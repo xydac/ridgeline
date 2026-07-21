@@ -80,3 +80,12 @@ type Sink interface {
 	Flush(ctx context.Context) error
 	Close() error
 }
+
+// ConfigValidator is an optional extension of Sink. Implementations
+// that satisfy this interface can validate their config without any IO
+// side effects (no files created, no directories touched). status uses
+// this to surface bad option keys and missing required fields at
+// status-check time rather than at the first sync.
+type ConfigValidator interface {
+	ValidateConfig(cfg SinkConfig) error
+}

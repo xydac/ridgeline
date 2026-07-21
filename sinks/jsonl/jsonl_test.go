@@ -276,6 +276,68 @@ func TestSink_Init_RejectsUnrelatedUnknownOption(t *testing.T) {
 	}
 }
 
+func TestSink_Init_RejectsDirIsFile(t *testing.T) {
+	t.Parallel()
+	f, err := os.CreateTemp(t.TempDir(), "notadir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	s := jsonl.New()
+	err = s.Init(context.Background(), sinks.SinkConfig{"dir": f.Name()})
+	if err == nil {
+		t.Fatal("expected error when dir is a regular file")
+	}
+	if !strings.Contains(err.Error(), "regular file") {
+		t.Errorf("got %q, want 'regular file' in error", err)
+	}
+}
+
+func TestSink_ValidateConfig_RejectsUnknownKey(t *testing.T) {
+	t.Parallel()
+	s := jsonl.New()
+	err := s.ValidateConfig(sinks.SinkConfig{"dirr": t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), `"dirr"`) {
+		t.Errorf("got %v, want did-you-mean error for unknown key", err)
+	}
+}
+
+func TestSink_ValidateConfig_RejectsMissingDir(t *testing.T) {
+	t.Parallel()
+	s := jsonl.New()
+	err := s.ValidateConfig(sinks.SinkConfig{})
+	if err == nil || !strings.Contains(err.Error(), `"dir"`) {
+		t.Errorf("got %v, want missing-dir error", err)
+	}
+}
+
+func TestSink_ValidateConfig_RejectsDirIsFile(t *testing.T) {
+	t.Parallel()
+	f, err := os.CreateTemp(t.TempDir(), "notadir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	s := jsonl.New()
+	err = s.ValidateConfig(sinks.SinkConfig{"dir": f.Name()})
+	if err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Errorf("got %v, want 'regular file' error", err)
+	}
+}
+
+func TestSink_ValidateConfig_AcceptsValidDir(t *testing.T) {
+	t.Parallel()
+	s := jsonl.New()
+	if err := s.ValidateConfig(sinks.SinkConfig{"dir": t.TempDir()}); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSink_ImplementsConfigValidator(t *testing.T) {
+	t.Parallel()
+	var _ sinks.ConfigValidator = jsonl.New()
+}
+
 func TestSink_RegisteredInRegistry(t *testing.T) {
 	t.Parallel()
 	// The init func in jsonl.go should have registered "jsonl".
