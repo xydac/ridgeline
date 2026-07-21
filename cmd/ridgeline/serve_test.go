@@ -189,6 +189,46 @@ func TestServePermanentConfigError(t *testing.T) {
 	}
 }
 
+// TestServeSinkInitFailureIsPermanent verifies that a bad sink config (typo'd
+// option key) causes serve to exit immediately rather than loop forever.
+func TestServeSinkInitFailureIsPermanent(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := "version: 1\nstate_path: " + filepath.Join(dir, "state.db") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: {records: 1}
+        streams: [pages]
+        sink: {type: parquet, options: {dirr: ` + filepath.Join(dir, "out") + `}}
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var calls int32
+	err := serveLoop(ctx, time.Hour, func(ctx context.Context) error {
+		atomic.AddInt32(&calls, 1)
+		return runConfigSync(ctx, cfgPath, false, false, io.Discard)
+	})
+
+	if err == nil {
+		t.Fatal("expected error from serveLoop on bad sink config")
+	}
+	var pce *permanentConfigError
+	if !errors.As(err, &pce) {
+		t.Fatalf("expected *permanentConfigError, got %T: %v", err, err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("serve should exit after exactly 1 call, got %d", got)
+	}
+}
+
 // TestServeTransientErrorRetries verifies that a non-permanent sync error is
 // logged and retried rather than causing serve to exit.
 func TestServeTransientErrorRetries(t *testing.T) {

@@ -409,7 +409,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 		sinkCfg["flat"] = true
 	}
 	if err := sink.Init(ctx, sinkCfg); err != nil {
-		return pipeline.Result{}, fmt.Errorf("sink init: %w", err)
+		return pipeline.Result{}, &permanentConfigError{err: fmt.Errorf("sink init: %w", err)}
 	}
 	defer sink.Close()
 
