@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -11,7 +12,7 @@ import (
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	in := []Output{
 		{Type: MsgSpec, Spec: &Spec{Name: "noop", Version: "0.1.0", AuthType: "none"}},
-		{Type: MsgRecord, Stream: "events", Timestamp: "2026-04-20T00:00:00Z", Data: map[string]any{"id": "1", "n": float64(2)}},
+		{Type: MsgRecord, Stream: "events", Timestamp: json.RawMessage(`"2026-04-20T00:00:00Z"`), Data: map[string]any{"id": "1", "n": float64(2)}},
 		{Type: MsgState, State: map[string]any{"cursor": "abc"}},
 		{Type: MsgLog, Level: "info", Message: "hello"},
 		{Type: MsgSchema, Stream: "events", Schema: &Schema{Columns: []Column{{Name: "id", Type: "string", Key: true}}}},

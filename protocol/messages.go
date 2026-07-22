@@ -51,17 +51,21 @@ type StreamRef struct {
 // Wire shape (RECORD):
 //
 //	{"type":"RECORD","stream":"events","timestamp":"2026-04-20T00:00:00Z","data":{...}}
+//
+// Timestamp is a json.RawMessage so the orchestrator can accept both
+// an RFC 3339 string and a numeric Unix epoch-seconds value without
+// aborting the decode.
 type Output struct {
-	Type      string         `json:"type"`
-	Spec      *Spec          `json:"spec,omitempty"`
-	Stream    string         `json:"stream,omitempty"`
-	Timestamp string         `json:"timestamp,omitempty"`
-	Data      map[string]any `json:"data,omitempty"`
-	State     map[string]any `json:"state,omitempty"`
-	Level     string         `json:"level,omitempty"`
-	Message   string         `json:"message,omitempty"`
-	Schema    *Schema        `json:"schema,omitempty"`
-	Error     string         `json:"error,omitempty"`
+	Type      string          `json:"type"`
+	Spec      *Spec           `json:"spec,omitempty"`
+	Stream    string          `json:"stream,omitempty"`
+	Timestamp json.RawMessage `json:"timestamp,omitempty"`
+	Data      map[string]any  `json:"data,omitempty"`
+	State     map[string]any  `json:"state,omitempty"`
+	Level     string          `json:"level,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Schema    *Schema         `json:"schema,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // Record is the wire form of a single data row. The orchestrator's
