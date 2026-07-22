@@ -358,6 +358,118 @@ func TestExtractSkipsRecordWithMissingData(t *testing.T) {
 	}
 }
 
+// TestExtractAcceptsNumericTimestamp verifies that a RECORD whose
+// timestamp is a JSON number (Unix epoch seconds) is accepted and
+// yields a non-zero time value (F-107).
+func TestExtractAcceptsNumericTimestamp(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		mode string
+	}{
+		{"integer-epoch", "numeric-ts"},
+		{"float-epoch", "float-ts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := external.New()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			streams := []connectors.Stream{{Name: "events", Mode: connectors.Incremental}}
+			ch, err := c.Extract(ctx, helperConfig(tc.mode), streams, nil)
+			if err != nil {
+				t.Fatalf("Extract: %v", err)
+			}
+			records, _, _, errs := collect(ch)
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if len(records) != 1 {
+				t.Fatalf("records = %d, want 1", len(records))
+			}
+			if records[0].Timestamp.IsZero() {
+				t.Error("Timestamp is zero, want a real time value from the numeric epoch")
+			}
+		})
+	}
+}
+
+// TestExtractSkipsRecordWithBadTimestamp verifies that RECORDs with a
+// missing, null, or unparseable timestamp are warned and skipped, not
+// ingested as year-0001 rows (F-096, F-108).
+func TestExtractSkipsRecordWithBadTimestamp(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		mode string
+	}{
+		{"missing-timestamp", "missing-ts"},
+		{"null-timestamp", "null-ts"},
+		{"garbage-timestamp", "garbage-ts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := external.New()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			streams := []connectors.Stream{{Name: "events", Mode: connectors.Incremental}}
+			ch, err := c.Extract(ctx, helperConfig(tc.mode), streams, nil)
+			if err != nil {
+				t.Fatalf("Extract: %v", err)
+			}
+			records, _, logs, errs := collect(ch)
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if len(records) != 0 {
+				t.Errorf("records = %d, want 0 (bad timestamp must be skipped)", len(records))
+			}
+			var warned bool
+			for _, l := range logs {
+				if l.Level == connectors.LevelWarn && strings.Contains(l.Message, "skipping") {
+					warned = true
+				}
+			}
+			if !warned {
+				t.Errorf("expected a warn-level skipping log; got logs: %v", logs)
+			}
+		})
+	}
+}
+
+// TestExtractSkipsRecordForUnknownStream verifies that a RECORD whose
+// stream is not in the configured streams list is warned and skipped (F-097).
+func TestExtractSkipsRecordForUnknownStream(t *testing.T) {
+	t.Parallel()
+	c := external.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// Connector configured for "events" only; child emits "ghost".
+	streams := []connectors.Stream{{Name: "events", Mode: connectors.Incremental}}
+	ch, err := c.Extract(ctx, helperConfig("unknown-stream"), streams, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	records, _, logs, errs := collect(ch)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(records) != 0 {
+		t.Errorf("records = %d, want 0 (unknown-stream record must be skipped)", len(records))
+	}
+	var warned bool
+	for _, l := range logs {
+		if l.Level == connectors.LevelWarn && strings.Contains(l.Message, "skipping") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected a warn-level skipping log; got logs: %v", logs)
+	}
+}
+
 func TestExtractStdinCarriesStreamsAndState(t *testing.T) {
 	t.Parallel()
 	c := external.New()
@@ -442,6 +554,25 @@ func TestHelperProcess(t *testing.T) {
 		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"data\":null}\n"))
 	case "valid-data":
 		writeOutputs(outRecord("events", map[string]any{"i": 1}))
+	case "numeric-ts":
+		// RECORD with a numeric Unix epoch-seconds timestamp (F-107).
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"timestamp\":1710495000,\"data\":{\"id\":\"num\"}}\n"))
+	case "float-ts":
+		// RECORD with a float epoch (sub-second precision).
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"timestamp\":1710495000.5,\"data\":{\"id\":\"float\"}}\n"))
+	case "missing-ts":
+		// RECORD with no timestamp field; must warn+skip (F-096, F-108).
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"data\":{\"id\":\"nots\"}}\n"))
+	case "null-ts":
+		// RECORD with explicit null timestamp; must warn+skip (F-108).
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"timestamp\":null,\"data\":{\"id\":\"nullts\"}}\n"))
+	case "garbage-ts":
+		// RECORD with an unparseable string timestamp; must warn+skip (F-096, F-108).
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"timestamp\":\"not-a-date\",\"data\":{\"id\":\"badts\"}}\n"))
+	case "unknown-stream":
+		// RECORD for a stream not in the configured list; must warn+skip (F-097).
+		// The connector is configured with streams:[events]; this emits "ghost".
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"ghost\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"data\":{\"id\":\"g1\"}}\n"))
 	}
 }
 
@@ -455,7 +586,12 @@ func writeOutputs(outs ...protocol.Output) {
 }
 
 func outRecord(stream string, data map[string]any) protocol.Output {
-	return protocol.Output{Type: protocol.MsgRecord, Stream: stream, Data: data}
+	return protocol.Output{
+		Type:      protocol.MsgRecord,
+		Stream:    stream,
+		Data:      data,
+		Timestamp: json.RawMessage(`"2026-01-01T00:00:00Z"`),
+	}
 }
 
 func outState(state map[string]any) protocol.Output {

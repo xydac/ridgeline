@@ -2,6 +2,7 @@ package external
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -182,7 +183,11 @@ func run(ctx, parentCtx context.Context, ch chan<- connectors.Message, command s
 	}
 	_ = stdin.Close()
 
-	decodeErr := decodeOutputs(ctx, ch, stdout)
+	allowed := make(map[string]bool, len(streams))
+	for _, s := range streams {
+		allowed[s.Name] = true
+	}
+	decodeErr := decodeOutputs(ctx, ch, stdout, allowed)
 
 	// Wait for stderr drain to settle before reaping, so all log lines
 	// are emitted in order.
@@ -232,10 +237,12 @@ func writeExtractCommand(w io.Writer, streams []connectors.Stream, state connect
 }
 
 // decodeOutputs reads JSON-lines Outputs from r and writes them on ch
-// as connectors.Messages. It returns when stdout closes, when ctx is
-// done, when a DONE or ERROR message arrives, or when a decode error
-// is hit.
-func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reader) error {
+// as connectors.Messages. allowed is the set of configured stream names;
+// RECORDs for unlisted streams are skipped with a warning. An empty map
+// means no filter (all streams accepted). It returns when stdout closes,
+// when ctx is done, when a DONE or ERROR message arrives, or when a
+// decode error is hit.
+func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reader, allowed map[string]bool) error {
 	dec := protocol.NewDecoder(r)
 	for {
 		if ctx.Err() != nil {
@@ -255,14 +262,27 @@ func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reade
 				}
 				continue
 			}
-			rec := connectors.Record{
-				Stream: out.Stream,
-				Data:   out.Data,
-			}
-			if out.Timestamp != "" {
-				if t, perr := time.Parse(time.RFC3339Nano, out.Timestamp); perr == nil {
-					rec.Timestamp = t
+			if len(allowed) > 0 && !allowed[out.Stream] {
+				emitLog(ctx, ch, connectors.LevelWarn,
+					fmt.Sprintf("external: skipping RECORD on stream %q: not in configured streams list", out.Stream))
+				if !send(ctx, ch, connectors.SkippedMessage()) {
+					return ctx.Err()
 				}
+				continue
+			}
+			ts, reason, ok := parseOutputTimestamp(out.Timestamp)
+			if !ok {
+				emitLog(ctx, ch, connectors.LevelWarn,
+					fmt.Sprintf("external: skipping RECORD on stream %q: %s", out.Stream, reason))
+				if !send(ctx, ch, connectors.SkippedMessage()) {
+					return ctx.Err()
+				}
+				continue
+			}
+			rec := connectors.Record{
+				Stream:    out.Stream,
+				Data:      out.Data,
+				Timestamp: ts,
 			}
 			if !send(ctx, ch, connectors.RecordMessage(out.Stream, rec)) {
 				return ctx.Err()
@@ -298,6 +318,36 @@ func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reade
 			emitLog(ctx, ch, connectors.LevelWarn, fmt.Sprintf("external: ignoring unknown message type %q", out.Type))
 		}
 	}
+}
+
+// parseOutputTimestamp decodes a RECORD's raw timestamp field.
+// It accepts an RFC 3339 (or RFC 3339Nano) string, or a numeric Unix
+// epoch-seconds value (integer or float). It returns the parsed time,
+// a human-readable reason string (populated only when ok is false),
+// and whether the timestamp was valid and accepted.
+func parseOutputTimestamp(raw json.RawMessage) (t time.Time, reason string, ok bool) {
+	if len(raw) == 0 {
+		return time.Time{}, "missing timestamp field", false
+	}
+	if string(raw) == "null" {
+		return time.Time{}, "null timestamp", false
+	}
+	// Try RFC 3339 string.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return ts.UTC(), "", true
+		}
+		return time.Time{}, fmt.Sprintf("unparseable timestamp %s", raw), false
+	}
+	// Try numeric Unix epoch seconds (integer or float).
+	var n float64
+	if err := json.Unmarshal(raw, &n); err == nil {
+		sec := int64(n)
+		nsec := int64((n - float64(sec)) * 1e9)
+		return time.Unix(sec, nsec).UTC(), "", true
+	}
+	return time.Time{}, fmt.Sprintf("unparseable timestamp %s", raw), false
 }
 
 // drainStderr reads lines from r and forwards them as warn-level logs.
