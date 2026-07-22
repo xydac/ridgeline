@@ -605,10 +605,19 @@ products:
 The runner sends one `extract` command on the child's stdin (with the
 configured streams and the persisted incremental state) and reads
 RECORD, STATE, LOG, SCHEMA, ERROR, and DONE messages back. Anything
-the child writes to stderr is surfaced as a warn-level log. RECORD
-messages whose `data` field is absent or null are skipped with a warning
-rather than ingested as empty rows; the sync summary reports
-`records_skipped: N` when N > 0.
+the child writes to stderr is surfaced as a warn-level log.
+
+#### RECORD field reference
+
+| Field       | Type                         | Required | Behavior when absent or invalid                          |
+|-------------|------------------------------|----------|----------------------------------------------------------|
+| `type`      | string (`"RECORD"`)          | yes      | missing type aborts the sync                             |
+| `stream`    | string                       | yes      | RECORD for a stream not in `streams:` is warned and skipped |
+| `timestamp` | RFC 3339 string or number    | yes      | missing, null, or unparseable value is warned and skipped; a number is interpreted as Unix epoch seconds (integer or float, e.g. `1710495000`) |
+| `data`      | JSON object                  | yes      | absent or null is warned and skipped                     |
+
+Records skipped for any of the above reasons are counted in `records_skipped: N` in the sync summary.
+
 Each external connector runs under a per-connector timeout (default 5 minutes;
 configurable via `timeout: 10m` in the connector's `config:` block). On expiry
 the child is killed and, with `--continue-on-error`, the remaining connectors
