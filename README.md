@@ -698,11 +698,12 @@ Accepted input formats for `ts_normalize`:
 - RFC 3339 with timezone offset: `2006-01-02T15:04:05+02:00`
 - Datetime without timezone (treated as UTC): `2006-01-02T15:04:05`, `2006-01-02 15:04:05`
 - Date only: `2006-01-02`
-- Unix epoch as int, int64, or float64: values up to 1e10 are seconds, larger are milliseconds
-- Numeric epoch encoded as a string: `"1710495000"` or `"1710495000000"`
+- Unix epoch as int or int64: values up to 1e10 are seconds, larger are milliseconds
+- Unix epoch as float64: seconds with optional sub-second fraction (up to microsecond precision); values up to 1e10 are seconds, larger are milliseconds
+- Numeric epoch encoded as a string: `"1710495000"`, `"1710495000000"`, or `"1710495000.123"` (float strings carry sub-second precision)
 
 Records whose `ts_field` is absent, holds an unsupported type, or cannot be parsed pass through
-unchanged. A debug-level log entry is emitted for each skipped value.
+unchanged. A warning is logged for each skipped value.
 
 ### Querying with `ridgeline query`
 

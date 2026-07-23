@@ -43,10 +43,14 @@ func TestTSNormalizeFormats(t *testing.T) {
 		{"unix seconds float64", float64(1710495000), "2024-03-15T09:30:00Z"},
 		{"unix millis int64", int64(1710495000000), "2024-03-15T09:30:00Z"},
 		{"unix millis float64", float64(1710495000000), "2024-03-15T09:30:00Z"},
+		// F-098: float64 epoch preserves sub-second fraction
+		{"unix seconds float64 millis", float64(1710495000.123), "2024-03-15T09:30:00.123Z"},
+		{"unix seconds float64 micros", float64(1710495000.123456), "2024-03-15T09:30:00.123456Z"},
 		// F-068: numeric epoch encoded as a string
 		{"unix seconds string", "1710495000", "2024-03-15T09:30:00Z"},
 		{"unix millis string", "1710495000000", "2024-03-15T09:30:00Z"},
 		{"unix seconds float string", "1710495000.0", "2024-03-15T09:30:00Z"},
+		{"unix seconds float string millis", "1710495000.123", "2024-03-15T09:30:00.123Z"},
 	}
 
 	for _, tc := range cases {
@@ -130,13 +134,13 @@ func TestTSNormalizeCustomFields(t *testing.T) {
 	}
 }
 
-// TestTSNormalizeParseFailureDebugLog verifies that an unparseable value
-// emits a debug-level log entry (F-068).
-func TestTSNormalizeParseFailureDebugLog(t *testing.T) {
+// TestTSNormalizeParseFailureWarnLog verifies that an unparseable value
+// emits a warn-level log entry (F-099).
+func TestTSNormalizeParseFailureWarnLog(t *testing.T) {
 	e, _ := enrichers.Get("ts_normalize")
 
 	var buf strings.Builder
-	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	old := slog.Default()
 	slog.SetDefault(logger)
 	defer slog.SetDefault(old)

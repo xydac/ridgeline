@@ -1,6 +1,6 @@
 // Package tsnormalize provides an enricher that parses timestamp fields
 // from various formats into a canonical UTC RFC 3339 string with
-// nanosecond precision (trailing zeros omitted).
+// sub-second precision (trailing zeros omitted).
 //
 // Configuration keys:
 //
@@ -14,9 +14,12 @@
 //   - string: RFC 3339 with optional sub-second digits, RFC 3339 without
 //     sub-seconds, "2006-01-02T15:04:05" (no timezone, treated as UTC),
 //     "2006-01-02 15:04:05", date-only "2006-01-02"
-//   - string: a numeric epoch encoded as a string (e.g. "1710495000")
-//   - int, int64, float64: Unix epoch; values <= 1e10 are seconds,
-//     larger values are milliseconds
+//   - string: a numeric epoch encoded as a string (e.g. "1710495000" or
+//     "1710495000.123"); float strings carry sub-second precision
+//   - int, int64: Unix epoch; values <= 1e10 are seconds, larger are ms
+//   - float64: Unix epoch seconds with optional sub-second fraction
+//     (float64 carries up to ~microsecond precision); values <= 1e10 are
+//     seconds, larger values are milliseconds
 //
 // Sub-second precision from the input is preserved in the output.
 // A whole-second input produces a whole-second RFC 3339 output (no
@@ -24,7 +27,7 @@
 //
 // Records whose ts_field is missing, is an unsupported type, or cannot
 // be parsed are passed through unchanged (partial-success behaviour).
-// A debug-level log entry is emitted for each unparseable value.
+// A warn-level log entry is emitted for each unparseable value.
 // The enricher never returns an error for individual record failures;
 // only context cancellation returns a non-nil error.
 //
@@ -37,6 +40,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"time"
 
@@ -80,14 +84,14 @@ func parseTimestamp(v any) (time.Time, bool) {
 			return fromEpoch(n), true
 		}
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			return fromEpoch(int64(f)), true
+			return fromEpochFloat(f), true
 		}
 	case int:
 		return fromEpoch(int64(raw)), true
 	case int64:
 		return fromEpoch(raw), true
 	case float64:
-		return fromEpoch(int64(raw)), true
+		return fromEpochFloat(raw), true
 	}
 	return time.Time{}, false
 }
@@ -97,6 +101,25 @@ func fromEpoch(n int64) time.Time {
 		return time.UnixMilli(n).UTC()
 	}
 	return time.Unix(n, 0).UTC()
+}
+
+// fromEpochFloat converts a floating-point Unix epoch to a time.Time.
+// Sub-second precision is preserved up to microseconds; float64 cannot
+// reliably carry nanoseconds at epoch-seconds magnitude (~1.7e9), so the
+// fractional part is rounded to the nearest microsecond.
+// Values above epochThreshold are treated as milliseconds (sub-ms fraction dropped).
+func fromEpochFloat(f float64) time.Time {
+	sec := int64(f)
+	if sec > epochThreshold {
+		return time.UnixMilli(sec).UTC()
+	}
+	frac := f - float64(sec)
+	if frac < 0 {
+		frac = 0
+	}
+	// Round to nearest microsecond to absorb float64 representation noise.
+	usec := int64(math.Round(frac * 1e6))
+	return time.Unix(sec, usec*1000).UTC()
 }
 
 // Enrich reads cfg["ts_field"] (default "timestamp") from each record,
@@ -123,7 +146,7 @@ func (e *Enricher) Enrich(ctx context.Context, cfg enrichers.EnrichConfig, recs 
 		}
 		t, parsed := parseTimestamp(v)
 		if !parsed {
-			slog.DebugContext(ctx, "ts_normalize: unparseable value; record unchanged",
+			slog.WarnContext(ctx, "ts_normalize: unparseable value; record unchanged",
 				"field", tsField, "type", fmt.Sprintf("%T", v))
 			continue
 		}
