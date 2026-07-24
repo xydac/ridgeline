@@ -659,22 +659,27 @@ the sink writes each batch of records. Add an `enrichers:` list under
 any connector to opt that stream into enrichment:
 
 ```yaml
-connectors:
-  - name: events
-    type: umami
-    config:
-      base_url: https://analytics.example.com
-      site_id_ref: umami.myapp.site_id
-    streams: [events]
-    enrichers:
-      - type: url_host
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: events
+        type: umami
         config:
-          url_field: url        # field to read the URL from (default: url)
-          host_field: host      # field to write the hostname into (default: host)
-    sink:
-      type: parquet
-      options:
-        dir: ./pq-out
+          base_url: https://analytics.example.com
+          website_id: 00000000-0000-0000-0000-000000000000
+          api_key_ref: umami_main
+        streams: [events]
+        enrichers:
+          - type: url_host
+            config:
+              url_field: url        # field to read the URL from (default: url)
+              host_field: host      # field to write the hostname into (default: host)
+        sink:
+          type: parquet
+          options:
+            dir: ./pq-out
 ```
 
 With this config a `host` field is added to each record whose `url`
