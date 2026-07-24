@@ -628,7 +628,10 @@ kills the child.
 
 Both the `parquet` and `jsonl` sinks write the same logical columns, so
 you can swap `type: parquet` for `type: jsonl` (or vice versa) on any
-sink block without changing your queries:
+sink block. DuckDB uses a different reader for each format, so a saved
+query keeps its column names but must switch table functions:
+`read_parquet('./pq-out/*/*.parquet')` for the parquet sink,
+`read_json_auto('./out/*/*.jsonl')` for the jsonl sink.
 
 ```yaml
 sink:
