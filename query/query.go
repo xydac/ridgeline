@@ -367,14 +367,23 @@ func firstKeyword(stmt string) string {
 // read-only operation. It must be called immediately after opening the
 // database and before any user SQL runs.
 //
-// Extension auto-install and auto-load are disabled, which blocks network
-// reads (HTTP, S3, GCS) because they require the httpfs extension. Local
-// filesystem reads (read_parquet, read_csv_auto, read_json_auto) continue
-// to work; they are gated only by OS-level process permissions.
+// sqlite_scanner is loaded before the lock so that sqlite_scan() and
+// sqlite_attach() work in read-only mode without requiring --write.
+// If the extension is not installed the load silently no-ops and the
+// user will see DuckDB's own "extension not installed" message when they
+// try to use it.
+//
+// Extension auto-install and auto-load are disabled after the explicit
+// load, which blocks network reads (HTTP, S3, GCS) because they require
+// the httpfs extension. Local filesystem reads (read_parquet, read_csv_auto,
+// read_json_auto, sqlite_scan) continue to work.
 //
 // Configuration is locked after these settings are applied, so subsequent
 // SQL cannot undo the sandbox via SET statements.
 func applySandbox(ctx context.Context, db *sql.DB) error {
+	// Pre-load sqlite_scanner while auto-install is still permitted, before
+	// the configuration lock prevents extension loading.
+	_, _ = db.ExecContext(ctx, "LOAD sqlite_scanner")
 	for _, s := range []string{
 		"SET autoinstall_known_extensions = false",
 		"SET autoload_known_extensions = false",

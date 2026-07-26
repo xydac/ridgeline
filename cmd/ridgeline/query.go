@@ -93,5 +93,8 @@ func runQuery(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(positional) > 1 {
 		return usageErrorf("SQL must be a single quoted argument (%d words received); use: ridgeline query \"<SQL>\"", len(positional))
 	}
+	if strings.TrimSpace(positional[0]) == "" {
+		return usageErrorf("usage: ridgeline query [--write] \"<SQL>\"")
+	}
 	return query.Run(ctx, positional[0], stdout, query.Options{Write: *write})
 }

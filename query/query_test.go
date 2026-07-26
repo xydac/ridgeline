@@ -769,6 +769,41 @@ func TestRunReadOnlyBlocksNetworkRead(t *testing.T) {
 	}
 }
 
+// TestRunReadOnlySQLiteScan verifies that sqlite_scan() works in the default
+// read-only mode (F-090). applySandbox pre-loads sqlite_scanner before locking
+// the configuration so users do not need --write just to query a SQLite file.
+func TestRunReadOnlySQLiteScan(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+
+	// Create a SQLite database using DuckDB's ATTACH (needs write mode).
+	setup, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := setup.ExecContext(context.Background(), "INSTALL sqlite_scanner"); err != nil {
+		t.Skipf("sqlite_scanner not available: %v", err)
+	}
+	if _, err := setup.ExecContext(context.Background(), "LOAD sqlite_scanner"); err != nil {
+		t.Skipf("sqlite_scanner not loadable: %v", err)
+	}
+	setup.ExecContext(context.Background(), "ATTACH '"+dbPath+"' AS db (TYPE SQLITE)")
+	setup.ExecContext(context.Background(), "CREATE TABLE db.kv(k VARCHAR, v VARCHAR)")
+	setup.ExecContext(context.Background(), "INSERT INTO db.kv VALUES ('hello', 'world')")
+	setup.Close()
+
+	// Now query it in read-only mode (no --write).
+	var buf bytes.Buffer
+	q := "SELECT k, v FROM sqlite_scan('" + dbPath + "', 'kv') ORDER BY k"
+	if err := Run(context.Background(), q, &buf, Options{}); err != nil {
+		t.Fatalf("read-only sqlite_scan failed: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "hello") || !strings.Contains(out, "world") {
+		t.Errorf("expected sqlite data in output, got:\n%s", out)
+	}
+}
+
 // TestMain guards against leaving temp dirs behind if a test panics.
 func TestMain(m *testing.M) {
 	code := m.Run()

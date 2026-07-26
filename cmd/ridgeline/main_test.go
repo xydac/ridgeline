@@ -254,8 +254,10 @@ func TestCLI_MisinvocationExitCodes(t *testing.T) {
 		{"tui unknown flag", []string{"tui", "--nope"}},
 		// required-arg errors (previously exited 1 - F-087)
 		{"status missing required config", []string{"status"}},
-		// query arg-count errors (previously exited 1 - F-087)
+		// query arg-count errors (previously exited 1 - F-087; F-095)
 		{"query no args", []string{"query"}},
+		{"query empty string", []string{"query", ""}},
+		{"query whitespace only", []string{"query", "   "}},
 		{"query multiple positional args", []string{"query", "SELECT", "1"}},
 		// query unknown flag (F-082)
 		{"query unknown flag", []string{"query", "--write-mode", "SELECT 1"}},
