@@ -737,14 +737,15 @@ Pass the entire SQL statement as a single quoted argument.
 
 The default mode is read-only. The constraints are:
 
-- Only `SELECT`, `EXPLAIN`, `DESCRIBE`, `SHOW`, and `PRAGMA` statements
-  are accepted. Each statement in a semicolon-separated batch is checked
-  individually; a leading `SELECT` does not license a trailing write. A
-  batch that contains any `CREATE`, `COPY`, `ATTACH`, `INSERT`, `DELETE`,
-  or other mutating statement is rejected before DuckDB executes anything.
+- Read-only statements are accepted: `SELECT`, `WITH`, `VALUES`, `FROM`,
+  `EXPLAIN`, `DESCRIBE`, `SHOW`, and `PRAGMA`. Each statement in a
+  semicolon-separated batch is checked individually; a leading `SELECT`
+  does not license a trailing write. A batch that contains any `CREATE`,
+  `COPY`, `ATTACH`, `INSERT`, `DELETE`, or other mutating statement is
+  rejected before DuckDB executes anything.
 - Network reads (HTTP, S3, GCS) are blocked by disabling DuckDB's
   `httpfs` extension. Local filesystem reads (`read_parquet`,
-  `read_csv_auto`, `read_json_auto`) remain unrestricted.
+  `read_csv_auto`, `read_json_auto`, `sqlite_scan`) remain unrestricted.
 
 Pass `--write` to allow modifications (INSERT, DELETE, COPY, ATTACH, DDL)
 and to lift the network restriction.
