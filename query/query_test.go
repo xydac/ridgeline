@@ -769,6 +769,60 @@ func TestRunReadOnlyBlocksNetworkRead(t *testing.T) {
 	}
 }
 
+// TestParseStructFieldNames verifies that the type-name parser extracts field
+// names in declared order from DuckDB STRUCT type names (F-101).
+func TestParseStructFieldNames(t *testing.T) {
+	cases := []struct {
+		input string
+		want  []string
+	}{
+		{"STRUCT(\"z\" INTEGER, \"a\" INTEGER, \"m\" INTEGER)", []string{"z", "a", "m"}},
+		{"STRUCT(\"name\" VARCHAR, \"age\" INTEGER)", []string{"name", "age"}},
+		{"STRUCT(\"a\" STRUCT(\"b\" INT, \"c\" INT), \"d\" VARCHAR)", []string{"a", "d"}},
+		{"STRUCT(\"x\" MAP(VARCHAR, INTEGER), \"y\" INT)", []string{"x", "y"}},
+		{"NOT_A_STRUCT", nil},
+		{"STRUCT(", nil},
+		{"", nil},
+	}
+	for _, tc := range cases {
+		got := parseStructFieldNames(tc.input)
+		if len(got) != len(tc.want) {
+			t.Errorf("parseStructFieldNames(%q) = %v, want %v", tc.input, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("parseStructFieldNames(%q)[%d] = %q, want %q", tc.input, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+// TestRunStructFieldOrder verifies that a STRUCT column renders in SQL-declared
+// field order, not alphabetical order (F-101).
+func TestRunStructFieldOrder(t *testing.T) {
+	var buf bytes.Buffer
+	// Declared order: z, a, m. Alphabetical order would be: a, m, z.
+	err := Run(context.Background(), "SELECT {'z':1,'a':2,'m':3} AS s", &buf, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out := buf.String()
+	// Find the struct value in the output and check field order.
+	if !strings.Contains(out, "{z:") {
+		t.Errorf("struct output should start with z field, got:\n%s", out)
+	}
+	zIdx := strings.Index(out, "{z:")
+	aIdx := strings.Index(out, "a:")
+	mIdx := strings.Index(out, "m:")
+	if zIdx < 0 || aIdx < 0 || mIdx < 0 {
+		t.Fatalf("could not find all fields in output:\n%s", out)
+	}
+	if !(zIdx < aIdx && aIdx < mIdx) {
+		t.Errorf("fields not in declared order (z, a, m): z=%d a=%d m=%d\noutput:\n%s", zIdx, aIdx, mIdx, out)
+	}
+}
+
 // TestRunReadOnlySQLiteScan verifies that sqlite_scan() works in the default
 // read-only mode (F-090). applySandbox pre-loads sqlite_scanner before locking
 // the configuration so users do not need --write just to query a SQLite file.

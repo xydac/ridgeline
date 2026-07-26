@@ -445,6 +445,14 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 		return fmt.Errorf("query returned no columns; query expects a SELECT-like statement")
 	}
 
+	// Extract struct field ordering from column type metadata so STRUCT
+	// columns render fields in SQL-declared order (not sorted).
+	colTypes, _ := rows.ColumnTypes()
+	structKeys := make([][]string, len(cols))
+	for i, ct := range colTypes {
+		structKeys[i] = parseStructFieldNames(ct.DatabaseTypeName())
+	}
+
 	formatted := make([][]string, 0, 16)
 	for rows.Next() {
 		raw := make([]any, len(cols))
@@ -457,6 +465,12 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 		}
 		row := make([]string, len(cols))
 		for i, v := range raw {
+			if structKeys[i] != nil {
+				if m, ok := v.(map[string]any); ok {
+					row[i] = formatStruct(m, structKeys[i])
+					continue
+				}
+			}
 			row[i] = formatValue(v)
 		}
 		formatted = append(formatted, row)
@@ -489,7 +503,7 @@ func formatValue(v any) string {
 	case []any:
 		return formatList(x)
 	case map[string]any:
-		return formatStruct(x)
+		return formatStruct(x, nil)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
@@ -515,18 +529,97 @@ func formatList(items []any) string {
 }
 
 // formatStruct renders a DuckDB STRUCT value as {k1: v1, k2: v2}.
-// Keys are sorted for deterministic output.
-func formatStruct(m map[string]any) string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// When orderedKeys is non-nil the fields are rendered in that order;
+// otherwise keys are sorted for deterministic output.
+func formatStruct(m map[string]any, orderedKeys []string) string {
+	keys := orderedKeys
+	if keys == nil {
+		keys = make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
 	}
-	sort.Strings(keys)
-	parts := make([]string, len(keys))
-	for i, k := range keys {
-		parts[i] = k + ": " + formatValue(m[k])
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok {
+			continue
+		}
+		parts = append(parts, k+": "+formatValue(v))
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// parseStructFieldNames parses the field names from a DuckDB STRUCT type
+// name (e.g. STRUCT("z" INTEGER, "a" INTEGER, "m" INTEGER)) and returns
+// them in declared order. Returns nil if the input is not a STRUCT type or
+// cannot be parsed, causing the caller to fall back to sorted output.
+func parseStructFieldNames(typeName string) []string {
+	const prefix = "STRUCT("
+	if !strings.HasPrefix(typeName, prefix) {
+		return nil
+	}
+	inner := typeName[len(prefix):]
+	if !strings.HasSuffix(inner, ")") {
+		return nil
+	}
+	inner = inner[:len(inner)-1]
+
+	var names []string
+	i := 0
+	for i < len(inner) {
+		// Skip whitespace before each field definition.
+		for i < len(inner) && (inner[i] == ' ' || inner[i] == '\t') {
+			i++
+		}
+		if i >= len(inner) {
+			break
+		}
+		// Read the field name: either "quoted" or unquoted.
+		var name string
+		if inner[i] == '"' {
+			i++ // opening quote
+			start := i
+			for i < len(inner) && inner[i] != '"' {
+				i++
+			}
+			name = inner[start:i]
+			if i < len(inner) {
+				i++ // closing quote
+			}
+		} else {
+			start := i
+			for i < len(inner) && inner[i] != ' ' && inner[i] != '\t' {
+				i++
+			}
+			name = inner[start:i]
+		}
+		if name == "" {
+			return nil
+		}
+		names = append(names, name)
+
+		// Skip the field's type definition, which may contain nested parens.
+		// Advance until a comma at depth 0 (or end of string).
+		depth := 0
+		for i < len(inner) {
+			ch := inner[i]
+			if ch == '(' {
+				depth++
+			} else if ch == ')' {
+				if depth == 0 {
+					break
+				}
+				depth--
+			} else if ch == ',' && depth == 0 {
+				i++ // consume comma
+				break
+			}
+			i++
+		}
+	}
+	return names
 }
 
 // escapeCell replaces control characters that would break the table layout
