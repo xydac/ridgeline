@@ -119,10 +119,16 @@ func LoadCreds(path string) (*File, error) {
 // ParseCreds is like Parse but skips the products validation so a minimal
 // config (version + state_path + key_path only) is accepted.
 func ParseCreds(b []byte) (*File, error) {
+	if strings.TrimSpace(string(b)) == "" {
+		return nil, fmt.Errorf("config: file is empty; add 'version: 1' and at least one product under 'products:'")
+	}
 	var f File
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("config: file is empty or contains only comments; add 'version: 1' and at least one product under 'products:'")
+		}
 		return nil, translateYAMLErr(err)
 	}
 	if err := f.applyDefaults(); err != nil {

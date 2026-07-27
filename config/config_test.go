@@ -422,6 +422,36 @@ nonsense_field: true
 	}
 }
 
+// TestParseCreds_EmptyAndCommentsOnly verifies that the creds config path
+// produces actionable messages for empty, whitespace-only, and comment-only
+// configs instead of the raw "config: parse: EOF" (F-045, F-062).
+func TestParseCreds_EmptyAndCommentsOnly(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"empty", ""},
+		{"whitespace", "   \n\n\t"},
+		{"comment only", "# just a comment\n"},
+		{"multiple comments", "# line1\n# line2\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := config.ParseCreds([]byte(tc.input))
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			msg := err.Error()
+			if strings.Contains(msg, "EOF") {
+				t.Errorf("should not expose raw EOF to user, got %q", msg)
+			}
+			if !strings.Contains(msg, "empty") && !strings.Contains(msg, "comments") {
+				t.Errorf("want actionable message, got %q", msg)
+			}
+		})
+	}
+}
+
 // TestParse_CommentsOnlyYAML verifies that a YAML file containing only comments
 // returns an actionable message instead of the raw "config: parse: EOF" (F-062).
 func TestParse_CommentsOnlyYAML(t *testing.T) {
