@@ -148,6 +148,7 @@ func runDryRun(ctx context.Context, out string, records int, flat bool) error {
 	if flat {
 		sinkCfg["flat"] = true
 	}
+	sinkCfg["no_resume"] = true
 	if err := sink.Init(ctx, sinkCfg); err != nil {
 		return fmt.Errorf("sink init: %w", err)
 	}

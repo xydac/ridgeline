@@ -521,6 +521,54 @@ func TestSink_ColumnNamesMatchParquetSchema(t *testing.T) {
 	}
 }
 
+func TestSink_NoResume_IgnoresPriorManifest(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+	t0 := time.Unix(1000, 0).UTC()
+
+	// First run writes 3 records.
+	s1 := jsonl.New()
+	if err := s1.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run1", "flat": true}); err != nil {
+		t.Fatalf("Init 1: %v", err)
+	}
+	recs := func(n int) []connectors.Record {
+		out := make([]connectors.Record, n)
+		for i := range out {
+			out[i] = connectors.Record{Stream: "events", Timestamp: t0.Add(time.Duration(i) * time.Second), Data: map[string]any{"i": i}}
+		}
+		return out
+	}
+	if err := s1.Write(ctx, "events", recs(3)); err != nil {
+		t.Fatalf("Write 1: %v", err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatalf("Close 1: %v", err)
+	}
+
+	// Second run with no_resume=true ignores the prior manifest and writes all 5 records.
+	s2 := jsonl.New()
+	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2", "flat": true, "no_resume": true}); err != nil {
+		t.Fatalf("Init 2: %v", err)
+	}
+	if err := s2.Write(ctx, "events", recs(5)); err != nil {
+		t.Fatalf("Write 2: %v", err)
+	}
+	if err := s2.Close(); err != nil {
+		t.Fatalf("Close 2: %v", err)
+	}
+
+	// Flat mode overwrites events.jsonl; it should contain all 5 records from run2.
+	data, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("read events.jsonl: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) != 5 {
+		t.Errorf("events.jsonl has %d lines; want 5 (got: %q)", len(lines), string(data))
+	}
+}
+
 func keys(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

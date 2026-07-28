@@ -56,7 +56,7 @@ func (s *Sink) Name() string { return Name }
 // ValidateConfig checks option keys and required fields without any IO.
 // status calls this to surface config errors before the first sync.
 func (s *Sink) ValidateConfig(cfg sinks.SinkConfig) error {
-	if err := sinks.CheckUnknownKeys(cfg, "dir", "run_id", "flat"); err != nil {
+	if err := sinks.CheckUnknownKeys(cfg, "dir", "run_id", "flat", "no_resume"); err != nil {
 		return fmt.Errorf("jsonl: %w", err)
 	}
 	dir := cfg.String("dir")
@@ -93,11 +93,13 @@ func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	s.runID = runID
 	s.flat = cfg.Bool("flat", false)
 	s.manifest = manifest.NewStore(filepath.Join(dir, "manifest.json"))
-	covered, err := s.manifest.Load()
-	if err != nil {
-		return fmt.Errorf("jsonl: load manifest: %w", err)
+	if !cfg.Bool("no_resume", false) {
+		covered, err := s.manifest.Load()
+		if err != nil {
+			return fmt.Errorf("jsonl: load manifest: %w", err)
+		}
+		s.covered = covered
 	}
-	s.covered = covered
 	s.streams = map[string]*streamFile{}
 	s.inited = true
 	return nil
