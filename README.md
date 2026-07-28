@@ -735,6 +735,36 @@ without a separate load step:
 
 Pass the entire SQL statement as a single quoted argument.
 
+#### Working with timestamps
+
+The `timestamp` column is stored as a BIGINT of Unix microseconds (UTC).
+To convert it to a native DuckDB timestamp for time-window queries, use
+`to_timestamp`:
+
+```sql
+-- Convert to timestamp for readable display
+SELECT to_timestamp(timestamp / 1000000.0) AS ts, stream
+FROM read_parquet('./pq-out/*/*.parquet')
+ORDER BY ts;
+
+-- Group by day (UTC)
+SELECT date_trunc('day', to_timestamp(timestamp / 1000000.0)) AS day,
+       count(*) AS n
+FROM read_parquet('./pq-out/*/*.parquet')
+GROUP BY day ORDER BY day;
+
+-- Filter to a time range
+SELECT *
+FROM read_parquet('./pq-out/*/*.parquet')
+WHERE timestamp BETWEEN
+  epoch_us(TIMESTAMPTZ '2024-01-01') AND
+  epoch_us(TIMESTAMPTZ '2024-02-01');
+```
+
+`to_timestamp` returns a TIMESTAMPTZ (UTC). All standard DuckDB
+date/time functions (`date_trunc`, `date_diff`, `strftime`, etc.) work
+on the result.
+
 The default mode is read-only. The constraints are:
 
 - Read-only statements are accepted: `SELECT`, `WITH`, `VALUES`, `FROM`,
