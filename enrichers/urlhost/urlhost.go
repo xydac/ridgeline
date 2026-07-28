@@ -19,6 +19,7 @@ package urlhost
 import (
 	"context"
 	"net/url"
+	"strings"
 
 	"github.com/xydac/ridgeline/connectors"
 	"github.com/xydac/ridgeline/enrichers"
@@ -55,7 +56,7 @@ func (e *Enricher) Enrich(_ context.Context, cfg enrichers.EnrichConfig, recs []
 		if err != nil || u.Hostname() == "" {
 			continue
 		}
-		recs[i].Data[hostField] = u.Hostname()
+		recs[i].Data[hostField] = strings.ToLower(u.Hostname())
 	}
 	return recs, nil
 }

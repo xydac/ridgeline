@@ -45,6 +45,32 @@ func TestURLHostExtraction(t *testing.T) {
 	}
 }
 
+func TestURLHostCaseNormalization(t *testing.T) {
+	e, _ := enrichers.Get("url_host")
+	now := time.Now()
+	cases := []struct {
+		url  string
+		want string
+	}{
+		{"https://Example.com/a", "example.com"},
+		{"https://EXAMPLE.COM/b", "example.com"},
+		{"https://example.com/c", "example.com"},
+		{"https://Sub.DOMAIN.Org/x", "sub.domain.org"},
+	}
+	for _, tc := range cases {
+		in := []connectors.Record{
+			{Stream: "pages", Timestamp: now, Data: map[string]any{"url": tc.url}},
+		}
+		out, err := e.Enrich(context.Background(), enrichers.EnrichConfig{}, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := out[0].Data["host"]; got != tc.want {
+			t.Errorf("url %q: host = %v; want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
 func TestURLHostCustomFields(t *testing.T) {
 	e, _ := enrichers.Get("url_host")
 	now := time.Now()
