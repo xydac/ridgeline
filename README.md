@@ -765,14 +765,18 @@ WHERE timestamp BETWEEN
 date/time functions (`date_trunc`, `date_diff`, `strftime`, etc.) work
 on the result.
 
-The default mode is read-only. The constraints are:
+The default mode is read-only. The gate uses a closed allow-list:
 
-- Read-only statements are accepted: `SELECT`, `WITH`, `VALUES`, `FROM`,
-  `EXPLAIN`, `DESCRIBE`, `SHOW`, and `PRAGMA`. Each statement in a
-  semicolon-separated batch is checked individually; a leading `SELECT`
-  does not license a trailing write. A batch that contains any `CREATE`,
-  `COPY`, `ATTACH`, `INSERT`, `DELETE`, or other mutating statement is
-  rejected before DuckDB executes anything.
+- Only the following statement kinds are accepted: `SELECT` (including
+  CTEs introduced by `WITH`), `EXPLAIN` (without `ANALYZE`), `DESCRIBE`,
+  `SHOW`, and `PRAGMA`. Every other statement -- including `CREATE`,
+  `COPY`, `INSERT`, `DELETE`, `USE`, `BEGIN`, `COMMIT`, and any
+  unrecognized verb -- is rejected before DuckDB executes anything.
+  `EXPLAIN ANALYZE` is rejected in both the keyword form
+  (`EXPLAIN ANALYZE ...`) and the parenthesized-options form
+  (`EXPLAIN (ANALYZE) ...`) because it executes the wrapped statement.
+- Each statement in a semicolon-separated batch is checked individually;
+  a leading `SELECT` does not license a trailing write.
 - Network reads (HTTP, S3, GCS) are blocked by disabling DuckDB's
   `httpfs` extension. Local filesystem reads (`read_parquet`,
   `read_csv_auto`, `read_json_auto`, `sqlite_scan`) remain unrestricted.

@@ -22,22 +22,21 @@ type Options struct {
 	Write bool
 }
 
-// safeNonSelectKeywords lists statement-opening keywords that are safe
-// in read-only mode even though json_serialize_sql cannot parse them
-// (it only handles SELECT-type statements). All of these produce
-// read-only metadata operations in DuckDB.
-var safeNonSelectKeywords = map[string]bool{
-	"EXPLAIN":  true,
+// allowedNonSelectKeywords is the closed set of statement-opening keywords
+// accepted in read-only mode when json_serialize_sql cannot parse the
+// statement (it only handles SELECT-type statements). EXPLAIN is handled
+// separately because EXPLAIN ANALYZE executes its wrapped statement.
+// Everything outside this set is rejected, including session-control
+// statements like USE, BEGIN, COMMIT, and ROLLBACK.
+var allowedNonSelectKeywords = map[string]bool{
 	"PRAGMA":   true,
 	"SHOW":     true,
 	"DESCRIBE": true,
 }
 
 // mutatingKeywords is the set of statement-opening keywords that indicate
-// a write or DDL operation. Only when the leading keyword is in this set do
-// we emit the "read-only mode rejects ... pass --write" message. An unknown
-// keyword (e.g. a typo like "SELEKT") falls through to actual execution so
-// DuckDB surfaces a real parse error rather than a misleading remediation hint.
+// a write or DDL operation. Used only to produce a more specific rejection
+// message; the closed allow-list rejects all non-allowed keywords anyway.
 var mutatingKeywords = map[string]bool{
 	"ALTER":      true,
 	"ATTACH":     true,
@@ -237,12 +236,19 @@ func splitStatements(sql string) []string {
 	return stmts
 }
 
-// checkSingleStatement validates one SQL statement using DuckDB's
-// json_serialize_sql. Non-SELECT statements not in the safe-keyword set are
-// rejected. json_serialize_sql only handles SELECT-type statements; anything
-// else returns error JSON, which triggers keyword-based classification.
-// When the inspection query itself fails (network, syntax, etc.), the function
-// returns nil and lets actual execution surface the real error.
+// checkSingleStatement validates one SQL statement using a closed allow-list.
+//
+// DuckDB's json_serialize_sql is called first: if it parses successfully,
+// the statement is SELECT-type and is always allowed. When it cannot parse
+// (non-SELECT or malformed input), the first keyword determines acceptance
+// under the closed allow-list: SELECT, WITH (for malformed inputs that start
+// with SELECT/WITH), EXPLAIN (without ANALYZE), DESCRIBE, SHOW, and PRAGMA
+// are allowed. Everything else -- including session-control statements like
+// USE, BEGIN, and COMMIT -- is rejected. This is an allow-list, not a
+// deny-list: unrecognized verbs are rejected rather than passed through.
+//
+// When the inspection query itself fails (DB error), the function returns nil
+// and lets actual execution surface the real error.
 func checkSingleStatement(ctx context.Context, db *sql.DB, stmt string) error {
 	escaped := strings.ReplaceAll(stmt, "'", "''")
 	inspectSQL := "SELECT CAST(json_serialize_sql('" + escaped + "') AS VARCHAR)"
@@ -257,35 +263,35 @@ func checkSingleStatement(ctx context.Context, db *sql.DB, stmt string) error {
 		return nil
 	}
 
-	if meta.Error {
-		// json_serialize_sql could not parse the statement (non-SELECT, or
-		// malformed input). Only emit the "pass --write" remediation for known
-		// mutating verbs; typos and unrecognized keywords fall through to
-		// execution so DuckDB surfaces the real parse error.
-		kw := firstKeyword(stmt)
-		if kw == "EXPLAIN" {
-			// EXPLAIN ANALYZE actually executes the wrapped statement, so an
-			// EXPLAIN ANALYZE COPY / INSERT / CREATE would bypass the read-only
-			// gate and perform the write. Plain EXPLAIN only prints the plan
-			// without executing, so it stays allowed. Reject only the analyze form.
-			if inner := unwrapExplainAnalyze(stmt); inner != "" {
-				innerKw := firstKeyword(inner)
-				if mutatingKeywords[innerKw] {
-					return fmt.Errorf("read-only mode rejects EXPLAIN ANALYZE %s; pass --write to permit modifications", innerKw)
-				}
-			}
-			return nil
-		}
-		if safeNonSelectKeywords[kw] || kw == "SELECT" || kw == "WITH" {
-			return nil
-		}
-		if mutatingKeywords[kw] {
-			return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)
-		}
+	if !meta.Error {
+		// json_serialize_sql succeeded: statement is SELECT-type, allowed.
 		return nil
 	}
 
-	return nil
+	// Non-SELECT statement: apply the closed allow-list.
+	kw := firstKeyword(stmt)
+	switch kw {
+	case "SELECT", "WITH":
+		// json_serialize_sql failed but the leading keyword is SELECT/WITH,
+		// which means the input is malformed SQL. Let DuckDB surface the
+		// real parse error rather than producing a misleading gate message.
+		return nil
+	case "EXPLAIN":
+		// EXPLAIN ANALYZE (keyword or parenthesized form) executes its wrapped
+		// statement, so it must be rejected even if the inner statement would be
+		// allowed. Plain EXPLAIN only prints the plan without executing.
+		if explainHasAnalyze(stmt) {
+			return fmt.Errorf("read-only mode rejects EXPLAIN ANALYZE; pass --write to permit modifications")
+		}
+		return nil
+	case "DESCRIBE", "SHOW", "PRAGMA":
+		return nil
+	default:
+		// Closed allow-list: reject everything not explicitly permitted above,
+		// including session-control statements (USE, BEGIN, COMMIT, ROLLBACK)
+		// and any other verb not in the enumerated read-only set.
+		return fmt.Errorf("read-only mode rejects %s; pass --write to permit modifications", kw)
+	}
 }
 
 // checkReadOnly validates stmt for read-only mode. It splits the input into
@@ -330,25 +336,60 @@ func skipLeadingComments(s string) string {
 	return ""
 }
 
-// unwrapExplainAnalyze returns the statement wrapped by a leading
-// EXPLAIN ANALYZE (with any leading whitespace and comments skipped),
-// or "" if stmt does not begin with EXPLAIN ANALYZE. Used by the
-// read-only gate: EXPLAIN ANALYZE executes its wrapped statement, so
-// EXPLAIN ANALYZE COPY would otherwise leak past the keyword check.
-func unwrapExplainAnalyze(stmt string) string {
+// explainHasAnalyze reports whether stmt begins with EXPLAIN and carries
+// an ANALYZE flag in either the keyword form (EXPLAIN ANALYZE ...) or the
+// parenthesized-options form (EXPLAIN (ANALYZE) or EXPLAIN (ANALYZE, FORMAT JSON)).
+// EXPLAIN without ANALYZE only prints the execution plan and is safe in
+// read-only mode. EXPLAIN ANALYZE actually executes the wrapped statement,
+// so EXPLAIN ANALYZE COPY would bypass the read-only gate if allowed.
+func explainHasAnalyze(stmt string) bool {
 	rest := skipLeadingComments(stmt)
-	fields := strings.Fields(rest)
-	if len(fields) < 2 {
-		return ""
+	if !strings.HasPrefix(strings.ToUpper(rest), "EXPLAIN") {
+		return false
 	}
-	if strings.ToUpper(fields[0]) != "EXPLAIN" || strings.ToUpper(fields[1]) != "ANALYZE" {
-		return ""
+	rest = strings.TrimSpace(rest[len("EXPLAIN"):])
+	if len(rest) == 0 {
+		return false
 	}
-	idx := strings.Index(strings.ToUpper(rest), "ANALYZE")
-	if idx < 0 {
-		return ""
+	upper := strings.ToUpper(rest)
+
+	// Keyword form: EXPLAIN ANALYZE
+	if strings.HasPrefix(upper, "ANALYZE") {
+		tail := rest[len("ANALYZE"):]
+		if len(tail) == 0 || tail[0] == ' ' || tail[0] == '\t' || tail[0] == '\n' || tail[0] == '\r' || tail[0] == '(' {
+			return true
+		}
 	}
-	return strings.TrimSpace(rest[idx+len("ANALYZE"):])
+
+	// Parenthesized form: EXPLAIN (ANALYZE ...) or EXPLAIN (FORMAT JSON, ANALYZE)
+	if rest[0] != '(' {
+		return false
+	}
+	depth := 0
+	var inside strings.Builder
+	for _, ch := range rest {
+		if ch == '(' {
+			depth++
+			if depth == 1 {
+				continue // skip opening paren
+			}
+		} else if ch == ')' {
+			depth--
+			if depth == 0 {
+				break
+			}
+		}
+		if depth >= 1 {
+			inside.WriteRune(ch)
+		}
+	}
+	for _, part := range strings.Split(inside.String(), ",") {
+		words := strings.Fields(strings.TrimSpace(part))
+		if len(words) > 0 && strings.ToUpper(words[0]) == "ANALYZE" {
+			return true
+		}
+	}
+	return false
 }
 
 // firstKeyword returns the uppercased first non-comment token of stmt,

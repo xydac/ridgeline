@@ -264,18 +264,19 @@ func TestRunReadOnlyMultiStatementTable(t *testing.T) {
 			name:    "EXPLAIN ANALYZE COPY rejected",
 			sql:     "EXPLAIN ANALYZE COPY (SELECT 1 AS x) TO '" + filepath.Join(tmp, "ea.csv") + "'",
 			wantErr: true,
-			errFrag: "EXPLAIN ANALYZE COPY",
+			errFrag: "EXPLAIN ANALYZE",
 		},
 		{
 			name:    "EXPLAIN ANALYZE CREATE rejected",
 			sql:     "EXPLAIN ANALYZE CREATE TABLE q AS SELECT 1",
 			wantErr: true,
-			errFrag: "EXPLAIN ANALYZE CREATE",
+			errFrag: "EXPLAIN ANALYZE",
 		},
 		{
-			name:    "EXPLAIN ANALYZE SELECT allowed",
+			name:    "EXPLAIN ANALYZE SELECT rejected",
 			sql:     "EXPLAIN ANALYZE SELECT 1",
-			wantErr: false,
+			wantErr: true,
+			errFrag: "EXPLAIN ANALYZE",
 		},
 	}
 	for _, tc := range cases {
@@ -376,11 +377,12 @@ func TestRunMalformedSelectSurfacesSyntaxError(t *testing.T) {
 	}
 }
 
-// TestRunTypoedKeywordSurfacesDuckDBError verifies that a misspelled
-// statement keyword (e.g. SELEKT) produces a real DuckDB parse error
-// rather than the misleading "read-only mode rejects SELEKT; pass --write"
-// message. Closes F-056.
-func TestRunTypoedKeywordSurfacesDuckDBError(t *testing.T) {
+// TestRunUnknownKeywordRejected verifies that verbs not in the closed
+// allow-list are rejected in read-only mode. The closed allow-list rejects
+// any statement not explicitly permitted (SELECT-type, EXPLAIN without
+// ANALYZE, DESCRIBE, SHOW, PRAGMA), including typo'd keywords and
+// session-control statements.
+func TestRunUnknownKeywordRejected(t *testing.T) {
 	cases := []string{
 		"SELEKT 1",
 		"INSRT INTO t VALUES (1)",
@@ -392,8 +394,8 @@ func TestRunTypoedKeywordSurfacesDuckDBError(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for %q, got nil", stmt)
 			}
-			if strings.Contains(err.Error(), "pass --write") {
-				t.Errorf("typo'd keyword %q should not produce --write hint, got: %v", stmt, err)
+			if !strings.Contains(err.Error(), "read-only mode") {
+				t.Errorf("unknown keyword %q should be rejected by the read-only gate, got: %v", stmt, err)
 			}
 		})
 	}
@@ -820,6 +822,109 @@ func TestRunStructFieldOrder(t *testing.T) {
 	}
 	if !(zIdx < aIdx && aIdx < mIdx) {
 		t.Errorf("fields not in declared order (z, a, m): z=%d a=%d m=%d\noutput:\n%s", zIdx, aIdx, mIdx, out)
+	}
+}
+
+// TestRunReadOnlyClosedAllowList verifies the closed allow-list gate (F-123 + F-124).
+// Every statement not in the explicitly permitted set must be rejected;
+// every statement in the permitted set must be accepted.
+func TestRunReadOnlyClosedAllowList(t *testing.T) {
+	tmp := t.TempDir()
+	cases := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		errFrag string
+	}{
+		// F-123: parenthesized EXPLAIN (ANALYZE ...) forms must be rejected.
+		{
+			name:    "EXPLAIN (ANALYZE) COPY rejected",
+			sql:     "EXPLAIN (ANALYZE) COPY (SELECT 1 AS x) TO '" + filepath.Join(tmp, "f123a.csv") + "'",
+			wantErr: true,
+			errFrag: "EXPLAIN ANALYZE",
+		},
+		{
+			name:    "EXPLAIN (ANALYZE, FORMAT JSON) COPY rejected",
+			sql:     "EXPLAIN (ANALYZE, FORMAT JSON) COPY (SELECT 1 AS x) TO '" + filepath.Join(tmp, "f123b.csv") + "'",
+			wantErr: true,
+			errFrag: "EXPLAIN ANALYZE",
+		},
+		{
+			name:    "EXPLAIN (FORMAT JSON, ANALYZE) COPY rejected",
+			sql:     "EXPLAIN (FORMAT JSON, ANALYZE) COPY (SELECT 1 AS x) TO '" + filepath.Join(tmp, "f123c.csv") + "'",
+			wantErr: true,
+			errFrag: "EXPLAIN ANALYZE",
+		},
+		// F-124: session-control and other unenumerated verbs must be rejected.
+		{
+			name:    "USE rejected",
+			sql:     "USE main",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "BEGIN rejected",
+			sql:     "BEGIN",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "BEGIN TRANSACTION rejected",
+			sql:     "BEGIN TRANSACTION",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "COMMIT rejected",
+			sql:     "COMMIT",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		{
+			name:    "SELECT then USE rejected",
+			sql:     "SELECT 1; USE main",
+			wantErr: true,
+			errFrag: "read-only mode",
+		},
+		// Confirm previously allowed cases still pass.
+		{
+			name:    "plain EXPLAIN allowed",
+			sql:     "EXPLAIN SELECT 1",
+			wantErr: false,
+		},
+		{
+			name:    "EXPLAIN (FORMAT JSON) without ANALYZE allowed",
+			sql:     "EXPLAIN (FORMAT JSON) SELECT 1",
+			wantErr: false,
+		},
+		{
+			name:    "DESCRIBE allowed",
+			sql:     "DESCRIBE SELECT 1",
+			wantErr: false,
+		},
+		{
+			name:    "SHOW TABLES allowed",
+			sql:     "SHOW TABLES",
+			wantErr: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Run(context.Background(), tc.sql, &buf, Options{})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.errFrag != "" && !strings.Contains(err.Error(), tc.errFrag) {
+					t.Errorf("expected %q in error, got %q", tc.errFrag, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }
 
