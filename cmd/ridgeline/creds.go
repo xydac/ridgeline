@@ -71,6 +71,8 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	case "help", "--help", "-h":
 		credsUsage(stdout)
 		return nil
+	case "init":
+		return credsInit(ctx, rest, stdout, stderr)
 	case "list":
 		return credsList(ctx, rest, stdout)
 	case "put":
@@ -82,16 +84,94 @@ func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	case "oauth":
 		return credsOAuth(ctx, rest, stdin, stdout, stderr)
 	}
-	return usageErrorf("unknown creds verb %q (known: list, put, get, rm, oauth)", verb)
+	return usageErrorf("unknown creds verb %q (known: init, list, put, get, rm, oauth)", verb)
 }
 
 func credsUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ridgeline creds init  --config PATH [--force-new-key]   # create or reset the credential store")
 	fmt.Fprintln(w, "  ridgeline creds list  --config PATH")
 	fmt.Fprintln(w, "  ridgeline creds put   --config PATH [--raw] NAME        # reads secret from stdin")
 	fmt.Fprintln(w, "  ridgeline creds get   --config PATH [--raw] NAME        # writes plaintext to stdout")
 	fmt.Fprintln(w, "  ridgeline creds rm    --config PATH NAME")
 	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID (--client-secret SEC | --client-secret-file PATH | --client-secret-stdin) [--name PREFIX]")
+}
+
+// credsInit implements `ridgeline creds init`. Without --force-new-key it
+// initializes the credential store and key file for the first time; it errors
+// when the key file already exists to avoid accidental re-init. With
+// --force-new-key it truncates all stored credentials and replaces the key
+// file, making all prior secrets unrecoverable. This is the only supported
+// path for migrating to a new key after losing the original key file.
+func credsInit(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if cfgVal, rest, found := prescanStringFlag("config", args); found {
+		args = append([]string{"--config", cfgVal}, rest...)
+	}
+	fs := flag.NewFlagSet("creds init", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	forceNewKey := fs.Bool("force-new-key", false, "DESTRUCTIVE: wipe all stored credentials and replace the key file")
+	fs.Usage = func() {
+		w := fs.Output()
+		fmt.Fprintln(w, "Usage: ridgeline creds init --config PATH [--force-new-key]")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Initialize the credential store and key file for the first time.")
+		fmt.Fprintln(w, "Pass --force-new-key to wipe all existing credentials and replace the key (DESTRUCTIVE).")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "Flags:")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
+	if err != nil {
+		return err
+	}
+	if help {
+		return nil
+	}
+	if *cfgPath == "" {
+		return fmt.Errorf("--config PATH is required")
+	}
+	cfg, err := config.LoadCreds(*cfgPath)
+	if err != nil {
+		return err
+	}
+
+	sqlStore, err := sqlitestate.Open(cfg.StatePath)
+	if err != nil {
+		return err
+	}
+	defer sqlStore.Close()
+
+	if *forceNewKey {
+		// Wipe all credentials then replace the key file.
+		if _, err := sqlStore.DB().ExecContext(ctx, `DELETE FROM credentials`); err != nil {
+			return fmt.Errorf("creds init: wipe credentials: %w", err)
+		}
+		key, err := creds.NewRandomKey()
+		if err != nil {
+			return err
+		}
+		if err := creds.WriteKeyFile(cfg.KeyPath, key); err != nil {
+			return err
+		}
+		fmt.Fprintln(stderr, "credential store wiped and new key written to", cfg.KeyPath)
+		return nil
+	}
+
+	// Normal init: fail fast if the key file already exists.
+	if _, err := os.Stat(cfg.KeyPath); err == nil {
+		return fmt.Errorf("key file already exists at %s; use `ridgeline creds list` to verify the store, or pass --force-new-key to replace it (DESTRUCTIVE)", cfg.KeyPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("creds init: stat key file: %w", err)
+	}
+	key, err := creds.NewRandomKey()
+	if err != nil {
+		return err
+	}
+	if err := creds.WriteKeyFile(cfg.KeyPath, key); err != nil {
+		return err
+	}
+	fmt.Fprintln(stderr, "credential store initialized; key written to", cfg.KeyPath)
+	return nil
 }
 
 // credsFlags parses --config out of args and returns the loaded config
@@ -143,8 +223,9 @@ func credsFlags(verb string, args []string, stdout io.Writer) (*config.File, []s
 // openCreds opens (or creates) the state db and the key file, and
 // returns a creds.Store sharing the db handle. The caller must Close
 // the returned *sqlitestate.Store. A missing key file is created with
-// a freshly generated random key; on the first `creds put` a user
-// therefore needs no setup step beyond writing the yaml.
+// a freshly generated random key ONLY when the credential store is
+// empty; if existing secrets are present, openCreds returns an error
+// rather than orphaning them behind an incompatible key.
 func openCreds(cfg *config.File) (*creds.Store, *sqlitestate.Store, error) {
 	store, err := sqlitestate.Open(cfg.StatePath)
 	if err != nil {
@@ -152,6 +233,18 @@ func openCreds(cfg *config.File) (*creds.Store, *sqlitestate.Store, error) {
 	}
 	key, err := creds.KeyFromFile(cfg.KeyPath)
 	if errors.Is(err, os.ErrNotExist) {
+		// Refuse to mint a fresh key when existing secrets would become
+		// unrecoverable. An empty store is safe to auto-init (fresh-machine flow).
+		var count int
+		if qErr := store.DB().QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM credentials`).Scan(&count); qErr == nil && count > 0 {
+			store.Close()
+			return nil, nil, fmt.Errorf(
+				"credential store exists but key file missing at %s; "+
+					"refusing to mint a replacement key (would orphan %d existing secret(s)); "+
+					"either restore the key or run `ridgeline creds init --force-new-key` to wipe the store",
+				cfg.KeyPath, count)
+		}
 		key, err = creds.NewRandomKey()
 		if err != nil {
 			store.Close()
@@ -265,11 +358,19 @@ func credsPut(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	defer store.Close()
 
 	action := "stored"
+	warnUndecryptable := false
 	if _, getErr := cs.Get(ctx, name); getErr == nil {
 		action = "replaced"
+	} else if !errors.Is(getErr, creds.ErrNotFound) {
+		// A record exists but cannot be decrypted (key mismatch or corruption).
+		action = "replaced"
+		warnUndecryptable = true
 	}
 	if err := cs.Put(ctx, name, secret); err != nil {
 		return errCreds(err)
+	}
+	if warnUndecryptable {
+		fmt.Fprintf(stderr, "warning: replaced an undecryptable record for %q\n", name)
 	}
 	fmt.Fprintf(stderr, "%s credential %q (%d bytes)\n", action, name, len(secret))
 	return nil

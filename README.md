@@ -249,6 +249,30 @@ printf 'secret-with-newline\n' | ./ridgeline creds put --raw --config ridgeline.
 ./ridgeline creds rm --config ridgeline.yaml umami_main
 ```
 
+**Key file protection.** The credential store is encrypted with an
+AES-256 key stored in the file named by `key_path`. If that file is
+absent and the store contains existing secrets, any `creds` command
+errors rather than minting a new key (which would make existing secrets
+unrecoverable):
+
+```
+credential store exists but key file missing at ./ridgeline.key;
+refusing to mint a replacement key (would orphan 3 existing secret(s));
+either restore the key or run `ridgeline creds init --force-new-key` to wipe the store
+```
+
+To deliberately start over with a new key (all stored credentials will
+be lost):
+
+```sh
+ridgeline creds init --config ridgeline.yaml --force-new-key
+# credential store wiped and new key written to ./ridgeline.key
+```
+
+On a fresh machine with no key file and an empty store, any `creds`
+verb creates the key automatically - no explicit `init` step is
+required.
+
 Any connector config that declares a key ending in `_ref` pulls its
 value from this store at sync time. `api_key_ref: umami_main` on a
 connector resolves to `api_key: <plaintext>` before Validate runs, so

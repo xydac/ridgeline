@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -375,6 +377,163 @@ func TestRunCreds_ConfigFlagAfterName(t *testing.T) {
 	if err := runCreds(ctx, []string{"rm", "cfgafter", "--config", cfgPath},
 		bytes.NewReader(nil), &out, &errOut); err != nil {
 		t.Fatalf("rm with --config after NAME: %v", err)
+	}
+}
+
+// F-116: absent key file over a populated store must error, not silently orphan secrets.
+func TestRunCreds_AbsentKeyOverPopulatedStoreErrors(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+
+	// Store a credential so the database is not empty.
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "tok"},
+		bytes.NewBufferString("secret\n"), io.Discard, io.Discard); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// Remove the key file to simulate a lost key.
+	keyPath := filepath.Join(dir, "key")
+	if err := os.Remove(keyPath); err != nil {
+		t.Fatalf("remove key: %v", err)
+	}
+
+	// Any creds verb must now error, not silently mint a new key.
+	for _, verb := range []string{"list", "get", "rm"} {
+		args := []string{verb, "--config", cfgPath}
+		if verb != "list" {
+			args = append(args, "tok")
+		}
+		err := runCreds(ctx, args, bytes.NewReader(nil), io.Discard, io.Discard)
+		if err == nil {
+			t.Errorf("creds %s with absent key: want error, got nil", verb)
+			continue
+		}
+		if !strings.Contains(err.Error(), "key file missing") {
+			t.Errorf("creds %s: error %q should mention 'key file missing'", verb, err.Error())
+		}
+	}
+}
+
+// F-116: absent key file over an EMPTY store must still auto-init (fresh-machine flow).
+func TestRunCreds_AbsentKeyOverEmptyStoreAutoMints(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+	var out, errOut bytes.Buffer
+
+	// First put on a brand new store (no key file yet) must succeed.
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "newkey"},
+		bytes.NewBufferString("val\n"), &out, &errOut); err != nil {
+		t.Fatalf("put on empty store: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "stored") {
+		t.Errorf("put stderr = %q, want 'stored'", errOut.String())
+	}
+}
+
+// F-116: creds init --force-new-key wipes the store and replaces the key file.
+func TestRunCreds_InitForceNewKeyWipesStore(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+
+	// Seed the store.
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "secret1"},
+		bytes.NewBufferString("val\n"), io.Discard, io.Discard); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// Remove the key to simulate a lost key, then use --force-new-key.
+	if err := os.Remove(filepath.Join(dir, "key")); err != nil {
+		t.Fatalf("remove key: %v", err)
+	}
+	if err := runCreds(ctx, []string{"init", "--config", cfgPath, "--force-new-key"},
+		bytes.NewReader(nil), io.Discard, io.Discard); err != nil {
+		t.Fatalf("init --force-new-key: %v", err)
+	}
+
+	// Store should now be empty and accessible with the new key.
+	var out bytes.Buffer
+	if err := runCreds(ctx, []string{"list", "--config", cfgPath},
+		bytes.NewReader(nil), &out, io.Discard); err != nil {
+		t.Fatalf("list after init --force-new-key: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "" {
+		t.Errorf("list after force-new-key: got %q, want empty", got)
+	}
+}
+
+// F-116: creds init without --force-new-key errors when key file already exists.
+func TestRunCreds_InitRejectsExistingKey(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+
+	// Seed so the key file is created.
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "k"},
+		bytes.NewBufferString("v\n"), io.Discard, io.Discard); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// init without --force-new-key must error when key already exists.
+	err := runCreds(ctx, []string{"init", "--config", cfgPath},
+		bytes.NewReader(nil), io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("want error when key file already exists, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error %q should mention 'already exists'", err.Error())
+	}
+}
+
+// F-117: put over an undecryptable record must print a warning, not silently say "stored".
+func TestRunCreds_PutOverUndecryptableWarns(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+
+	// Put a credential so a record exists.
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "tok"},
+		bytes.NewBufferString("original\n"), io.Discard, io.Discard); err != nil {
+		t.Fatalf("first put: %v", err)
+	}
+
+	// Replace the key file with a different random key so the stored record
+	// is now undecryptable with the current key file.
+	keyPath := filepath.Join(dir, "key")
+	newKey := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, newKey); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	hexKey := make([]byte, 65)
+	hex.Encode(hexKey[:64], newKey)
+	hexKey[64] = '\n'
+	if err := os.WriteFile(keyPath, hexKey, 0o600); err != nil {
+		t.Fatalf("write new key: %v", err)
+	}
+
+	// Put the same name again. The existing record is undecryptable with the
+	// new key; put should warn and report "replaced", not "stored".
+	var errOut bytes.Buffer
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "tok"},
+		bytes.NewBufferString("recovered\n"), io.Discard, &errOut); err != nil {
+		t.Fatalf("second put: %v", err)
+	}
+	got := errOut.String()
+	if !strings.Contains(got, "replaced") {
+		t.Errorf("stderr = %q, want 'replaced'", got)
+	}
+	if !strings.Contains(got, "undecryptable") {
+		t.Errorf("stderr = %q, want 'undecryptable' warning", got)
+	}
+	if strings.Contains(got, "stored") {
+		t.Errorf("stderr = %q, must not say 'stored' when replacing undecryptable record", got)
 	}
 }
 
