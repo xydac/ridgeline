@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,70 @@ func TestRunTUI_RenderOnce_AfterSync_ShowsRecords(t *testing.T) {
 		if !strings.Contains(ln, tuiStatusOK) {
 			t.Errorf("expected status %q on line: %q", tuiStatusOK, ln)
 		}
+	}
+}
+
+// TestRunTUI_SharedSinkDir_RecordsPerConnector verifies that when two
+// connectors share a sink directory, the RECORDS column shows each
+// connector's own partition count rather than the combined stream total
+// (F-119). Uses distinct streams to avoid sink-side partition pruning.
+func TestRunTUI_SharedSinkDir_RecordsPerConnector(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "ridgeline.db")
+	outDir := filepath.Join(dir, "out")
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	// alpha writes 2 records to "pages", beta writes 3 records to "events".
+	// Both use the same sink dir so the manifest is shared.
+	cfg := `
+version: 1
+state_path: ` + dbPath + `
+products:
+  myapp:
+    connectors:
+      - name: alpha
+        type: testsrc
+        config: {records: 2}
+        streams: [pages]
+        sink: {type: jsonl, options: {dir: ` + outDir + `}}
+      - name: beta
+        type: testsrc
+        config: {records: 3}
+        streams: [events]
+        sink: {type: jsonl, options: {dir: ` + outDir + `}}
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := runSync(context.Background(), []string{"--config", cfgPath}); err != nil {
+		t.Fatalf("runSync: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := runTUI(context.Background(), []string{"--config", cfgPath, "--render-once"}, &buf); err != nil {
+		t.Fatalf("runTUI: %v", err)
+	}
+	out := buf.String()
+	lines := strings.Split(out, "\n")
+	var alphaCount, betaCount int64 = -1, -1
+	for _, ln := range lines {
+		fields := strings.Fields(ln)
+		if len(fields) == 0 {
+			continue
+		}
+		last := fields[len(fields)-1]
+		if strings.Contains(ln, "alpha") {
+			fmt.Sscanf(last, "%d", &alphaCount)
+		}
+		if strings.Contains(ln, "beta") {
+			fmt.Sscanf(last, "%d", &betaCount)
+		}
+	}
+	// Each connector must show only its own partitions, not the combined total.
+	if alphaCount != 2 {
+		t.Errorf("alpha RECORDS = %d, want 2:\n%s", alphaCount, out)
+	}
+	if betaCount != 3 {
+		t.Errorf("beta RECORDS = %d, want 3:\n%s", betaCount, out)
 	}
 }
 

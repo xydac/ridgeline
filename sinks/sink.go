@@ -92,3 +92,13 @@ type Sink interface {
 type ConfigValidator interface {
 	ValidateConfig(cfg SinkConfig) error
 }
+
+// ConnectorNamer is an optional extension of Sink. When a sink
+// implements this interface, the pipeline calls SetConnector with the
+// connector instance name before the first Write. Sinks that record
+// per-connector attribution in their manifests implement this so
+// callers can distinguish partitions from different connectors that
+// share the same output directory.
+type ConnectorNamer interface {
+	SetConnector(name string)
+}

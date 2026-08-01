@@ -19,6 +19,11 @@ const Version = 1
 type Partition struct {
 	// Stream is the stream name this partition belongs to.
 	Stream string `json:"stream"`
+	// Connector is the connector instance name that wrote this partition.
+	// Omitted on partitions written before this field was introduced;
+	// callers that need per-connector attribution must treat an empty
+	// Connector as "unknown" and fall back to stream-level totals.
+	Connector string `json:"connector,omitempty"`
 	// Path is the location of the data file. Conventionally relative
 	// to the manifest file's directory, so the whole directory is
 	// relocatable.

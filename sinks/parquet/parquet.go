@@ -39,16 +39,25 @@ func New() *Sink { return &Sink{} }
 
 // Sink writes records as Parquet files under a per-run directory.
 type Sink struct {
-	mu       sync.Mutex
-	dir      string
-	runID    string
-	flat     bool // when true, write directly to dir/<stream>.parquet (no run-id subdir)
-	manifest *manifest.Store
-	covered  manifest.Manifest
-	streams  map[string]*streamFile
-	schemas  map[string]connectors.Schema
-	inited   bool
-	closed   bool
+	mu        sync.Mutex
+	dir       string
+	runID     string
+	flat      bool // when true, write directly to dir/<stream>.parquet (no run-id subdir)
+	manifest  *manifest.Store
+	covered   manifest.Manifest
+	streams   map[string]*streamFile
+	schemas   map[string]connectors.Schema
+	connector string
+	inited    bool
+	closed    bool
+}
+
+// SetConnector records the connector instance name so partitions written
+// by this sink carry per-connector attribution in the manifest.
+func (s *Sink) SetConnector(name string) {
+	s.mu.Lock()
+	s.connector = name
+	s.mu.Unlock()
 }
 
 type streamFile struct {
@@ -333,6 +342,7 @@ func (s *Sink) Close() error {
 			}
 			part := manifest.Partition{
 				Stream:    stream,
+				Connector: s.connector,
 				Path:      sf.path,
 				Format:    "parquet",
 				Rows:      sf.rows,

@@ -119,6 +119,13 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		batchSize = DefaultBatchSize
 	}
 
+	// Tag the sink with the connector name for per-connector manifest
+	// attribution. A sink that does not implement ConnectorNamer is
+	// unaffected; its partitions carry an empty Connector field.
+	if cn, ok := sink.(sinks.ConnectorNamer); ok && req.Key != "" {
+		cn.SetConnector(req.Key)
+	}
+
 	// Declare typed schemas on the sink when the connector has
 	// published them. A sink that does not implement StreamDeclarer
 	// keeps the default {stream, timestamp, data_json} shape.

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -80,8 +79,8 @@ func collectTUIRows(ctx context.Context, cfgPath string, now time.Time) ([]tuiRo
 		byKey[e.Key] = e
 	}
 
-	manifestCache := map[string]map[string]int64{}
-	readManifest := func(dir string) map[string]int64 {
+	manifestCache := map[string]*manifest.Manifest{}
+	readManifest := func(dir string) *manifest.Manifest {
 		if dir == "" {
 			return nil
 		}
@@ -89,13 +88,13 @@ func collectTUIRows(ctx context.Context, cfgPath string, now time.Time) ([]tuiRo
 			return cached
 		}
 		path := filepath.Join(dir, "manifest.json")
-		counts, ok := readManifestRows(path)
+		m, ok := loadManifest(path)
 		if !ok {
 			manifestCache[dir] = nil
 			return nil
 		}
-		manifestCache[dir] = counts
-		return counts
+		manifestCache[dir] = m
+		return m
 	}
 
 	var rows []tuiRow
@@ -105,7 +104,8 @@ func collectTUIRows(ctx context.Context, cfgPath string, now time.Time) ([]tuiRo
 			key := config.StateKey(pid, inst.Name)
 			entry, haveState := byKey[key]
 			sinkDir := sinkDirFromOptions(inst.Sink.Options)
-			counts := readManifest(sinkDir)
+			m := readManifest(sinkDir)
+			counts := manifestRowsByConnector(m, key)
 			for _, stream := range inst.Streams {
 				row := tuiRow{
 					Product:   pid,
@@ -177,15 +177,11 @@ func sinkDirFromOptions(opts map[string]any) string {
 	return ""
 }
 
-// readManifestRows reads the manifest at path and returns the sum of
-// Rows per stream. The second return is false when the manifest does
-// not exist or cannot be parsed, so the caller can render "-".
-func readManifestRows(path string) (map[string]int64, bool) {
+// loadManifest reads the manifest at path. The second return is false
+// when the manifest does not exist or cannot be parsed.
+func loadManifest(path string) (*manifest.Manifest, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false
-		}
 		return nil, false
 	}
 	defer f.Close()
@@ -193,11 +189,34 @@ func readManifestRows(path string) (map[string]int64, bool) {
 	if err := json.NewDecoder(f).Decode(&m); err != nil {
 		return nil, false
 	}
+	return &m, true
+}
+
+// manifestRowsByConnector returns the sum of Rows per stream from m,
+// filtered to partitions whose Connector matches connectorKey. When the
+// manifest contains no tagged partitions (old format), it falls back to
+// the unfiltered stream total so existing single-connector manifests
+// continue to render correctly. Returns nil when m is nil.
+func manifestRowsByConnector(m *manifest.Manifest, connectorKey string) map[string]int64 {
+	if m == nil {
+		return nil
+	}
+	// Detect whether the manifest carries connector attribution.
+	hasConnectorTags := false
+	for _, p := range m.Partitions {
+		if p.Connector != "" {
+			hasConnectorTags = true
+			break
+		}
+	}
 	out := map[string]int64{}
 	for _, p := range m.Partitions {
+		if hasConnectorTags && p.Connector != connectorKey {
+			continue
+		}
 		out[p.Stream] += p.Rows
 	}
-	return out, true
+	return out
 }
 
 // runTUI implements `ridgeline tui --config PATH`.
