@@ -135,8 +135,9 @@ exhausted connector the persisted count will be 0, making an idle loop
 immediately distinguishable from one that is still making progress.
 
 For unattended use (systemd, cron, log aggregators), add `--quiet` to
-suppress the per-sync preamble and per-connector lines. Only one
-timestamped result line is written per tick, making it easy to tail:
+suppress the per-sync preamble and per-connector lines. One timestamped
+result line is written per tick, plus any connector log lines (warn:,
+info:) which are also timestamped so a log tail remains parseable:
 
 ```sh
 ./ridgeline serve --config ridgeline.yaml --interval 1h --quiet
@@ -144,10 +145,14 @@ timestamped result line is written per tick, making it easy to tail:
 # 2026-06-17T13:00:04Z serve: 0 extracted, 0 persisted, 0 states saved (1.8s)
 ```
 
+Use `--verbose` to explicitly enable the full preamble output (the
+default when `--quiet` is not set). `--quiet` and `--verbose` are
+mutually exclusive.
+
 `serve` does not daemonize. Use systemd, launchd, or any process
-supervisor to keep it alive. SIGINT or SIGTERM exits cleanly between
-sync runs; a signal during a sync propagates to the connector and
-causes an orderly stop.
+supervisor to keep it alive. SIGINT or SIGTERM exits cleanly; a signal
+during a sync prints `serve: shutting down` and exits 0 instead of
+reporting a spurious sync error.
 
 Structural config errors (missing file, unparseable YAML, unknown
 connector type) cause `serve` to exit non-zero on the first tick so a

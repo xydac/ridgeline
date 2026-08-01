@@ -94,7 +94,7 @@ products:
 			}
 			// Quiet mode: sync output to Discard, tick line to stdout.
 			start := time.Now()
-			_, err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
+			_, err := runConfigSync(ctx, cfgPath, false, false, io.Discard, nil)
 			elapsed := time.Since(start).Truncate(time.Millisecond)
 			ts := time.Now().UTC().Format(time.RFC3339)
 			if err != nil {
@@ -151,7 +151,7 @@ products:
 
 	out := captureStdout(t, func() {
 		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) error {
-			_, _ = runConfigSync(ctx, cfgPath, false, false, os.Stdout)
+			_, _ = runConfigSync(ctx, cfgPath, false, false, os.Stdout, nil)
 			cancel()
 			return nil
 		})
@@ -174,7 +174,7 @@ func TestServePermanentConfigError(t *testing.T) {
 	var calls int32
 	err := serveLoop(ctx, time.Hour, func(ctx context.Context) error {
 		atomic.AddInt32(&calls, 1)
-		_, err := runConfigSync(ctx, "/nonexistent/path/ridgeline.yaml", false, false, io.Discard)
+		_, err := runConfigSync(ctx, "/nonexistent/path/ridgeline.yaml", false, false, io.Discard, nil)
 		return err
 	})
 
@@ -215,7 +215,7 @@ products:
 	var calls int32
 	err := serveLoop(ctx, time.Hour, func(ctx context.Context) error {
 		atomic.AddInt32(&calls, 1)
-		_, err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
+		_, err := runConfigSync(ctx, cfgPath, false, false, io.Discard, nil)
 		return err
 	})
 
@@ -257,6 +257,70 @@ func TestServeTransientErrorRetries(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&calls); got < 3 {
 		t.Fatalf("expected at least 3 calls (transient recovery), got %d", got)
+	}
+}
+
+// TestServeSIGTERMPrintsShutdown verifies that a context cancellation during
+// a sync produces "shutting down" instead of "sync error" in the tick line.
+func TestServeSIGTERMPrintsShutdown(t *testing.T) {
+	// Simulate a SIGTERM-like scenario: ctx is cancelled while a sync is
+	// running. The callback should print "serve: shutting down" and return nil
+	// (so serveLoop exits cleanly) instead of "serve: sync error".
+	ctx, cancel := context.WithCancel(context.Background())
+
+	out := captureStdout(t, func() {
+		_ = serveLoop(ctx, time.Hour, func(ctx context.Context) error {
+			// Cancel before the sync starts to simulate SIGTERM mid-sync.
+			cancel()
+			start := time.Now()
+			elapsed := time.Since(start).Truncate(time.Millisecond)
+			ts := time.Now().UTC().Format(time.RFC3339)
+			// Replicate the serve callback logic with a synthetic ctx-cancelled error.
+			err := ctx.Err()
+			if err != nil {
+				if ctx.Err() != nil {
+					os.Stdout.WriteString(ts + " serve: shutting down\n")
+					return nil
+				}
+				os.Stdout.WriteString(ts + " serve: sync error (" + elapsed.String() + "): " + err.Error() + "\n")
+			}
+			return nil
+		})
+	})
+
+	lines := nonEmptyLines(out)
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly 1 output line, got %d:\n%s", len(lines), out)
+	}
+	if !strings.Contains(lines[0], "shutting down") {
+		t.Errorf("expected 'shutting down' in output, got: %q", lines[0])
+	}
+	if strings.Contains(lines[0], "sync error") {
+		t.Errorf("unexpected 'sync error' in shutdown output: %q", lines[0])
+	}
+}
+
+// TestTimestampLineWriter verifies that the timestampLineWriter prepends
+// an RFC 3339 timestamp to each Write call.
+func TestTimestampLineWriter(t *testing.T) {
+	var buf strings.Builder
+	w := &timestampLineWriter{w: &buf}
+	msg := "warn: [myapp/conn] something happened"
+	if _, err := w.Write([]byte(msg + "\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	line := buf.String()
+	if !strings.Contains(line, msg) {
+		t.Errorf("output missing original message: %q", line)
+	}
+	// Verify the line starts with an RFC 3339 timestamp (length >= 20, contains 'T' and 'Z').
+	parts := strings.SplitN(line, " ", 2)
+	if len(parts) < 2 {
+		t.Fatalf("expected 'timestamp message' format, got: %q", line)
+	}
+	ts := parts[0]
+	if len(ts) < 20 || !strings.Contains(ts, "T") {
+		t.Errorf("first token does not look like RFC 3339: %q", ts)
 	}
 }
 

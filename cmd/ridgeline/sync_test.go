@@ -800,7 +800,7 @@ func TestRunConfigSync_RerunPersistedZero(t *testing.T) {
 	ctx := context.Background()
 
 	// Run 1: 3 records extracted and persisted.
-	sum1, err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
+	sum1, err := runConfigSync(ctx, cfgPath, false, false, io.Discard, nil)
 	if err != nil {
 		t.Fatalf("run1: %v", err)
 	}
@@ -812,7 +812,7 @@ func TestRunConfigSync_RerunPersistedZero(t *testing.T) {
 	}
 
 	// Run 2: connector re-emits 3 records but sink prunes them all.
-	sum2, err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
+	sum2, err := runConfigSync(ctx, cfgPath, false, false, io.Discard, nil)
 	if err != nil {
 		t.Fatalf("run2: %v", err)
 	}
@@ -835,7 +835,7 @@ func TestRunConfigSync_SummaryLineShowsExtractedPersisted(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	var buf bytes.Buffer
-	_, err := runConfigSync(context.Background(), cfgPath, false, false, &buf)
+	_, err := runConfigSync(context.Background(), cfgPath, false, false, &buf, nil)
 	if err != nil {
 		t.Fatalf("runConfigSync: %v", err)
 	}
@@ -856,7 +856,7 @@ func TestRunConfigSync_PerConnectorLineShowsExtractedPersisted(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	var buf bytes.Buffer
-	_, err := runConfigSync(context.Background(), cfgPath, false, false, &buf)
+	_, err := runConfigSync(context.Background(), cfgPath, false, false, &buf, nil)
 	if err != nil {
 		t.Fatalf("runConfigSync: %v", err)
 	}

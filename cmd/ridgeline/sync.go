@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -119,7 +120,7 @@ func runSync(ctx context.Context, args []string) error {
 		return fmt.Errorf("--out must not be empty")
 	}
 	if *cfgPath != "" {
-		_, err := runConfigSync(ctx, *cfgPath, *continueOnError, *outDirRoot, os.Stdout)
+		_, err := runConfigSync(ctx, *cfgPath, *continueOnError, *outDirRoot, os.Stdout, nil)
 		return err
 	}
 	if *dryRun {
@@ -217,7 +218,7 @@ type SyncSummary struct {
 //
 // stdout receives informational lines (loaded, state, per-connector
 // counts, done summary). Pass io.Discard to suppress them all.
-func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, flatSinks bool, stdout io.Writer) (SyncSummary, error) {
+func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, flatSinks bool, stdout io.Writer, logWriter io.Writer) (SyncSummary, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return SyncSummary{}, &permanentConfigError{err: err}
@@ -245,7 +246,7 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, fl
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			res, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs, flatSinks)
+			res, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs, flatSinks, logWriter)
 			if err != nil {
 				if continueOnError {
 					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
@@ -397,8 +398,10 @@ func buildEnricherSteps(inst config.ConnectorInstance) []pipeline.EnricherStep {
 // runConnectorInstance runs one connector from the config against its
 // configured sink. Returns the pipeline result. The per-connector
 // progress line is written to stdout so callers that want silent runs
-// (TUI, tests) can pass io.Discard.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool) (pipeline.Result, error) {
+// (TUI, tests) can pass io.Discard. When logWriter is non-nil it is
+// used as the destination for pipeline log messages (warn/info lines
+// from connectors); nil means the default prefix-free stderr logger.
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool, logWriter io.Writer) (pipeline.Result, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
 		return pipeline.Result{}, fmt.Errorf("connector type %q is not registered", inst.Type)
@@ -437,6 +440,9 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 		Config:    connCfg,
 		Streams:   streams,
 		Enrichers: buildEnricherSteps(inst),
+	}
+	if logWriter != nil {
+		req.Logger = log.New(logWriter, "", 0)
 	}
 	fmt.Fprintf(stdout, "starting %s/%s (%s)...\n", pid, inst.Name, inst.Type)
 	res, err := pipeline.Run(ctx, conn, sink, store, req)
