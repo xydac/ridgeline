@@ -37,7 +37,7 @@ func TestSink_WriteReadBack(t *testing.T) {
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"url": "/a", "hits": float64(3)}},
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"url": "/b", "hits": float64(1)}},
 	}
-	if err := s.Write(context.Background(), "pages", recs); err != nil {
+	if _, err := s.Write(context.Background(), "pages", recs); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := s.Flush(context.Background()); err != nil {
@@ -117,12 +117,12 @@ func TestSink_MultipleStreams(t *testing.T) {
 	s := newSink(t, dir)
 
 	now := time.Now().UTC()
-	if err := s.Write(context.Background(), "pages", []connectors.Record{
+	if _, err := s.Write(context.Background(), "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: now, Data: map[string]any{"k": "v"}},
 	}); err != nil {
 		t.Fatalf("Write pages: %v", err)
 	}
-	if err := s.Write(context.Background(), "events", []connectors.Record{
+	if _, err := s.Write(context.Background(), "events", []connectors.Record{
 		{Stream: "events", Timestamp: now, Data: map[string]any{"k": "v"}},
 		{Stream: "events", Timestamp: now, Data: map[string]any{"k": "v2"}},
 	}); err != nil {
@@ -151,7 +151,7 @@ func TestSink_NilDataMarshalsToEmptyObject(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := newSink(t, dir)
-	if err := s.Write(context.Background(), "s", []connectors.Record{
+	if _, err := s.Write(context.Background(), "s", []connectors.Record{
 		{Stream: "s", Timestamp: time.Now().UTC(), Data: nil},
 	}); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -187,7 +187,7 @@ func TestSink_InitRequiresDir(t *testing.T) {
 func TestSink_WriteBeforeInit(t *testing.T) {
 	t.Parallel()
 	s := pqsink.New()
-	err := s.Write(context.Background(), "s", nil)
+	_, err := s.Write(context.Background(), "s", nil)
 	if err == nil {
 		t.Fatal("Write before Init: expected error")
 	}
@@ -200,7 +200,7 @@ func TestSink_WriteAfterClose(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	err := s.Write(context.Background(), "s", []connectors.Record{{Stream: "s", Timestamp: time.Now(), Data: map[string]any{"k": "v"}}})
+	_, err := s.Write(context.Background(), "s", []connectors.Record{{Stream: "s", Timestamp: time.Now(), Data: map[string]any{"k": "v"}}})
 	if err == nil {
 		t.Fatal("Write after Close: expected error")
 	}
@@ -210,7 +210,7 @@ func TestSink_CloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := newSink(t, dir)
-	if err := s.Write(context.Background(), "s", []connectors.Record{
+	if _, err := s.Write(context.Background(), "s", []connectors.Record{
 		{Stream: "s", Timestamp: time.Now().UTC(), Data: map[string]any{"k": "v"}},
 	}); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -332,7 +332,7 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if err := s1.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run1"}); err != nil {
 		t.Fatalf("Init 1: %v", err)
 	}
-	if err := s1.Write(ctx, "pages", []connectors.Record{
+	if _, err := s1.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"k": "a"}},
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
 	}); err != nil {
@@ -356,7 +356,7 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2"}); err != nil {
 		t.Fatalf("Init 2: %v", err)
 	}
-	if err := s2.Write(ctx, "pages", []connectors.Record{
+	if _, err := s2.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"k": "a"}},
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
 	}); err != nil {
@@ -393,7 +393,7 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if err := s3.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run3"}); err != nil {
 		t.Fatalf("Init 3: %v", err)
 	}
-	if err := s3.Write(ctx, "pages", []connectors.Record{
+	if _, err := s3.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
 		{Stream: "pages", Timestamp: t2, Data: map[string]any{"k": "c"}},
 	}); err != nil {

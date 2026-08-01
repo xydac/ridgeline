@@ -32,7 +32,7 @@ func TestSink_WriteAndClose(t *testing.T) {
 
 	t0 := time.Unix(1000, 0).UTC()
 	t1 := time.Unix(2000, 0).UTC()
-	if err := s.Write(context.Background(), "pages", []connectors.Record{
+	if _, err := s.Write(context.Background(), "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"url": "/a"}},
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"url": "/b"}},
 	}); err != nil {
@@ -119,8 +119,8 @@ func TestSink_MultipleStreams(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := newSink(t, dir)
-	_ = s.Write(context.Background(), "a", []connectors.Record{{Stream: "a", Data: map[string]any{"k": 1}}})
-	_ = s.Write(context.Background(), "b", []connectors.Record{{Stream: "b", Data: map[string]any{"k": 2}}})
+	_, _ = s.Write(context.Background(), "a", []connectors.Record{{Stream: "a", Data: map[string]any{"k": 1}}})
+	_, _ = s.Write(context.Background(), "b", []connectors.Record{{Stream: "b", Data: map[string]any{"k": 2}}})
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestSink_AllRecordsPrunedLeavesNoRunDir(t *testing.T) {
 	if err := s1.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run1"}); err != nil {
 		t.Fatalf("Init 1: %v", err)
 	}
-	if err := s1.Write(ctx, "pages", []connectors.Record{
+	if _, err := s1.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"url": "/a"}},
 	}); err != nil {
 		t.Fatalf("Write 1: %v", err)
@@ -189,7 +189,7 @@ func TestSink_AllRecordsPrunedLeavesNoRunDir(t *testing.T) {
 	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2"}); err != nil {
 		t.Fatalf("Init 2: %v", err)
 	}
-	if err := s2.Write(ctx, "pages", []connectors.Record{
+	if _, err := s2.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"url": "/a"}},
 	}); err != nil {
 		t.Fatalf("Write 2: %v", err)
@@ -226,7 +226,7 @@ func TestSink_Init_TwiceErrors(t *testing.T) {
 func TestSink_WriteBeforeInit(t *testing.T) {
 	t.Parallel()
 	s := jsonl.New()
-	if err := s.Write(context.Background(), "s", nil); err == nil {
+	if _, err := s.Write(context.Background(), "s", nil); err == nil {
 		t.Fatal("expected error writing before Init")
 	}
 }
@@ -236,7 +236,7 @@ func TestSink_WriteAfterClose(t *testing.T) {
 	dir := t.TempDir()
 	s := newSink(t, dir)
 	_ = s.Close()
-	if err := s.Write(context.Background(), "s", []connectors.Record{{Stream: "s"}}); err == nil {
+	if _, err := s.Write(context.Background(), "s", []connectors.Record{{Stream: "s"}}); err == nil {
 		t.Fatal("expected error writing after Close")
 	}
 }
@@ -246,7 +246,7 @@ func TestSink_EmptyStreamRejected(t *testing.T) {
 	dir := t.TempDir()
 	s := newSink(t, dir)
 	defer s.Close()
-	if err := s.Write(context.Background(), "", []connectors.Record{{Stream: ""}}); err == nil {
+	if _, err := s.Write(context.Background(), "", []connectors.Record{{Stream: ""}}); err == nil {
 		t.Fatal("expected error for empty stream")
 	}
 }
@@ -363,7 +363,7 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if err := s1.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run1"}); err != nil {
 		t.Fatalf("Init 1: %v", err)
 	}
-	if err := s1.Write(ctx, "pages", []connectors.Record{
+	if _, err := s1.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"k": "a"}},
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
 	}); err != nil {
@@ -388,7 +388,7 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2"}); err != nil {
 		t.Fatalf("Init 2: %v", err)
 	}
-	if err := s2.Write(ctx, "pages", []connectors.Record{
+	if _, err := s2.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t0, Data: map[string]any{"k": "a"}},
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
 	}); err != nil {
@@ -427,7 +427,7 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 	if err := s3.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run3"}); err != nil {
 		t.Fatalf("Init 3: %v", err)
 	}
-	if err := s3.Write(ctx, "pages", []connectors.Record{
+	if _, err := s3.Write(ctx, "pages", []connectors.Record{
 		{Stream: "pages", Timestamp: t1, Data: map[string]any{"k": "b"}},
 		{Stream: "pages", Timestamp: t2, Data: map[string]any{"k": "c"}},
 	}); err != nil {
@@ -475,7 +475,7 @@ func TestSink_ColumnNamesMatchParquetSchema(t *testing.T) {
 		Timestamp: ts,
 		Data:      map[string]any{"id": "abc", "val": 42},
 	}
-	if err := s.Write(context.Background(), "events", []connectors.Record{rec}); err != nil {
+	if _, err := s.Write(context.Background(), "events", []connectors.Record{rec}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := s.Close(); err != nil {
@@ -539,7 +539,7 @@ func TestSink_NoResume_IgnoresPriorManifest(t *testing.T) {
 		}
 		return out
 	}
-	if err := s1.Write(ctx, "events", recs(3)); err != nil {
+	if _, err := s1.Write(ctx, "events", recs(3)); err != nil {
 		t.Fatalf("Write 1: %v", err)
 	}
 	if err := s1.Close(); err != nil {
@@ -551,7 +551,7 @@ func TestSink_NoResume_IgnoresPriorManifest(t *testing.T) {
 	if err := s2.Init(ctx, sinks.SinkConfig{"dir": dir, "run_id": "run2", "flat": true, "no_resume": true}); err != nil {
 		t.Fatalf("Init 2: %v", err)
 	}
-	if err := s2.Write(ctx, "events", recs(5)); err != nil {
+	if _, err := s2.Write(ctx, "events", recs(5)); err != nil {
 		t.Fatalf("Write 2: %v", err)
 	}
 	if err := s2.Close(); err != nil {

@@ -40,7 +40,7 @@ func TestSink_DeclaredSchemaWritesTypedColumns(t *testing.T) {
 			"query":       "ridgeline",
 		},
 	}}
-	if err := s.Write(context.Background(), "search_analytics", recs); err != nil {
+	if _, err := s.Write(context.Background(), "search_analytics", recs); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := s.Close(); err != nil {
@@ -122,7 +122,7 @@ func TestSink_UndeclaredStreamKeepsUntypedShape(t *testing.T) {
 	}
 	ts := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
 	recs := []connectors.Record{{Stream: "events", Timestamp: ts, Data: map[string]any{"k": "v"}}}
-	if err := s.Write(context.Background(), "events", recs); err != nil {
+	if _, err := s.Write(context.Background(), "events", recs); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := s.Close(); err != nil {
