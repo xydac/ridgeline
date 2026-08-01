@@ -36,7 +36,6 @@
 
 ## Known gaps
 
-- `sync` reports `done: N records total` from records extracted, not records persisted. On a steady-state re-run the sink writes nothing new but the CLI still prints a non-zero count; only the manifest's `updated_at` refresh signals freshness. Either distinguish "N new" from "N extracted" in the CLI output or document the counting rule.
 - The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
 

@@ -78,8 +78,8 @@ Run it:
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/demo (testsrc)...
-# myapp/demo: 4 records, 2 states saved
-# done: 4 records total
+# myapp/demo: 4 extracted, 4 persisted, 2 states saved
+# done: 4 extracted, 4 persisted
 ```
 
 A `starting <product>/<name> (<type>)...` line prints before each
@@ -99,12 +99,12 @@ data from connectors that succeed:
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/analytics (umami)...
-# myapp/analytics: 150 records, 1 states saved
+# myapp/analytics: 150 extracted, 150 persisted, 1 states saved
 # starting myapp/events (umami)...
 # sync error (continuing): product myapp connector events: ...
 # starting myapp/search (gsc)...
-# myapp/search: 42 records, 1 states saved
-# done: 192 records total (1 connector(s) failed)
+# myapp/search: 42 extracted, 42 persisted, 1 states saved
+# done: 192 extracted, 192 persisted (1 connector(s) failed)
 ```
 
 Exit code is `0` when all connectors pass, `3` when some fail and some
@@ -379,15 +379,15 @@ products:
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/hn (hackernews)...
-# myapp/hn: 50 records, 1 states saved
-# done: 50 records total
+# myapp/hn: 50 extracted, 50 persisted, 1 states saved
+# done: 50 extracted, 50 persisted
 
 ./ridgeline sync --config ridgeline.yaml
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/hn (hackernews)...
-# myapp/hn: 0 records, 1 states saved      # cursor sees no new items yet
-# done: 0 records total
+# myapp/hn: 0 extracted, 0 persisted, 1 states saved      # cursor sees no new items yet
+# done: 0 extracted, 0 persisted
 ```
 
 Each sync persists a `created_at_i` high-water mark per stream into
@@ -627,8 +627,8 @@ products:
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/pydemo (external)...
-# myapp/pydemo: 3 records, 1 states saved
-# done: 3 records total
+# myapp/pydemo: 3 extracted, 3 persisted, 1 states saved
+# done: 3 extracted, 3 persisted
 ```
 
 The runner sends one `extract` command on the child's stdin (with the
