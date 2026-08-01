@@ -158,6 +158,24 @@ products:
 	}
 }
 
+// TestPadRight_WideChar verifies that padRight uses display width (F-094).
+// An East-Asian double-width character has display width 2 but byte length 3,
+// so a column padded with len() will be one space short.
+func TestPadRight_WideChar(t *testing.T) {
+	t.Parallel()
+	// "A" is width 1; U+4E2D (CJK ideograph) is width 2.
+	got := padRight("A中", 6) // display width 3, pad to 6 -> 3 spaces
+	want := "A中   "
+	if got != want {
+		t.Errorf("padRight wide-char: got %q, want %q", got, want)
+	}
+	// Single ASCII char padded to 5.
+	got2 := padRight("x", 5)
+	if got2 != "x    " {
+		t.Errorf("padRight ascii: got %q, want %q", got2, "x    ")
+	}
+}
+
 func TestTUIModel_QuitKeys(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

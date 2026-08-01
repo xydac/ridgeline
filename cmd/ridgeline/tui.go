@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/manifest"
@@ -464,12 +465,12 @@ func renderTUIView(cfgPath string, rows []tuiRow, cursor int, legend bool) strin
 
 	widths := make([]int, len(headers))
 	for i, h := range headers {
-		widths[i] = len(h)
+		widths[i] = runewidth.StringWidth(h)
 	}
 	for _, row := range data {
 		for i, cell := range row {
-			if len(cell) > widths[i] {
-				widths[i] = len(cell)
+			if w := runewidth.StringWidth(cell); w > widths[i] {
+				widths[i] = w
 			}
 		}
 	}
@@ -513,10 +514,11 @@ func renderTUIView(cfgPath string, rows []tuiRow, cursor int, legend bool) strin
 }
 
 func padRight(s string, w int) string {
-	if len(s) >= w {
+	sw := runewidth.StringWidth(s)
+	if sw >= w {
 		return s
 	}
-	return s + strings.Repeat(" ", w-len(s))
+	return s + strings.Repeat(" ", w-sw)
 }
 
 // realTUISyncer runs a single connector against its configured sink,
