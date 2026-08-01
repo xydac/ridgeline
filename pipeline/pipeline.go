@@ -69,8 +69,13 @@ type StreamResult struct {
 
 // Result summarizes a Run.
 type Result struct {
-	// Records is the total number of records written across all streams.
+	// Records is the total number of records extracted from the connector
+	// and passed to the sink (before any sink-side partition pruning).
 	Records int
+	// Persisted is the number of records the sink actually wrote to
+	// durable storage. This is less than Records when the sink prunes
+	// already-covered partitions on a re-run.
+	Persisted int
 	// States is the number of checkpoints persisted during this run.
 	States int
 	// PerStream breaks Records down by stream name.
@@ -158,13 +163,15 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 				return fmt.Errorf("enricher %s: %w", step.E.Name(), enrichErr)
 			}
 		}
-		if err := sink.Write(ctx, stream, batch); err != nil {
+		n, err := sink.Write(ctx, stream, batch)
+		if err != nil {
 			return fmt.Errorf("sink.Write(%s): %w", stream, err)
 		}
 		sr := result.PerStream[stream]
 		sr.Records += len(batch)
 		result.PerStream[stream] = sr
 		result.Records += len(batch)
+		result.Persisted += n
 		buffers[stream] = buffers[stream][:0]
 		return nil
 	}

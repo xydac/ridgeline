@@ -153,17 +153,17 @@ func (s *Sink) RunID() string { return s.runID }
 
 // Write appends records to the stream's Parquet file, opening the
 // file lazily on first write.
-func (s *Sink) Write(_ context.Context, stream string, records []connectors.Record) error {
+func (s *Sink) Write(_ context.Context, stream string, records []connectors.Record) (int, error) {
 	if stream == "" {
-		return fmt.Errorf("parquet: empty stream name")
+		return 0, fmt.Errorf("parquet: empty stream name")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.inited {
-		return fmt.Errorf("parquet: Write before Init")
+		return 0, fmt.Errorf("parquet: Write before Init")
 	}
 	if s.closed {
-		return fmt.Errorf("parquet: Write after Close")
+		return 0, fmt.Errorf("parquet: Write after Close")
 	}
 	// Partition pruning: drop records whose timestamp is already
 	// covered by a partition in the prior manifest. A fully-covered
@@ -178,11 +178,11 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 		kept = append(kept, r)
 	}
 	if len(kept) == 0 {
-		return nil
+		return 0, nil
 	}
 	sf, err := s.streamFileLocked(stream)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if sf.typed != nil {
 		for _, r := range kept {
@@ -192,10 +192,10 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 			}
 			b, err := json.Marshal(data)
 			if err != nil {
-				return fmt.Errorf("parquet: marshal %s: %w", stream, err)
+				return 0, fmt.Errorf("parquet: marshal %s: %w", stream, err)
 			}
 			if err := sf.typed.writeRow(stream, r.Timestamp, data, string(b)); err != nil {
-				return fmt.Errorf("parquet: write %s: %w", stream, err)
+				return 0, fmt.Errorf("parquet: write %s: %w", stream, err)
 			}
 			if sf.startTime.IsZero() || r.Timestamp.Before(sf.startTime) {
 				sf.startTime = r.Timestamp
@@ -205,7 +205,7 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 			}
 			sf.rows++
 		}
-		return nil
+		return len(kept), nil
 	}
 	rows := make([]Row, 0, len(kept))
 	for _, r := range kept {
@@ -215,7 +215,7 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 		}
 		b, err := json.Marshal(data)
 		if err != nil {
-			return fmt.Errorf("parquet: marshal %s: %w", stream, err)
+			return 0, fmt.Errorf("parquet: marshal %s: %w", stream, err)
 		}
 		rows = append(rows, Row{
 			Stream:    stream,
@@ -231,10 +231,10 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 	}
 	n, err := sf.writer.Write(rows)
 	if err != nil {
-		return fmt.Errorf("parquet: write %s: %w", stream, err)
+		return 0, fmt.Errorf("parquet: write %s: %w", stream, err)
 	}
 	sf.rows += int64(n)
-	return nil
+	return len(kept), nil
 }
 
 func (s *Sink) streamFileLocked(stream string) (*streamFile, error) {

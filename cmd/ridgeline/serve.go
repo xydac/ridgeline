@@ -79,7 +79,7 @@ func runServe(ctx context.Context, args []string) error {
 
 	return serveLoop(ctx, *interval, func(ctx context.Context) error {
 		start := time.Now()
-		err := runConfigSync(ctx, *cfgPath, false, false, syncOut)
+		sum, err := runConfigSync(ctx, *cfgPath, false, false, syncOut)
 		elapsed := time.Since(start).Truncate(time.Millisecond)
 		ts := time.Now().UTC().Format(time.RFC3339)
 		if err != nil {
@@ -89,7 +89,8 @@ func runServe(ctx context.Context, args []string) error {
 			}
 			fmt.Printf("%s serve: sync error (%s): %v\n", ts, elapsed, err)
 		} else {
-			fmt.Printf("%s serve: sync ok (%s)\n", ts, elapsed)
+			fmt.Printf("%s serve: %d extracted, %d persisted, %d states saved (%s)\n",
+				ts, sum.Extracted, sum.Persisted, sum.States, elapsed)
 		}
 		return nil
 	})

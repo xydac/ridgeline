@@ -60,16 +60,16 @@ func newRecordingSink() *recordingSink {
 
 func (r *recordingSink) Name() string                                 { return "rec" }
 func (r *recordingSink) Init(context.Context, sinks.SinkConfig) error { return nil }
-func (r *recordingSink) Write(_ context.Context, stream string, recs []connectors.Record) error {
+func (r *recordingSink) Write(_ context.Context, stream string, recs []connectors.Record) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.writeErr != nil {
-		return r.writeErr
+		return 0, r.writeErr
 	}
 	cp := make([]connectors.Record, len(recs))
 	copy(cp, recs)
 	r.writes[stream] = append(r.writes[stream], cp)
-	return nil
+	return len(recs), nil
 }
 func (r *recordingSink) Flush(context.Context) error {
 	r.mu.Lock()

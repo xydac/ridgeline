@@ -123,11 +123,16 @@ elapses. A single-line outcome is printed after each run:
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/analytics (umami)...
-# myapp/analytics: 150 records, 1 states saved
-# done: 150 records total
-# 2026-06-17T12:00:03Z serve: sync ok (2.1s)
+# myapp/analytics: 150 extracted, 150 persisted, 1 states saved
+# done: 150 extracted, 150 persisted
+# 2026-06-17T12:00:03Z serve: 150 extracted, 150 persisted, 1 states saved (2.1s)
 # ...repeats every hour...
 ```
+
+The tick line shows **extracted** (records read from the connector) and
+**persisted** (records the sink actually wrote). On a re-run over an
+exhausted connector the persisted count will be 0, making an idle loop
+immediately distinguishable from one that is still making progress.
 
 For unattended use (systemd, cron, log aggregators), add `--quiet` to
 suppress the per-sync preamble and per-connector lines. Only one
@@ -135,8 +140,8 @@ timestamped result line is written per tick, making it easy to tail:
 
 ```sh
 ./ridgeline serve --config ridgeline.yaml --interval 1h --quiet
-# 2026-06-17T12:00:03Z serve: sync ok (2.1s)
-# 2026-06-17T13:00:04Z serve: sync ok (1.8s)
+# 2026-06-17T12:00:03Z serve: 150 extracted, 150 persisted, 1 states saved (2.1s)
+# 2026-06-17T13:00:04Z serve: 0 extracted, 0 persisted, 0 states saved (1.8s)
 ```
 
 `serve` does not daemonize. Use systemd, launchd, or any process

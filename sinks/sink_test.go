@@ -19,9 +19,9 @@ type fakeSink struct {
 
 func (f *fakeSink) Name() string                           { return f.name }
 func (f *fakeSink) Init(context.Context, SinkConfig) error { return nil }
-func (f *fakeSink) Write(_ context.Context, _ string, recs []connectors.Record) error {
+func (f *fakeSink) Write(_ context.Context, _ string, recs []connectors.Record) (int, error) {
 	f.written.Add(int64(len(recs)))
-	return nil
+	return len(recs), nil
 }
 func (f *fakeSink) Flush(context.Context) error {
 	f.flushed.Add(1)
@@ -155,7 +155,7 @@ func TestFakeSinkLifecycle(t *testing.T) {
 	if err := s.Init(ctx, SinkConfig{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Write(ctx, "events", []connectors.Record{{Stream: "events"}, {Stream: "events"}}); err != nil {
+	if _, err := s.Write(ctx, "events", []connectors.Record{{Stream: "events"}, {Stream: "events"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Flush(ctx); err != nil {

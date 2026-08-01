@@ -783,7 +783,97 @@ func TestRunSync_OutDirRoot(t *testing.T) {
 	}
 }
 
-// TestRunSync_DefaultNestedLayout verifies that without --out-dir-root
+// TestRunConfigSync_RerunPersistedZero verifies that a second sync over an
+// exhausted connector reports Persisted=0 even though Records>0 (the connector
+// re-emits records it already emitted, but the sink's partition pruning drops
+// them all). This is the core regression for F-118: an idle serve loop must
+// not report a healthy nonzero persisted count tick after tick.
+func TestRunConfigSync_RerunPersistedZero(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	outDir := filepath.Join(dir, "out")
+	stateDB := filepath.Join(dir, "state.db")
+	cfg := "version: 1\nstate_path: " + stateDB + "\nproducts:\n  myapp:\n    connectors:\n      - name: solo\n        type: testsrc\n        config: {records: 3}\n        streams: [pages]\n        sink: {type: jsonl, options: {dir: " + outDir + "}}\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	ctx := context.Background()
+
+	// Run 1: 3 records extracted and persisted.
+	sum1, err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
+	if err != nil {
+		t.Fatalf("run1: %v", err)
+	}
+	if sum1.Extracted != 3 {
+		t.Errorf("run1 Extracted = %d, want 3", sum1.Extracted)
+	}
+	if sum1.Persisted != 3 {
+		t.Errorf("run1 Persisted = %d, want 3", sum1.Persisted)
+	}
+
+	// Run 2: connector re-emits 3 records but sink prunes them all.
+	sum2, err := runConfigSync(ctx, cfgPath, false, false, io.Discard)
+	if err != nil {
+		t.Fatalf("run2: %v", err)
+	}
+	if sum2.Extracted == 0 {
+		t.Skip("testsrc returned 0 records on re-run; pruning test not applicable")
+	}
+	if sum2.Persisted != 0 {
+		t.Errorf("run2 Persisted = %d, want 0 (all pruned by manifest)", sum2.Persisted)
+	}
+}
+
+// TestRunConfigSync_SummaryLineShowsExtractedPersisted verifies that the done
+// line written to stdout uses the "N extracted, M persisted" format.
+func TestRunConfigSync_SummaryLineShowsExtractedPersisted(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	outDir := filepath.Join(dir, "out")
+	cfg := "version: 1\nstate_path: " + filepath.Join(dir, "state.db") + "\nproducts:\n  myapp:\n    connectors:\n      - name: solo\n        type: testsrc\n        config: {records: 2}\n        streams: [pages]\n        sink: {type: jsonl, options: {dir: " + outDir + "}}\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	_, err := runConfigSync(context.Background(), cfgPath, false, false, &buf)
+	if err != nil {
+		t.Fatalf("runConfigSync: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "extracted") || !strings.Contains(out, "persisted") {
+		t.Errorf("done line missing extracted/persisted fields:\n%s", out)
+	}
+}
+
+// TestRunConfigSync_PerConnectorLineShowsExtractedPersisted checks that the
+// per-connector progress line uses "N extracted, M persisted" format.
+func TestRunConfigSync_PerConnectorLineShowsExtractedPersisted(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	outDir := filepath.Join(dir, "out")
+	cfg := "version: 1\nstate_path: " + filepath.Join(dir, "state.db") + "\nproducts:\n  myapp:\n    connectors:\n      - name: solo\n        type: testsrc\n        config: {records: 2}\n        streams: [pages]\n        sink: {type: jsonl, options: {dir: " + outDir + "}}\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var buf bytes.Buffer
+	_, err := runConfigSync(context.Background(), cfgPath, false, false, &buf)
+	if err != nil {
+		t.Fatalf("runConfigSync: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "myapp/solo: ") {
+		t.Errorf("per-connector line missing:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "myapp/solo:") {
+			if !strings.Contains(line, "extracted") || !strings.Contains(line, "persisted") {
+				t.Errorf("per-connector line missing extracted/persisted: %q", line)
+			}
+		}
+	}
+}
+
+// TestRunConfigSync_DefaultNestedLayout verifies that without --out-dir-root
 // the default layout nests files under a per-run directory.
 func TestRunSync_DefaultNestedLayout(t *testing.T) {
 	t.Parallel()

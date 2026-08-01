@@ -119,7 +119,8 @@ func runSync(ctx context.Context, args []string) error {
 		return fmt.Errorf("--out must not be empty")
 	}
 	if *cfgPath != "" {
-		return runConfigSync(ctx, *cfgPath, *continueOnError, *outDirRoot, os.Stdout)
+		_, err := runConfigSync(ctx, *cfgPath, *continueOnError, *outDirRoot, os.Stdout)
+		return err
 	}
 	if *dryRun {
 		return runDryRun(ctx, *out, *records, *outDirRoot)
@@ -184,6 +185,14 @@ func runDryRun(ctx context.Context, out string, records int, flat bool) error {
 	return nil
 }
 
+// SyncSummary holds aggregate counts from a runConfigSync call.
+type SyncSummary struct {
+	Extracted int
+	Persisted int
+	States    int
+	Skipped   int
+}
+
 // runConfigSync loads cfgPath, opens the durable state store, and
 // runs each configured connector through its configured sink. Each
 // connector's state is keyed as "<product>/<connector>".
@@ -208,30 +217,29 @@ func runDryRun(ctx context.Context, out string, records int, flat bool) error {
 //
 // stdout receives informational lines (loaded, state, per-connector
 // counts, done summary). Pass io.Discard to suppress them all.
-func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, flatSinks bool, stdout io.Writer) error {
+func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, flatSinks bool, stdout io.Writer) (SyncSummary, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return &permanentConfigError{err: err}
+		return SyncSummary{}, &permanentConfigError{err: err}
 	}
 	store, err := sqlitestate.Open(cfg.StatePath)
 	if err != nil {
-		return err
+		return SyncSummary{}, err
 	}
 	defer store.Close()
 
 	cs, err := resolveConfigRefs(ctx, cfg, store, os.Stderr)
 	if err != nil {
-		return err
+		return SyncSummary{}, err
 	}
 	if err := validateConnectors(ctx, cfg); err != nil {
-		return &permanentConfigError{err: err}
+		return SyncSummary{}, &permanentConfigError{err: err}
 	}
 
 	fmt.Fprintf(stdout, "loaded %s\n", cfgPath)
 	fmt.Fprintf(stdout, "state: %s\n", cfg.StatePath)
 
-	var totalRecords int
-	var totalSkipped int
+	var sum SyncSummary
 	var failures []syncFailure
 	var succeeded int
 	for _, pid := range cfg.ProductIDs() {
@@ -244,27 +252,29 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, fl
 					failures = append(failures, syncFailure{product: pid, connector: inst.Name, err: err})
 					continue
 				}
-				return fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
+				return SyncSummary{}, fmt.Errorf("product %s connector %s: %w", pid, inst.Name, err)
 			}
-			totalRecords += res.Records
-			totalSkipped += res.Skipped
+			sum.Extracted += res.Records
+			sum.Persisted += res.Persisted
+			sum.States += res.States
+			sum.Skipped += res.Skipped
 			succeeded++
 		}
 	}
 	if len(failures) > 0 {
-		if totalSkipped > 0 {
-			fmt.Fprintf(stdout, "done: %d records total, %d skipped (%d connector(s) failed)\n", totalRecords, totalSkipped, len(failures))
+		if sum.Skipped > 0 {
+			fmt.Fprintf(stdout, "done: %d extracted, %d persisted, %d skipped (%d connector(s) failed)\n", sum.Extracted, sum.Persisted, sum.Skipped, len(failures))
 		} else {
-			fmt.Fprintf(stdout, "done: %d records total (%d connector(s) failed)\n", totalRecords, len(failures))
+			fmt.Fprintf(stdout, "done: %d extracted, %d persisted (%d connector(s) failed)\n", sum.Extracted, sum.Persisted, len(failures))
 		}
-		return &PartialSyncError{failures: failures, succeeded: succeeded}
+		return sum, &PartialSyncError{failures: failures, succeeded: succeeded}
 	}
-	if totalSkipped > 0 {
-		fmt.Fprintf(stdout, "done: %d records total, %d skipped\n", totalRecords, totalSkipped)
+	if sum.Skipped > 0 {
+		fmt.Fprintf(stdout, "done: %d extracted, %d persisted, %d skipped\n", sum.Extracted, sum.Persisted, sum.Skipped)
 	} else {
-		fmt.Fprintf(stdout, "done: %d records total\n", totalRecords)
+		fmt.Fprintf(stdout, "done: %d extracted, %d persisted\n", sum.Extracted, sum.Persisted)
 	}
-	return nil
+	return sum, nil
 }
 
 // resolveConfigRefs rewrites every `*_ref` connector-config entry into
@@ -434,9 +444,9 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 		return pipeline.Result{}, err
 	}
 	if res.Skipped > 0 {
-		fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved, %d skipped\n", pid, inst.Name, res.Records, res.States, res.Skipped)
+		fmt.Fprintf(stdout, "%s/%s: %d extracted, %d persisted, %d states saved, %d skipped\n", pid, inst.Name, res.Records, res.Persisted, res.States, res.Skipped)
 	} else {
-		fmt.Fprintf(stdout, "%s/%s: %d records, %d states saved\n", pid, inst.Name, res.Records, res.States)
+		fmt.Fprintf(stdout, "%s/%s: %d extracted, %d persisted, %d states saved\n", pid, inst.Name, res.Records, res.Persisted, res.States)
 	}
 	return res, nil
 }

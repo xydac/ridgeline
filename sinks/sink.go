@@ -76,7 +76,10 @@ func CheckUnknownKeys(cfg SinkConfig, known ...string) error {
 type Sink interface {
 	Name() string
 	Init(ctx context.Context, cfg SinkConfig) error
-	Write(ctx context.Context, stream string, records []connectors.Record) error
+	// Write appends records to the named stream. It returns the number of
+	// records actually persisted (which may be less than len(records) when
+	// the sink prunes already-covered partitions) and any write error.
+	Write(ctx context.Context, stream string, records []connectors.Record) (int, error)
 	Flush(ctx context.Context) error
 	Close() error
 }

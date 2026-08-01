@@ -114,17 +114,17 @@ func (s *Sink) RunID() string { return s.runID }
 
 // Write appends records for stream as JSON-lines to the stream's file,
 // opening the file lazily on first write.
-func (s *Sink) Write(_ context.Context, stream string, records []connectors.Record) error {
+func (s *Sink) Write(_ context.Context, stream string, records []connectors.Record) (int, error) {
 	if stream == "" {
-		return fmt.Errorf("jsonl: empty stream name")
+		return 0, fmt.Errorf("jsonl: empty stream name")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.inited {
-		return fmt.Errorf("jsonl: Write before Init")
+		return 0, fmt.Errorf("jsonl: Write before Init")
 	}
 	if s.closed {
-		return fmt.Errorf("jsonl: Write after Close")
+		return 0, fmt.Errorf("jsonl: Write after Close")
 	}
 	// Partition pruning: drop records whose timestamp is already
 	// covered by a partition in the prior manifest. A fully-covered
@@ -139,11 +139,11 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 		kept = append(kept, r)
 	}
 	if len(kept) == 0 {
-		return nil
+		return 0, nil
 	}
 	sf, err := s.streamFileLocked(stream)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	for _, r := range kept {
 		data := r.Data
@@ -152,7 +152,7 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 		}
 		dataBytes, err := json.Marshal(data)
 		if err != nil {
-			return fmt.Errorf("jsonl: marshal data %s: %w", stream, err)
+			return 0, fmt.Errorf("jsonl: marshal data %s: %w", stream, err)
 		}
 		payload := map[string]any{
 			"stream":    stream,
@@ -161,15 +161,15 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 		}
 		line, err := json.Marshal(payload)
 		if err != nil {
-			return fmt.Errorf("jsonl: marshal record: %w", err)
+			return 0, fmt.Errorf("jsonl: marshal record: %w", err)
 		}
 		n, err := sf.writer.Write(line)
 		if err != nil {
-			return fmt.Errorf("jsonl: write %s: %w", stream, err)
+			return 0, fmt.Errorf("jsonl: write %s: %w", stream, err)
 		}
 		sf.bytes += int64(n)
 		if err := sf.writer.WriteByte('\n'); err != nil {
-			return fmt.Errorf("jsonl: write newline: %w", err)
+			return 0, fmt.Errorf("jsonl: write newline: %w", err)
 		}
 		sf.bytes++
 		sf.rows++
@@ -180,7 +180,7 @@ func (s *Sink) Write(_ context.Context, stream string, records []connectors.Reco
 			sf.endTime = r.Timestamp
 		}
 	}
-	return nil
+	return len(kept), nil
 }
 
 func (s *Sink) streamFileLocked(stream string) (*streamFile, error) {
