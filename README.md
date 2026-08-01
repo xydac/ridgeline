@@ -871,7 +871,7 @@ See [ROADMAP.md](ROADMAP.md) for known gaps and planned work.
 brew install xydac/tap/ridgeline
 ```
 
-**Linux** - download a pre-built binary from the
+**Linux (x86-64)** - download a pre-built binary from the
 [releases page](https://github.com/xydac/ridgeline/releases), unpack,
 and place the binary in your PATH:
 
@@ -880,19 +880,25 @@ tar -xzf ridgeline_VERSION_linux_amd64.tar.gz
 sudo mv ridgeline /usr/local/bin/
 ```
 
-**Build from source** (any platform):
+Pre-built binaries are published for linux-amd64, darwin-amd64, and
+darwin-arm64. Linux arm64 users must build from source (see below).
+
+**Build from source** - requires Go 1.25+ and a C compiler (DuckDB is
+linked via cgo, so `CGO_ENABLED=1` and a working C toolchain are
+required):
 
 ```
+# Debian/Ubuntu: sudo apt install build-essential
+# macOS:         xcode-select --install
 git clone https://github.com/xydac/ridgeline
 cd ridgeline
 go build ./cmd/ridgeline
 ```
 
 Releases are produced by [goreleaser](https://goreleaser.com) on every
-`v*` tag and publish multi-arch binaries (linux-amd64, darwin-amd64,
-darwin-arm64). macOS users get a Homebrew cask via
+`v*` tag. macOS users get a Homebrew cask via
 [xydac/homebrew-tap](https://github.com/xydac/homebrew-tap); Linux
-users install from the tar.gz archive on the releases page.
+x86-64 users install from the tar.gz archive on the releases page.
 
 ## Contributing
 
