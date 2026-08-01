@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -343,6 +344,12 @@ func parseOutputTimestamp(raw json.RawMessage) (t time.Time, reason string, ok b
 	// Try numeric Unix epoch seconds (integer or float).
 	var n float64
 	if err := json.Unmarshal(raw, &n); err == nil {
+		// Guard: epoch seconds must convert to int64 microseconds without
+		// overflow. math.MaxInt64/1e6 ~ 9.2e12 s (year 292278 AD).
+		const maxSec = float64(math.MaxInt64) / 1e6
+		if n > maxSec || n < -maxSec {
+			return time.Time{}, fmt.Sprintf("timestamp out of representable range: %g", n), false
+		}
 		sec := int64(n)
 		nsec := int64((n - float64(sec)) * 1e9)
 		return time.Unix(sec, nsec).UTC(), "", true

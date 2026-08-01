@@ -439,6 +439,37 @@ func TestExtractSkipsRecordWithBadTimestamp(t *testing.T) {
 	}
 }
 
+// TestExtractSkipsRecordWithOutOfRangeTimestamp verifies that a numeric
+// timestamp that would overflow int64 microseconds is warned and skipped
+// rather than written as garbage (F-121).
+func TestExtractSkipsRecordWithOutOfRangeTimestamp(t *testing.T) {
+	t.Parallel()
+	c := external.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	streams := []connectors.Stream{{Name: "events", Mode: connectors.Incremental}}
+	ch, err := c.Extract(ctx, helperConfig("out-of-range-ts"), streams, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	records, _, logs, errs := collect(ch)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(records) != 0 {
+		t.Errorf("records = %d, want 0 (out-of-range timestamp must be skipped)", len(records))
+	}
+	var warned bool
+	for _, l := range logs {
+		if l.Level == connectors.LevelWarn && strings.Contains(l.Message, "skipping") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected a warn-level skipping log; got logs: %v", logs)
+	}
+}
+
 // TestExtractSkipsRecordForUnknownStream verifies that a RECORD whose
 // stream is not in the configured streams list is warned and skipped (F-097).
 func TestExtractSkipsRecordForUnknownStream(t *testing.T) {
@@ -569,6 +600,10 @@ func TestHelperProcess(t *testing.T) {
 	case "garbage-ts":
 		// RECORD with an unparseable string timestamp; must warn+skip (F-096, F-108).
 		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"timestamp\":\"not-a-date\",\"data\":{\"id\":\"badts\"}}\n"))
+	case "out-of-range-ts":
+		// RECORD with a numeric timestamp that overflows int64 microseconds (F-121).
+		// 1e15 seconds is year ~33 million AD; 1e15*1e6 overflows int64.
+		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"events\",\"timestamp\":1e15,\"data\":{\"id\":\"overflow\"}}\n"))
 	case "unknown-stream":
 		// RECORD for a stream not in the configured list; must warn+skip (F-097).
 		// The connector is configured with streams:[events]; this emits "ghost".
