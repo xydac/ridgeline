@@ -253,6 +253,63 @@ func TestTouch_AdvancesUpdatedAt(t *testing.T) {
 	}
 }
 
+func TestUpsert_ReplacesExistingPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := manifest.NewStore(filepath.Join(dir, "manifest.json"))
+
+	p1 := manifest.Partition{Stream: "events", Path: "events.jsonl", Format: "jsonl", Rows: 3}
+	p2 := manifest.Partition{Stream: "pages", Path: "pages.jsonl", Format: "jsonl", Rows: 5}
+
+	if err := s.Upsert(p1); err != nil {
+		t.Fatalf("Upsert p1: %v", err)
+	}
+	if err := s.Upsert(p2); err != nil {
+		t.Fatalf("Upsert p2: %v", err)
+	}
+
+	// Second upsert on the same path must replace, not append.
+	p1updated := manifest.Partition{Stream: "events", Path: "events.jsonl", Format: "jsonl", Rows: 7}
+	if err := s.Upsert(p1updated); err != nil {
+		t.Fatalf("Upsert p1updated: %v", err)
+	}
+
+	m, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(m.Partitions) != 2 {
+		t.Fatalf("Partitions = %d, want 2 (no duplicates)", len(m.Partitions))
+	}
+	var eventsRows int64
+	for _, p := range m.Partitions {
+		if p.Path == "events.jsonl" {
+			eventsRows = p.Rows
+		}
+	}
+	if eventsRows != 7 {
+		t.Errorf("events.jsonl rows = %d, want 7 (updated)", eventsRows)
+	}
+}
+
+func TestUpsert_AppendWhenNoMatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := manifest.NewStore(filepath.Join(dir, "manifest.json"))
+
+	if err := s.Upsert(manifest.Partition{Stream: "s", Path: "s.jsonl", Rows: 1}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := s.Upsert(manifest.Partition{Stream: "t", Path: "t.jsonl", Rows: 2}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	m, _ := s.Load()
+	if len(m.Partitions) != 2 {
+		t.Errorf("Partitions = %d, want 2", len(m.Partitions))
+	}
+}
+
 func TestAppend_Concurrent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

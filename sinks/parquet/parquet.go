@@ -350,7 +350,11 @@ func (s *Sink) Close() error {
 				StartTime: sf.startTime.UTC(),
 				EndTime:   sf.endTime.UTC(),
 			}
-			if err := s.manifest.Append(part); err != nil && firstErr == nil {
+			appendFn := s.manifest.Append
+			if s.flat {
+				appendFn = s.manifest.Upsert
+			}
+			if err := appendFn(part); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}

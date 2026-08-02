@@ -199,6 +199,34 @@ func (s *Store) Append(p Partition) error {
 	return s.saveLocked(m)
 }
 
+// Upsert loads the manifest, replaces any existing partition whose Path
+// matches p.Path, or appends if no match exists, then writes back atomically.
+// Use Upsert instead of Append when a sink writes to a fixed file path on
+// every run (flat / out-dir-root mode), so that re-runs replace the stale
+// entry rather than accumulating duplicates.
+func (s *Store) Upsert(p Partition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+		return fmt.Errorf("manifest: mkdir: %w", err)
+	}
+	m, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = time.Now().UTC()
+	}
+	for i, existing := range m.Partitions {
+		if existing.Path == p.Path {
+			m.Partitions[i] = p
+			return s.saveLocked(m)
+		}
+	}
+	m.Partitions = append(m.Partitions, p)
+	return s.saveLocked(m)
+}
+
 // Touch loads the manifest (creating it when the file does not exist),
 // refreshes UpdatedAt, and writes it back. Callers should invoke Touch
 // at the end of a successful sync run so updated_at advances even when

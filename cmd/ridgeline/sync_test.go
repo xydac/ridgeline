@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -779,6 +780,49 @@ func TestRunSync_OutDirRoot(t *testing.T) {
 	for _, e := range entries {
 		if e.IsDir() {
 			t.Errorf("unexpected subdirectory under flat output dir: %s", e.Name())
+		}
+	}
+}
+
+// TestRunSync_OutDirRoot_NoManifestDuplicates verifies that repeated
+// --out-dir-root runs replace existing manifest entries rather than
+// accumulating duplicates (F-106).
+func TestRunSync_OutDirRoot_NoManifestDuplicates(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	run := func(records string) {
+		if err := runSync(context.Background(), []string{
+			"--dry-run", "--out", dir, "--records", records, "--out-dir-root",
+		}); err != nil {
+			t.Fatalf("runSync: %v", err)
+		}
+	}
+	run("3")
+	run("5")
+
+	mPath := filepath.Join(dir, "manifest.json")
+	data, err := os.ReadFile(mPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var m struct {
+		Partitions []struct {
+			Path string `json:"path"`
+			Rows int64  `json:"rows"`
+		} `json:"partitions"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	// Two streams (events, pages) -- exactly one entry each after two runs.
+	if len(m.Partitions) != 2 {
+		t.Fatalf("Partitions = %d after two runs, want 2 (no duplicates): %s", len(m.Partitions), data)
+	}
+	// The second run wrote 5 records split across 2 streams; each file should
+	// report rows from the last run (not the cumulative sum).
+	for _, p := range m.Partitions {
+		if p.Rows == 0 {
+			t.Errorf("partition %s has zero rows", p.Path)
 		}
 	}
 }
