@@ -110,12 +110,14 @@ func credsInit(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	fs := flag.NewFlagSet("creds init", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
 	forceNewKey := fs.Bool("force-new-key", false, "DESTRUCTIVE: wipe all stored credentials and replace the key file")
+	yes := fs.Bool("yes", false, "confirm the destructive operation requested by --force-new-key")
 	fs.Usage = func() {
 		w := fs.Output()
-		fmt.Fprintln(w, "Usage: ridgeline creds init --config PATH [--force-new-key]")
+		fmt.Fprintln(w, "Usage: ridgeline creds init --config PATH [--force-new-key --yes]")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "Initialize the credential store and key file for the first time.")
-		fmt.Fprintln(w, "Pass --force-new-key to wipe all existing credentials and replace the key (DESTRUCTIVE).")
+		fmt.Fprintln(w, "Pass --force-new-key --yes to wipe all existing credentials and replace the key (DESTRUCTIVE).")
+		fmt.Fprintln(w, "The --yes flag is required with --force-new-key to prevent accidental use.")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "Flags:")
 		fs.PrintDefaults()
@@ -142,6 +144,13 @@ func credsInit(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	defer sqlStore.Close()
 
 	if *forceNewKey {
+		if !*yes {
+			fmt.Fprintf(stderr, "WARNING: --force-new-key will permanently delete all credentials in %s\n", cfg.StatePath)
+			fmt.Fprintf(stderr, "         and replace the encryption key at %s.\n", cfg.KeyPath)
+			fmt.Fprintln(stderr, "         Any other config sharing this key_path will have its credentials made unrecoverable.")
+			fmt.Fprintln(stderr, "Re-run with --force-new-key --yes to confirm.")
+			return fmt.Errorf("--force-new-key requires --yes to confirm")
+		}
 		// Wipe all credentials then replace the key file.
 		if _, err := sqlStore.DB().ExecContext(ctx, `DELETE FROM credentials`); err != nil {
 			return fmt.Errorf("creds init: wipe credentials: %w", err)
@@ -159,7 +168,7 @@ func credsInit(ctx context.Context, args []string, stdout, stderr io.Writer) err
 
 	// Normal init: fail fast if the key file already exists.
 	if _, err := os.Stat(cfg.KeyPath); err == nil {
-		return fmt.Errorf("key file already exists at %s; use `ridgeline creds list` to verify the store, or pass --force-new-key to replace it (DESTRUCTIVE)", cfg.KeyPath)
+		return fmt.Errorf("key file already exists at %s; use `ridgeline creds list` to verify the store, or pass --force-new-key --yes to replace it (DESTRUCTIVE)", cfg.KeyPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("creds init: stat key file: %w", err)
 	}

@@ -451,9 +451,9 @@ func TestRunCreds_InitForceNewKeyWipesStore(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "key")); err != nil {
 		t.Fatalf("remove key: %v", err)
 	}
-	if err := runCreds(ctx, []string{"init", "--config", cfgPath, "--force-new-key"},
+	if err := runCreds(ctx, []string{"init", "--config", cfgPath, "--force-new-key", "--yes"},
 		bytes.NewReader(nil), io.Discard, io.Discard); err != nil {
-		t.Fatalf("init --force-new-key: %v", err)
+		t.Fatalf("init --force-new-key --yes: %v", err)
 	}
 
 	// Store should now be empty and accessible with the new key.
@@ -464,6 +464,43 @@ func TestRunCreds_InitForceNewKeyWipesStore(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out.String()); got != "" {
 		t.Errorf("list after force-new-key: got %q, want empty", got)
+	}
+}
+
+// F-127: --force-new-key without --yes must print a warning and refuse.
+func TestRunCreds_ForceNewKeyRequiresYes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := writeMinimalConfig(t, dir)
+	ctx := context.Background()
+
+	// Seed the store so there is something to lose.
+	if err := runCreds(ctx, []string{"put", "--config", cfgPath, "mykey"},
+		bytes.NewBufferString("myval\n"), io.Discard, io.Discard); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	var errOut bytes.Buffer
+	err := runCreds(ctx, []string{"init", "--config", cfgPath, "--force-new-key"},
+		bytes.NewReader(nil), io.Discard, &errOut)
+	if err == nil {
+		t.Fatal("--force-new-key without --yes: want error, got nil")
+	}
+	if !strings.Contains(errOut.String(), "--yes") {
+		t.Errorf("stderr should mention --yes; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "WARNING") {
+		t.Errorf("stderr should include WARNING; got %q", errOut.String())
+	}
+
+	// The original credential must still be readable (key was not replaced).
+	var out bytes.Buffer
+	if err := runCreds(ctx, []string{"get", "--config", cfgPath, "mykey"},
+		bytes.NewReader(nil), &out, io.Discard); err != nil {
+		t.Fatalf("get after refused force-new-key: %v", err)
+	}
+	if !strings.Contains(out.String(), "myval") {
+		t.Errorf("credential should still be readable; got %q", out.String())
 	}
 }
 
