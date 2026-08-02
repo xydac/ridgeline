@@ -48,6 +48,13 @@ func (c EnrichConfig) StringSlice(key string) []string {
 	return nil
 }
 
+// ConfigValidator is an optional interface enrichers may implement to
+// validate their config at pipeline-build time. Returning a non-nil error
+// aborts the sync before any records are fetched.
+type ConfigValidator interface {
+	ValidateConfig(cfg EnrichConfig) error
+}
+
 // Enricher transforms records by adding fields. The same record slice
 // may be returned with mutated entries, or a new slice may be returned;
 // callers must not assume in-place mutation.

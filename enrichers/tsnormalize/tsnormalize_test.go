@@ -182,3 +182,28 @@ func TestTSNormalizeContextCancel(t *testing.T) {
 		t.Errorf("expected 0 records on immediate cancel; got %d", len(out))
 	}
 }
+
+// TestTSNormalize_ValidateConfig rejects non-string config values for
+// ts_field and out_field (F-126).
+func TestTSNormalize_ValidateConfig(t *testing.T) {
+	e, ok := enrichers.Get("ts_normalize")
+	if !ok {
+		t.Fatal("ts_normalize not registered")
+	}
+	cv, ok := e.(enrichers.ConfigValidator)
+	if !ok {
+		t.Fatal("ts_normalize does not implement ConfigValidator")
+	}
+	if err := cv.ValidateConfig(enrichers.EnrichConfig{"ts_field": "timestamp"}); err != nil {
+		t.Errorf("valid string config: unexpected error: %v", err)
+	}
+	if err := cv.ValidateConfig(enrichers.EnrichConfig{}); err != nil {
+		t.Errorf("empty config: unexpected error: %v", err)
+	}
+	if err := cv.ValidateConfig(enrichers.EnrichConfig{"ts_field": 123}); err == nil {
+		t.Error("integer ts_field: expected error, got nil")
+	}
+	if err := cv.ValidateConfig(enrichers.EnrichConfig{"out_field": 456}); err == nil {
+		t.Error("integer out_field: expected error, got nil")
+	}
+}

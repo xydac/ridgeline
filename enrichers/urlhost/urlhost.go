@@ -18,6 +18,7 @@ package urlhost
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -33,6 +34,21 @@ type Enricher struct{}
 
 // Name returns the stable registered name of this enricher.
 func (e *Enricher) Name() string { return "url_host" }
+
+// ValidateConfig rejects configs where url_field or host_field are present
+// but not strings, surfacing YAML type-mismatch errors at pipeline-build time.
+func (e *Enricher) ValidateConfig(cfg enrichers.EnrichConfig) error {
+	for _, key := range []string{"url_field", "host_field"} {
+		v, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		if _, isStr := v.(string); !isStr {
+			return fmt.Errorf("url_host: config key %q must be a string field name, got %T", key, v)
+		}
+	}
+	return nil
+}
 
 // Enrich reads cfg["url_field"] (default "url") from each record's
 // Data map, parses it as a URL, and writes the hostname to

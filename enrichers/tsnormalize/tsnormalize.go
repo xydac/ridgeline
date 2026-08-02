@@ -56,6 +56,22 @@ type Enricher struct{}
 // Name returns the stable registered name of this enricher.
 func (e *Enricher) Name() string { return "ts_normalize" }
 
+// ValidateConfig rejects configs where ts_field or out_field are present but
+// not strings. A bare YAML integer (ts_field: 123) is a common typo that
+// causes the enricher to silently no-op; surface it at pipeline-build time.
+func (e *Enricher) ValidateConfig(cfg enrichers.EnrichConfig) error {
+	for _, key := range []string{"ts_field", "out_field"} {
+		v, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		if _, isStr := v.(string); !isStr {
+			return fmt.Errorf("ts_normalize: config key %q must be a string field name, got %T", key, v)
+		}
+	}
+	return nil
+}
+
 // stringLayouts are the string timestamp formats tried in order.
 var stringLayouts = []string{
 	time.RFC3339Nano,

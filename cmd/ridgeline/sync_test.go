@@ -302,6 +302,41 @@ products:
 	}
 }
 
+// TestRunSync_Config_BadTypedEnricherConfig verifies that sync rejects a
+// config where an enricher's string key is given the wrong YAML type (F-126).
+func TestRunSync_Config_BadTypedEnricherConfig(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	cfg := `
+version: 1
+state_path: ` + filepath.Join(dir, "state.db") + `
+key_path: ` + filepath.Join(dir, "key") + `
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config: { records: 1 }
+        streams: [pages]
+        sink: { type: jsonl, options: { dir: ` + filepath.Join(dir, "out") + ` } }
+        enrichers:
+          - type: ts_normalize
+            config:
+              ts_field: 123
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err := runSync(context.Background(), []string{"--config", cfgPath})
+	if err == nil {
+		t.Fatal("expected error for wrong-typed ts_field, got nil")
+	}
+	if !strings.Contains(err.Error(), "ts_field") {
+		t.Errorf("error should mention ts_field; got %v", err)
+	}
+}
+
 func TestRunSync_Config_RunsConnectorsInDeclaredYAMLOrder(t *testing.T) {
 	// Regression for QA F-020: the pipeline sorted connectors by name
 	// before running them, so a config listing connectors in order

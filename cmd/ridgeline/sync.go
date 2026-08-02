@@ -376,9 +376,11 @@ func validateConnectors(ctx context.Context, cfg *config.File) error {
 
 // buildEnricherSteps converts a connector instance's enricher refs into
 // pipeline.EnricherStep values, resolving each type from the registry.
-func buildEnricherSteps(inst config.ConnectorInstance) []pipeline.EnricherStep {
+// Returns an error if any enricher implements ConfigValidator and rejects
+// its config.
+func buildEnricherSteps(inst config.ConnectorInstance) ([]pipeline.EnricherStep, error) {
 	if len(inst.Enrichers) == 0 {
-		return nil
+		return nil, nil
 	}
 	steps := make([]pipeline.EnricherStep, 0, len(inst.Enrichers))
 	for _, er := range inst.Enrichers {
@@ -390,9 +392,14 @@ func buildEnricherSteps(inst config.ConnectorInstance) []pipeline.EnricherStep {
 		for k, v := range er.Config {
 			cfg[k] = v
 		}
+		if v, ok := e.(enrichers.ConfigValidator); ok {
+			if err := v.ValidateConfig(cfg); err != nil {
+				return nil, fmt.Errorf("connector %s: %w", inst.Name, err)
+			}
+		}
 		steps = append(steps, pipeline.EnricherStep{E: e, Cfg: cfg})
 	}
-	return steps
+	return steps, nil
 }
 
 // runConnectorInstance runs one connector from the config against its
@@ -435,11 +442,15 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	for k, v := range inst.Config {
 		connCfg[k] = v
 	}
+	enricherSteps, err := buildEnricherSteps(inst)
+	if err != nil {
+		return pipeline.Result{}, err
+	}
 	req := pipeline.Request{
 		Key:       config.StateKey(pid, inst.Name),
 		Config:    connCfg,
 		Streams:   streams,
-		Enrichers: buildEnricherSteps(inst),
+		Enrichers: enricherSteps,
 	}
 	if logWriter != nil {
 		req.Logger = log.New(logWriter, "", 0)
