@@ -437,6 +437,18 @@ func applySandbox(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// pinTimezoneUTC forces the DuckDB session TimeZone to UTC so that
+// date_trunc, extract, and other TIMESTAMPTZ-aware functions bucket
+// consistently across hosts. Without this, DuckDB inherits the host's
+// TZ, producing different results for the same query on different
+// machines and contradicting the README's "(UTC)" claim.
+func pinTimezoneUTC(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, "SET TimeZone='UTC'"); err != nil {
+		return fmt.Errorf("pin timezone: %w", err)
+	}
+	return nil
+}
+
 // Run opens an in-memory DuckDB database, executes stmt, and writes
 // the result rows as an aligned text table to w. The database is closed
 // before Run returns; no state persists between calls.
@@ -460,6 +472,9 @@ func Run(ctx context.Context, stmt string, w io.Writer, opts Options) error {
 	}
 	defer db.Close()
 
+	if err := pinTimezoneUTC(ctx, db); err != nil {
+		return err
+	}
 	if !opts.Write {
 		if err := applySandbox(ctx, db); err != nil {
 			return err

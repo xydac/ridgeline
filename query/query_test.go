@@ -771,6 +771,27 @@ func TestRunReadOnlyBlocksNetworkRead(t *testing.T) {
 	}
 }
 
+// TestRunPinsTimezoneToUTC verifies that date_trunc on a TIMESTAMPTZ
+// buckets in UTC regardless of the host TZ environment. Without the
+// session-level TimeZone pin, DuckDB inherits the host TZ and the same
+// query yields different day buckets on different machines.
+func TestRunPinsTimezoneToUTC(t *testing.T) {
+	stmt := "SELECT date_trunc('day', to_timestamp(1700000000))::VARCHAR AS day"
+	for _, tz := range []string{"UTC", "America/Los_Angeles", "Asia/Tokyo"} {
+		t.Run(tz, func(t *testing.T) {
+			t.Setenv("TZ", tz)
+			var buf bytes.Buffer
+			if err := Run(context.Background(), stmt, &buf, Options{}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, "2023-11-14 00:00:00") {
+				t.Errorf("TZ=%s: expected 2023-11-14 00:00:00 UTC bucket, got %q", tz, out)
+			}
+		})
+	}
+}
+
 // TestParseStructFieldNames verifies that the type-name parser extracts field
 // names in declared order from DuckDB STRUCT type names (F-101).
 func TestParseStructFieldNames(t *testing.T) {
