@@ -30,6 +30,14 @@ type StreamDeclarer interface {
 	DeclareStream(stream string, schema connectors.Schema)
 }
 
+// StreamSpecDeclarer is an optional extension of StreamDeclarer. Sinks
+// that implement this interface receive the full StreamSpec (including
+// semantic metadata) in addition to the column schema, enabling them to
+// persist richer metadata alongside the data files.
+type StreamSpecDeclarer interface {
+	DeclareStreamSpec(stream string, spec connectors.StreamSpec)
+}
+
 // EnricherStep pairs a registered enricher with its per-connector config.
 // The pipeline applies steps in slice order to each record batch before
 // passing the batch to the sink.
@@ -135,9 +143,17 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		for _, ss := range spec.Streams {
 			specByName[ss.Name] = ss
 		}
+		specDecl, hasSpecDecl := sink.(StreamSpecDeclarer)
 		for _, rs := range req.Streams {
-			if ss, ok := specByName[rs.Name]; ok && len(ss.Schema.Columns) > 0 {
+			ss, known := specByName[rs.Name]
+			if !known {
+				continue
+			}
+			if len(ss.Schema.Columns) > 0 {
 				decl.DeclareStream(rs.Name, ss.Schema)
+			}
+			if hasSpecDecl {
+				specDecl.DeclareStreamSpec(rs.Name, ss)
 			}
 		}
 	}

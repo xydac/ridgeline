@@ -47,6 +47,7 @@ type Sink struct {
 	covered   manifest.Manifest
 	streams   map[string]*streamFile
 	schemas   map[string]connectors.Schema
+	specs     map[string]connectors.StreamSpec
 	connector string
 	inited    bool
 	closed    bool
@@ -151,6 +152,19 @@ func (s *Sink) DeclareStream(stream string, schema connectors.Schema) {
 		return
 	}
 	s.schemas[stream] = schema
+}
+
+// DeclareStreamSpec stores the full StreamSpec (including semantic
+// metadata) for a stream. The spec is used to write a
+// _ridgeline_semantics.json sidecar in the output directory on Close,
+// making semantic tags queryable alongside the data files.
+func (s *Sink) DeclareStreamSpec(stream string, spec connectors.StreamSpec) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.specs == nil {
+		s.specs = map[string]connectors.StreamSpec{}
+	}
+	s.specs[stream] = spec
 }
 
 // Dir returns the root output directory. Useful for tests and callers
@@ -365,5 +379,54 @@ func (s *Sink) Close() error {
 			firstErr = err
 		}
 	}
+	if firstErr == nil {
+		if err := s.writeSemanticsSidecar(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	return firstErr
+}
+
+// writeSemanticsSidecar writes _ridgeline_semantics.json to the sink's
+// output directory when any stream has a declared spec. The file is
+// overwritten on each sync so it stays current with the connector's
+// latest self-description.
+func (s *Sink) writeSemanticsSidecar() error {
+	if len(s.specs) == 0 {
+		return nil
+	}
+	type colEntry struct {
+		Name        string `json:"name"`
+		Type        string `json:"type"`
+		Unit        string `json:"unit,omitempty"`
+		Direction   string `json:"direction,omitempty"`
+		Aggregation string `json:"aggregation,omitempty"`
+	}
+	type streamEntry struct {
+		Kind    string     `json:"kind"`
+		Columns []colEntry `json:"columns"`
+	}
+	out := make(map[string]streamEntry, len(s.specs))
+	for name, spec := range s.specs {
+		cols := make([]colEntry, 0, len(spec.Schema.Columns))
+		for _, c := range spec.Schema.Columns {
+			entry := colEntry{Name: c.Name, Type: c.Type.String()}
+			if c.Semantics != nil {
+				entry.Unit = c.Semantics.Unit
+				entry.Direction = c.Semantics.Direction.String()
+				entry.Aggregation = c.Semantics.Aggregation.String()
+			}
+			cols = append(cols, entry)
+		}
+		out[name] = streamEntry{Kind: spec.Kind.String(), Columns: cols}
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return fmt.Errorf("parquet: marshal semantics: %w", err)
+	}
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return fmt.Errorf("parquet: semantics sidecar dir: %w", err)
+	}
+	path := filepath.Join(s.dir, "_ridgeline_semantics.json")
+	return os.WriteFile(path, b, 0o644)
 }

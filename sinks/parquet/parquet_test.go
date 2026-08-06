@@ -413,3 +413,71 @@ func TestSink_RerunPrunesCoveredRecords(t *testing.T) {
 		t.Errorf("new partition window = [%s, %s], want [%s, %s]", m.Partitions[1].StartTime, m.Partitions[1].EndTime, t2, t2)
 	}
 }
+
+func TestSink_SemanticsSidecar(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := pqsink.New()
+	if err := s.Init(context.Background(), sinks.SinkConfig{"dir": dir, "run_id": "run1"}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	spec := connectors.StreamSpec{
+		Name: "timeseries",
+		Kind: connectors.Metric,
+		Schema: connectors.Schema{Columns: []connectors.Column{
+			{Name: "date", Type: connectors.Timestamp, Key: true},
+			{Name: "visitors", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+				Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+			}},
+			{Name: "bounce_rate", Type: connectors.Float, Semantics: &connectors.ColumnSemantics{
+				Unit: "%", Direction: connectors.LowerIsBetter, Aggregation: connectors.AggAvg,
+			}},
+		}},
+	}
+	s.DeclareStreamSpec("timeseries", spec)
+	s.DeclareStream("timeseries", spec.Schema)
+
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := s.Write(context.Background(), "timeseries", []connectors.Record{
+		{Stream: "timeseries", Timestamp: ts, Data: map[string]any{"visitors": 42}},
+	}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	sidecar := filepath.Join(dir, "_ridgeline_semantics.json")
+	raw, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatalf("sidecar not written: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("sidecar not valid JSON: %v", err)
+	}
+	stream, ok := got["timeseries"].(map[string]any)
+	if !ok {
+		t.Fatalf("sidecar missing timeseries key; got %v", got)
+	}
+	if kind := stream["kind"]; kind != "metric" {
+		t.Errorf("kind = %v; want metric", kind)
+	}
+	cols, ok := stream["columns"].([]any)
+	if !ok || len(cols) != 3 {
+		t.Fatalf("columns len = %d; want 3", len(cols))
+	}
+	// visitors column
+	visitors, _ := cols[1].(map[string]any)
+	if visitors["direction"] != "higher_is_better" {
+		t.Errorf("visitors direction = %v; want higher_is_better", visitors["direction"])
+	}
+	if visitors["aggregation"] != "sum" {
+		t.Errorf("visitors aggregation = %v; want sum", visitors["aggregation"])
+	}
+	// bounce_rate column
+	bounce, _ := cols[2].(map[string]any)
+	if bounce["unit"] != "%" {
+		t.Errorf("bounce_rate unit = %v; want %%", bounce["unit"])
+	}
+}
