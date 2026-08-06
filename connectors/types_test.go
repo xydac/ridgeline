@@ -103,6 +103,51 @@ func TestConnectorConfigAccessors(t *testing.T) {
 	}
 }
 
+func TestSemanticKindString(t *testing.T) {
+	cases := map[SemanticKind]string{
+		Unstructured:     "unstructured",
+		Metric:           "metric",
+		Event:            "event",
+		Dimension:        "dimension",
+		SemanticKind(99): "unstructured",
+	}
+	for in, want := range cases {
+		if got := in.String(); got != want {
+			t.Errorf("SemanticKind(%d).String() = %q; want %q", in, got, want)
+		}
+	}
+}
+
+func TestDirectionalityString(t *testing.T) {
+	cases := map[Directionality]string{
+		Neutral:            "neutral",
+		HigherIsBetter:     "higher_is_better",
+		LowerIsBetter:      "lower_is_better",
+		Directionality(99): "neutral",
+	}
+	for in, want := range cases {
+		if got := in.String(); got != want {
+			t.Errorf("Directionality(%d).String() = %q; want %q", in, got, want)
+		}
+	}
+}
+
+func TestAggregationHintString(t *testing.T) {
+	cases := map[AggregationHint]string{
+		AggNone:             "none",
+		AggSum:              "sum",
+		AggAvg:              "avg",
+		AggLast:             "last",
+		AggCount:            "count",
+		AggregationHint(99): "none",
+	}
+	for in, want := range cases {
+		if got := in.String(); got != want {
+			t.Errorf("AggregationHint(%d).String() = %q; want %q", in, got, want)
+		}
+	}
+}
+
 func TestCheckUnknownKeys(t *testing.T) {
 	known := []string{"query", "hits_per_page", "max_pages", "base_url"}
 	cases := []struct {

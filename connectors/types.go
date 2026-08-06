@@ -108,6 +108,112 @@ func (c ColumnType) String() string {
 	return "unknown"
 }
 
+// SemanticKind classifies what a stream represents in business terms.
+// The zero value is Unstructured so streams without an explicit Kind
+// still have a valid, conservative classification.
+type SemanticKind int
+
+const (
+	// Unstructured means records have no standardized quantitative meaning
+	// (free-form logs, raw events without aggregation semantics, etc.).
+	Unstructured SemanticKind = iota
+	// Metric means every record is a measurement that can be aggregated
+	// over time (page views per day, revenue per hour, etc.).
+	Metric
+	// Event means every record is a discrete occurrence with a timestamp
+	// (a click, a deploy, a user sign-up). Events are counted, not summed.
+	Event
+	// Dimension means every record is a reference entity (a user, a
+	// product, a country) that other streams join against.
+	Dimension
+)
+
+// String returns the lowercase name of the SemanticKind.
+func (k SemanticKind) String() string {
+	switch k {
+	case Metric:
+		return "metric"
+	case Event:
+		return "event"
+	case Dimension:
+		return "dimension"
+	}
+	return "unstructured"
+}
+
+// Directionality indicates whether higher or lower values of a metric
+// column are preferable. It enables anomaly detection and explain
+// output to frame deviations as good-news or bad-news.
+type Directionality int
+
+const (
+	// Neutral means there is no preferred direction (e.g. a duration
+	// that could legitimately go either way depending on the product goal).
+	Neutral Directionality = iota
+	// HigherIsBetter means an increase is a positive signal (revenue,
+	// signups, page views, etc.).
+	HigherIsBetter
+	// LowerIsBetter means a decrease is a positive signal (bounce rate,
+	// error rate, latency, etc.).
+	LowerIsBetter
+)
+
+// String returns the lowercase name of the Directionality.
+func (d Directionality) String() string {
+	switch d {
+	case HigherIsBetter:
+		return "higher_is_better"
+	case LowerIsBetter:
+		return "lower_is_better"
+	}
+	return "neutral"
+}
+
+// AggregationHint suggests how a metric column should be rolled up when
+// querying across multiple rows. Sinks and reasoning primitives use
+// this to produce sensible default aggregations without guessing.
+type AggregationHint int
+
+const (
+	// AggNone means no standard aggregation applies (e.g. string labels).
+	AggNone AggregationHint = iota
+	// AggSum means values should be added (total page views over a week).
+	AggSum
+	// AggAvg means values should be averaged (average bounce rate).
+	AggAvg
+	// AggLast means only the most recent value matters (current balance).
+	AggLast
+	// AggCount means the number of records is the metric, not the value.
+	AggCount
+)
+
+// String returns the lowercase name of the AggregationHint.
+func (a AggregationHint) String() string {
+	switch a {
+	case AggSum:
+		return "sum"
+	case AggAvg:
+		return "avg"
+	case AggLast:
+		return "last"
+	case AggCount:
+		return "count"
+	}
+	return "none"
+}
+
+// ColumnSemantics carries the optional business-meaning metadata for a
+// metric column. Nil means the column has no declared quantitative semantics.
+type ColumnSemantics struct {
+	// Unit is a human-readable label for the column's unit of measure
+	// (e.g. "seconds", "%", "USD", "requests").
+	Unit string
+	// Direction indicates whether higher or lower values are preferable.
+	Direction Directionality
+	// Aggregation is the recommended rollup function for this column.
+	Aggregation AggregationHint
+}
+
 // Column describes one field in a stream's schema.
 type Column struct {
 	Name     string
@@ -116,6 +222,9 @@ type Column struct {
 	// Key indicates the column is part of the stream's primary key.
 	// Sinks use this for deduplication and upsert.
 	Key bool
+	// Semantics carries optional business-meaning metadata for metric
+	// columns. Nil for columns with no quantitative interpretation.
+	Semantics *ColumnSemantics
 }
 
 // Schema describes the shape of records in a stream. Schema is advisory:
@@ -129,8 +238,12 @@ type Schema struct {
 type StreamSpec struct {
 	Name        string
 	Description string
-	Schema      Schema
-	SyncModes   []SyncMode
+	// Kind classifies what this stream represents in business terms.
+	// The zero value (Unstructured) is valid for streams without a
+	// quantitative or categorical interpretation.
+	Kind      SemanticKind
+	Schema    Schema
+	SyncModes []SyncMode
 	// DefaultCron is a suggested sync schedule in standard cron syntax.
 	// Empty means the connector does not recommend a schedule.
 	DefaultCron string
