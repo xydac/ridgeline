@@ -95,13 +95,22 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 		Streams: []connectors.StreamSpec{{
 			Name:        StreamSearchAnalytics,
 			Description: "Search Analytics rows bucketed by the configured dimensions.",
+			Kind:        connectors.Metric,
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 			DefaultCron: "0 * * * *",
 			Schema: connectors.Schema{Columns: []connectors.Column{
-				{Name: "clicks", Type: connectors.Int},
-				{Name: "impressions", Type: connectors.Int},
-				{Name: "ctr", Type: connectors.Float},
-				{Name: "position", Type: connectors.Float},
+				{Name: "clicks", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+					Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+				}},
+				{Name: "impressions", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+					Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+				}},
+				{Name: "ctr", Type: connectors.Float, Semantics: &connectors.ColumnSemantics{
+					Unit: "%", Direction: connectors.HigherIsBetter, Aggregation: connectors.AggAvg,
+				}},
+				{Name: "position", Type: connectors.Float, Semantics: &connectors.ColumnSemantics{
+					Direction: connectors.LowerIsBetter, Aggregation: connectors.AggAvg,
+				}},
 			}},
 		}},
 	}

@@ -58,14 +58,23 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 		Streams: []connectors.StreamSpec{{
 			Name:        StreamTimeseries,
 			Description: "Daily visitors, pageviews, bounce rate, and visit duration for the configured site.",
+			Kind:        connectors.Metric,
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 			DefaultCron: "0 1 * * *",
 			Schema: connectors.Schema{Columns: []connectors.Column{
 				{Name: "date", Type: connectors.Timestamp, Key: true},
-				{Name: "visitors", Type: connectors.Int},
-				{Name: "pageviews", Type: connectors.Int},
-				{Name: "bounce_rate", Type: connectors.Float},
-				{Name: "visit_duration", Type: connectors.Float},
+				{Name: "visitors", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+					Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+				}},
+				{Name: "pageviews", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+					Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+				}},
+				{Name: "bounce_rate", Type: connectors.Float, Semantics: &connectors.ColumnSemantics{
+					Unit: "%", Direction: connectors.LowerIsBetter, Aggregation: connectors.AggAvg,
+				}},
+				{Name: "visit_duration", Type: connectors.Float, Semantics: &connectors.ColumnSemantics{
+					Unit: "seconds", Direction: connectors.Neutral, Aggregation: connectors.AggAvg,
+				}},
 			}},
 		}},
 	}

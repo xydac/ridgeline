@@ -78,6 +78,7 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 		Streams: []connectors.StreamSpec{{
 			Name:        StreamEvents,
 			Description: "Page views and custom events for the configured website, newest first.",
+			Kind:        connectors.Event,
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 			DefaultCron: "0 * * * *",
 			Schema: connectors.Schema{Columns: []connectors.Column{

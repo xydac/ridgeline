@@ -62,6 +62,7 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 		Streams: []connectors.StreamSpec{{
 			Name:        StreamEvents,
 			Description: "Individual events with typed timestamp, event name, and distinct_id.",
+			Kind:        connectors.Event,
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 			DefaultCron: "0 * * * *",
 			Schema: connectors.Schema{Columns: []connectors.Column{

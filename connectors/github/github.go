@@ -44,8 +44,12 @@ func New() *Connector { return &Connector{} }
 
 var trafficSchema = connectors.Schema{Columns: []connectors.Column{
 	{Name: "date", Type: connectors.Timestamp, Key: true},
-	{Name: "count", Type: connectors.Int},
-	{Name: "uniques", Type: connectors.Int},
+	{Name: "count", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+		Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+	}},
+	{Name: "uniques", Type: connectors.Int, Semantics: &connectors.ColumnSemantics{
+		Direction: connectors.HigherIsBetter, Aggregation: connectors.AggSum,
+	}},
 }}
 
 // Spec returns the connector's self-description.
@@ -61,6 +65,7 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 			{
 				Name:        StreamViews,
 				Description: "Daily unique visitors and total views for the repository.",
+				Kind:        connectors.Metric,
 				SyncModes:   []connectors.SyncMode{connectors.Incremental},
 				DefaultCron: "0 2 * * *",
 				Schema:      trafficSchema,
@@ -68,6 +73,7 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 			{
 				Name:        StreamClones,
 				Description: "Daily unique cloners and total clones for the repository.",
+				Kind:        connectors.Metric,
 				SyncModes:   []connectors.SyncMode{connectors.Incremental},
 				DefaultCron: "0 2 * * *",
 				Schema:      trafficSchema,

@@ -71,12 +71,14 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 			{
 				Name:        StreamStories,
 				Description: "Stories matching the configured query, newest first.",
+				Kind:        connectors.Unstructured,
 				SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 				DefaultCron: "0 * * * *",
 			},
 			{
 				Name:        StreamComments,
 				Description: "Comments matching the configured query, newest first.",
+				Kind:        connectors.Unstructured,
 				SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
 				DefaultCron: "0 * * * *",
 			},
