@@ -145,6 +145,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "tui: %v\n", err)
 			cmdExit(err)
 		}
+	case "schema":
+		if err := runSchema(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "schema: %v\n", err)
+			cmdExit(err)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -164,5 +169,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline creds list|put|get|rm --config PATH [NAME]")
 	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID --client-secret SEC")
 	fmt.Fprintln(w, "  ridgeline tui --config PATH [--render-once]")
+	fmt.Fprintln(w, "  ridgeline schema <connector>[.<stream>]")
 	fmt.Fprintln(w, "  ridgeline help")
 }
