@@ -828,6 +828,59 @@ Run the test suite:
 go test ./...
 ```
 
+## Concepts
+
+### Semantic stream metadata
+
+Every stream Ridgeline syncs carries a `SemanticKind` that classifies what
+its records represent in business terms:
+
+| Kind | Meaning |
+|---|---|
+| `metric` | Every record is a measurement that can be aggregated over time (page views per day, clicks per hour). |
+| `event` | Every record is a discrete occurrence with a timestamp (a click, a sign-up, a deploy). Events are counted, not summed. |
+| `dimension` | Every record is a reference entity (a user, a product) that other streams join against. |
+| `unstructured` | Records have no standardized quantitative interpretation (raw log lines, free-form text). |
+
+Metric columns carry additional annotations:
+
+| Field | Values |
+|---|---|
+| `direction` | `higher_is_better`, `lower_is_better`, or `neutral` |
+| `aggregation` | `sum`, `avg`, `last`, or `count` |
+| `unit` | Optional human-readable label (`%`, `seconds`, `USD`, ...) |
+
+These tags are the raw material for the Business Memory layer: anomaly
+detection, baseline computation, and the `explain` reasoning primitive
+all use directionality to frame deviations as good-news or bad-news.
+
+To inspect what Ridgeline knows about a data source:
+
+```
+ridgeline schema plausible
+ridgeline schema plausible.timeseries
+ridgeline schema github.views
+```
+
+Example output:
+
+```
+connector:  plausible
+stream:     timeseries
+kind:       metric
+description: Daily visitors, pageviews, bounce rate, and visit duration for the configured site.
+columns:
+  date            timestamp, key
+  visitors        int, higher_is_better, sum
+  pageviews       int, higher_is_better, sum
+  bounce_rate     float, lower_is_better, avg, unit=%
+  visit_duration  float, neutral, avg, unit=seconds
+```
+
+Each sync also writes a `_ridgeline_semantics.json` file alongside the
+data files, so downstream tooling can read the tags without importing
+the Go package.
+
 ## What exists today
 
 | Package                     | Status                                                                   |
@@ -854,7 +907,7 @@ go test ./...
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`.   |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
