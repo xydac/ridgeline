@@ -38,6 +38,8 @@
 
 - The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
+- CLI exit codes for misinvocation (missing required flag, unknown flag, unexpected positional) are inconsistent across subcommands: some exit 1, others exit 2. Establish a single convention (2 for usage errors, 1 for runtime failures) and apply it uniformly.
+- The external JSON-lines protocol rejects string-encoded numeric epochs (e.g. `"timestamp":"1710495000"`) with the generic message `unparseable timestamp <value>`. Either accept the same string-encoded epoch forms the `ts_normalize` enricher already documents, or return an error that names the string type as the reason for rejection so authors of external connectors can act on it.
 
 ## Phase 2+
 
