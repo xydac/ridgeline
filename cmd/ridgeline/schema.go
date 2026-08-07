@@ -36,7 +36,7 @@ func runSchema(args []string, out io.Writer) error {
 
 	conn, ok := connectors.Get(connectorName)
 	if !ok {
-		return fmt.Errorf("schema: no connector named %q (run 'ridgeline status' to see registered connectors)", connectorName)
+		return fmt.Errorf("no connector named %q (run 'ridgeline status' to see registered connectors)", connectorName)
 	}
 
 	spec := conn.Spec()
@@ -49,7 +49,7 @@ func runSchema(args []string, out io.Writer) error {
 		printed++
 	}
 	if printed == 0 {
-		return fmt.Errorf("schema: connector %q has no stream named %q", connectorName, streamFilter)
+		return fmt.Errorf("connector %q has no stream named %q", connectorName, streamFilter)
 	}
 	return nil
 }
