@@ -20,6 +20,8 @@
 //	                        store the resulting credentials (gsc)
 //	tui --config PATH       interactive Bubble Tea view of configured
 //	                        streams with last-sync and record counts
+//	memory streams|metrics  query the Business Memory catalog (persists
+//	                        across sync runs)
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -150,6 +152,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "schema: %v\n", err)
 			cmdExit(err)
 		}
+	case "memory":
+		if err := runMemory(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "memory: %v\n", err)
+			cmdExit(err)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -170,5 +177,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline creds oauth gsc --config PATH --client-id ID --client-secret SEC")
 	fmt.Fprintln(w, "  ridgeline tui --config PATH [--render-once]")
 	fmt.Fprintln(w, "  ridgeline schema <connector>[.<stream>]")
+	fmt.Fprintln(w, "  ridgeline memory streams --config PATH")
+	fmt.Fprintln(w, "  ridgeline memory metrics --config PATH")
 	fmt.Fprintln(w, "  ridgeline help")
 }
