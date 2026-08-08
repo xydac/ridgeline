@@ -33,6 +33,32 @@ CREATE TABLE IF NOT EXISTS credentials (
 	updated_at TEXT NOT NULL
 ) STRICT;`,
 	},
+	{
+		version: 3,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_streams (
+	connector TEXT NOT NULL,
+	stream TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'unstructured',
+	first_seen_at TEXT NOT NULL,
+	last_seen_at TEXT NOT NULL,
+	row_count_lifetime INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (connector, stream)
+) STRICT;`,
+	},
+	{
+		version: 4,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_metrics (
+	fq_name TEXT PRIMARY KEY,
+	unit TEXT NOT NULL DEFAULT '',
+	direction TEXT NOT NULL DEFAULT 'neutral',
+	aggregation TEXT NOT NULL DEFAULT 'none',
+	last_value REAL,
+	last_value_at TEXT,
+	updated_at TEXT NOT NULL
+) STRICT;`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
