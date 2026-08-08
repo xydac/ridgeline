@@ -881,6 +881,55 @@ Each sync also writes a `_ridgeline_semantics.json` file alongside the
 data files, so downstream tooling can read the tags without importing
 the Go package.
 
+## Business Memory
+
+Ridgeline maintains a persistent catalog of everything it has observed
+across sync runs. The catalog survives sink wipes -- it is the durable
+understanding, not the raw data files.
+
+### Streams catalog
+
+After each sync, the catalog records which connector + stream was seen,
+what kind of data it carries, when it was first observed, and how many
+rows have accumulated over all time.
+
+```
+ridgeline memory streams --config ridgeline.yaml
+```
+
+```
+CONNECTOR   STREAM    KIND     FIRST SEEN            LAST SEEN             ROWS (LIFETIME)
+----------  --------  -------  --------------------  --------------------  ---------------
+plausible   daily     metric   2026-08-01T12:00:00Z  2026-08-08T12:00:00Z  56
+posthog     events    event    2026-08-01T12:00:00Z  2026-08-08T12:00:00Z  14302
+```
+
+`FIRST SEEN` is set on first observation and never overwritten, so
+"how long has Ridgeline been watching this stream?" is always answerable.
+
+### Metrics catalog
+
+Metric-typed streams have columns annotated with unit, directionality,
+and aggregation hints. The catalog tracks the last observed value for
+each metric column.
+
+```
+ridgeline memory metrics --config ridgeline.yaml
+```
+
+```
+METRIC                            UNIT     DIRECTION          AGGREGATION  LAST VALUE  LAST SEEN
+--------------------------------  -------  -----------------  -----------  ----------  --------------------
+plausible.daily.bounce_rate       %        lower_is_better    avg          38.2        2026-08-08T12:00:00Z
+plausible.daily.pageviews         users    higher_is_better   sum          4821        2026-08-08T12:00:00Z
+plausible.daily.visit_duration    seconds  neutral            avg          142         2026-08-08T12:00:00Z
+plausible.daily.visitors          users    higher_is_better   sum          1234        2026-08-08T12:00:00Z
+```
+
+The `direction` column records whether higher or lower values are
+preferable for this metric -- the raw material for the upcoming anomaly
+detection and `explain` reasoning primitives.
+
 ## What exists today
 
 | Package                     | Status                                                                   |
@@ -906,8 +955,9 @@ the Go package.
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
+| `memory`                    | Business Memory catalog: persistent stream + metric registry in SQLite.  |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).

@@ -41,6 +41,13 @@
 - CLI exit codes for misinvocation (missing required flag, unknown flag, unexpected positional) are inconsistent across subcommands: some exit 1, others exit 2. Establish a single convention (2 for usage errors, 1 for runtime failures) and apply it uniformly.
 - The external JSON-lines protocol rejects string-encoded numeric epochs (e.g. `"timestamp":"1710495000"`) with the generic message `unparseable timestamp <value>`. Either accept the same string-encoded epoch forms the `ts_normalize` enricher already documents, or return an error that names the string type as the reason for rejection so authors of external connectors can act on it.
 
-## Phase 2+
+## Phase 2: Business Memory
 
-Further phases are tracked privately during bootstrap and will be published here once Phase 1 ships.
+- [x] Business Memory catalog: `bm_streams` and `bm_metrics` tables persist observed streams and metric columns across sync runs
+- [x] `ridgeline memory streams` -- list all streams with first_seen_at, last_seen_at, lifetime row count
+- [x] `ridgeline memory metrics` -- list all metric columns with unit, directionality, aggregation, last value
+- [ ] Baselines: rolling window statistics per metric (7d, 30d, 90d mean/stddev)
+- [ ] Anomaly detection: deviations from baseline surface as events in `bm_events`
+- [ ] `ridgeline explain <metric> --since <window>` -- templated narrative from the memory catalog
+- [ ] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
+- [ ] MCP server (`ridgeline mcp`) exposing `list_metrics` and `explain` as agent tools
