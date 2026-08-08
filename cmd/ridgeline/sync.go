@@ -18,6 +18,7 @@ import (
 	"github.com/xydac/ridgeline/enrichers"
 	_ "github.com/xydac/ridgeline/enrichers/tsnormalize" // register ts_normalize enricher
 	_ "github.com/xydac/ridgeline/enrichers/urlhost"     // register url_host enricher
+	"github.com/xydac/ridgeline/memory"
 	"github.com/xydac/ridgeline/pipeline"
 	"github.com/xydac/ridgeline/sinks"
 	"github.com/xydac/ridgeline/sinks/jsonl"
@@ -240,13 +241,15 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, fl
 	fmt.Fprintf(stdout, "loaded %s\n", cfgPath)
 	fmt.Fprintf(stdout, "state: %s\n", cfg.StatePath)
 
+	cat := memory.New(store.DB())
+
 	var sum SyncSummary
 	var failures []syncFailure
 	var succeeded int
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			res, err := runConnectorInstance(ctx, store, pid, inst, stdout, cs, flatSinks, logWriter)
+			res, err := runConnectorInstance(ctx, store, cat, pid, inst, stdout, cs, flatSinks, logWriter)
 			if err != nil {
 				if continueOnError {
 					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
@@ -408,7 +411,9 @@ func buildEnricherSteps(inst config.ConnectorInstance) ([]pipeline.EnricherStep,
 // (TUI, tests) can pass io.Discard. When logWriter is non-nil it is
 // used as the destination for pipeline log messages (warn/info lines
 // from connectors); nil means the default prefix-free stderr logger.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool, logWriter io.Writer) (pipeline.Result, error) {
+// cat is optional; when non-nil, stream and metric observations are
+// recorded in the Business Memory catalog after a successful run.
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *memory.Catalog, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool, logWriter io.Writer) (pipeline.Result, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
 		return pipeline.Result{}, fmt.Errorf("connector type %q is not registered", inst.Type)
@@ -465,5 +470,81 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, pid st
 	} else {
 		fmt.Fprintf(stdout, "%s/%s: %d extracted, %d persisted, %d states saved\n", pid, inst.Name, res.Records, res.Persisted, res.States)
 	}
+
+	if cat != nil {
+		updateBusinessMemory(ctx, cat, conn, inst, res)
+	}
+
 	return res, nil
+}
+
+// updateBusinessMemory records stream and metric observations from a
+// successful connector run into the Business Memory catalog. Errors are
+// logged to stderr and never propagate to the caller; catalog writes are
+// always best-effort.
+func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, conn connectors.Connector, inst config.ConnectorInstance, res pipeline.Result) {
+	spec := conn.Spec()
+	specByName := map[string]connectors.StreamSpec{}
+	for _, ss := range spec.Streams {
+		specByName[ss.Name] = ss
+	}
+
+	for _, streamName := range inst.Streams {
+		sr := res.PerStream[streamName]
+		ss, known := specByName[streamName]
+		kind := "unstructured"
+		if known {
+			kind = ss.Kind.String()
+		}
+		if err := cat.UpsertStream(ctx, spec.Name, streamName, kind, int64(sr.Records)); err != nil {
+			fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
+		}
+
+		if !known {
+			continue
+		}
+		lastRec := res.LastObserved[streamName]
+		for _, col := range ss.Schema.Columns {
+			if col.Semantics == nil {
+				continue
+			}
+			fqName := spec.Name + "." + streamName + "." + col.Name
+			var lastVal *float64
+			if lastRec.Data != nil {
+				if v, ok := lastRec.Data[col.Name]; ok {
+					lastVal = toFloat64(v)
+				}
+			}
+			if err := cat.UpsertMetric(ctx, fqName,
+				col.Semantics.Unit,
+				col.Semantics.Direction.String(),
+				col.Semantics.Aggregation.String(),
+				lastVal,
+			); err != nil {
+				fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
+			}
+		}
+	}
+}
+
+// toFloat64 converts a numeric interface value to *float64. Returns nil
+// for non-numeric types.
+func toFloat64(v interface{}) *float64 {
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case float32:
+		f := float64(n)
+		return &f
+	case int:
+		f := float64(n)
+		return &f
+	case int64:
+		f := float64(n)
+		return &f
+	case int32:
+		f := float64(n)
+		return &f
+	}
+	return nil
 }

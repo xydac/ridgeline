@@ -94,6 +94,10 @@ type Result struct {
 	// Skipped is the number of records dropped before reaching the
 	// pipeline (e.g. external RECORD messages with a missing data field).
 	Skipped int
+	// LastObserved holds the last record seen per stream. Callers can use
+	// this to sample metric values without a post-sync storage query.
+	// Nil when no records were observed for that stream.
+	LastObserved map[string]connectors.Record
 }
 
 // Run drives one extraction from conn through sink, persisting state
@@ -168,7 +172,10 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		return Result{}, fmt.Errorf("pipeline: extract: %w", err)
 	}
 
-	result := Result{PerStream: map[string]StreamResult{}}
+	result := Result{
+		PerStream:    map[string]StreamResult{},
+		LastObserved: map[string]connectors.Record{},
+	}
 	buffers := map[string][]connectors.Record{}
 
 	// flushStream applies any configured enrichers to the buffered
@@ -195,6 +202,7 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		result.PerStream[stream] = sr
 		result.Records += len(batch)
 		result.Persisted += n
+		result.LastObserved[stream] = batch[len(batch)-1]
 		buffers[stream] = buffers[stream][:0]
 		return nil
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/manifest"
+	"github.com/xydac/ridgeline/memory"
 	sqlitestate "github.com/xydac/ridgeline/state/sqlite"
 )
 
@@ -548,7 +549,7 @@ func realTUISyncer(ctx context.Context, cfgPath, pid, connName string) (int, err
 	}
 	for _, inst := range product.Connectors {
 		if inst.Name == connName {
-			res, err := runConnectorInstance(ctx, store, pid, inst, io.Discard, cs, false, nil)
+			res, err := runConnectorInstance(ctx, store, memory.New(store.DB()), pid, inst, io.Discard, cs, false, nil)
 			return res.Records, err
 		}
 	}
