@@ -930,6 +930,47 @@ The `direction` column records whether higher or lower values are
 preferable for this metric -- the raw material for the upcoming anomaly
 detection and `explain` reasoning primitives.
 
+### Baselines
+
+For each metric column, Ridgeline maintains rolling-window statistics
+computed from every observed `last_value` since tracking began. Three
+windows are computed on each sync: 7-day, 30-day, and 90-day.
+
+```
+ridgeline memory baselines --config ridgeline.yaml plausible.daily.visitors
+```
+
+```
+Metric: plausible.daily.visitors
+30d sparkline: ▂▃▃▄▅▄▆▇▆▅▆▇▇▆▄▅▆▇▇▇▇▇▆▇▇▇▇▇▇▇
+
+WINDOW    SAMPLES  MEAN      STDDEV    MIN       MAX       COMPUTED
+--------  -------  --------  --------  --------  --------  --------------------
+7d        7        1187      43.2      1102      1234      2026-08-08T12:00:00Z
+30d       30       1143      61.8      987       1234      2026-08-08T12:00:00Z
+90d       62       1098      88.4      832       1234      2026-08-08T12:00:00Z
+```
+
+The sparkline is an ASCII rendering of the last 30 days of observed
+values using Unicode block elements. No external dependencies are
+required.
+
+Baselines are the raw material for anomaly detection: when a new value
+falls outside `k * stddev` from the window mean, Ridgeline can flag it
+as a surprise -- good or bad depending on the declared directionality of
+the metric.
+
+To recompute all baselines from recorded history (useful after importing
+historical data or changing window configuration):
+
+```
+ridgeline memory recompute --config ridgeline.yaml
+ridgeline memory recompute --config ridgeline.yaml --since 30d
+```
+
+The `--since` flag restricts recomputation to metrics that received new
+observations within that window.
+
 ## What exists today
 
 | Package                     | Status                                                                   |
@@ -955,7 +996,7 @@ detection and `explain` reasoning primitives.
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `memory`                    | Business Memory catalog: persistent stream + metric registry in SQLite.  |
+| `memory`                    | Business Memory catalog: streams, metrics, metric-value history, rolling-window baselines. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
 | `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`. |
 

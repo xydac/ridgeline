@@ -46,7 +46,7 @@
 - [x] Business Memory catalog: `bm_streams` and `bm_metrics` tables persist observed streams and metric columns across sync runs
 - [x] `ridgeline memory streams` -- list all streams with first_seen_at, last_seen_at, lifetime row count
 - [x] `ridgeline memory metrics` -- list all metric columns with unit, directionality, aggregation, last value
-- [ ] Baselines: rolling window statistics per metric (7d, 30d, 90d mean/stddev)
+- [x] Baselines: rolling window statistics per metric (7d, 30d, 90d mean/stddev/min/max); `ridgeline memory baselines <metric>` with ASCII sparkline; `ridgeline memory recompute`
 - [ ] Anomaly detection: deviations from baseline surface as events in `bm_events`
 - [ ] `ridgeline explain <metric> --since <window>` -- templated narrative from the memory catalog
 - [ ] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
