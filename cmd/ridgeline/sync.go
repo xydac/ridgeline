@@ -485,6 +485,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *m
 func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, conn connectors.Connector, inst config.ConnectorInstance, res pipeline.Result) {
 	spec := conn.Spec()
 	specByName := map[string]connectors.StreamSpec{}
+	var metricsWithNewValues []string
 	for _, ss := range spec.Streams {
 		specByName[ss.Name] = ss
 	}
@@ -523,6 +524,17 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, conn connect
 			); err != nil {
 				fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
 			}
+			if lastVal != nil {
+				if err := cat.RecordMetricValue(ctx, fqName, *lastVal); err != nil {
+					fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
+				}
+				metricsWithNewValues = append(metricsWithNewValues, fqName)
+			}
+		}
+	}
+	for _, fqName := range metricsWithNewValues {
+		if err := cat.ComputeBaselines(ctx, fqName, memory.DefaultWindows); err != nil {
+			fmt.Fprintf(os.Stderr, "warn: business memory baselines: %v\n", err)
 		}
 	}
 }
