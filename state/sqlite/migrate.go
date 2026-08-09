@@ -59,6 +59,36 @@ CREATE TABLE IF NOT EXISTS bm_metrics (
 	updated_at TEXT NOT NULL
 ) STRICT;`,
 	},
+	{
+		version: 5,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_metric_values (
+	fq_name TEXT NOT NULL,
+	value REAL NOT NULL,
+	observed_at TEXT NOT NULL
+) STRICT;`,
+	},
+	{
+		version: 6,
+		stmt: `
+CREATE INDEX IF NOT EXISTS idx_bm_metric_values_lookup
+	ON bm_metric_values (fq_name, observed_at);`,
+	},
+	{
+		version: 7,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_baselines (
+	fq_name TEXT NOT NULL,
+	window_days INTEGER NOT NULL,
+	mean REAL NOT NULL,
+	stddev REAL NOT NULL,
+	min REAL NOT NULL,
+	max REAL NOT NULL,
+	sample_count INTEGER NOT NULL,
+	last_computed_at TEXT NOT NULL,
+	PRIMARY KEY (fq_name, window_days)
+) STRICT;`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
