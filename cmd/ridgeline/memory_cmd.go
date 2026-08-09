@@ -16,25 +16,33 @@ import (
 
 // runMemory dispatches `ridgeline memory <subcommand>`.
 //
-//	memory streams --config PATH   list all streams in the Business Memory catalog
-//	memory metrics --config PATH   list all metrics in the Business Memory catalog
+//	memory streams   --config PATH           list all streams in the Business Memory catalog
+//	memory metrics   --config PATH           list all metrics in the Business Memory catalog
+//	memory baselines --config PATH <metric>  print rolling-window baselines + sparkline
+//	memory recompute --config PATH           recompute all baselines from recorded history
 func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 	if len(args) == 0 {
-		return usageErrorf("memory: subcommand required (streams, metrics)")
+		return usageErrorf("memory: subcommand required (streams, metrics, baselines, recompute)")
 	}
 	switch args[0] {
 	case "streams":
 		return runMemoryStreams(ctx, args[1:], stdout)
 	case "metrics":
 		return runMemoryMetrics(ctx, args[1:], stdout)
+	case "baselines":
+		return runMemoryBaselines(ctx, args[1:], stdout)
+	case "recompute":
+		return runMemoryRecompute(ctx, args[1:], stdout)
 	case "help", "--help", "-h":
-		fmt.Fprintln(stdout, "Usage: ridgeline memory streams --config PATH")
-		fmt.Fprintln(stdout, "       ridgeline memory metrics --config PATH")
+		fmt.Fprintln(stdout, "Usage: ridgeline memory streams   --config PATH")
+		fmt.Fprintln(stdout, "       ridgeline memory metrics   --config PATH")
+		fmt.Fprintln(stdout, "       ridgeline memory baselines --config PATH <metric>")
+		fmt.Fprintln(stdout, "       ridgeline memory recompute --config PATH [--since DURATION]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintln(stdout, "Query the Business Memory catalog.")
 		return nil
 	default:
-		return usageErrorf("memory: unknown subcommand %q (streams, metrics)", args[0])
+		return usageErrorf("memory: unknown subcommand %q (streams, metrics, baselines, recompute)", args[0])
 	}
 }
 
@@ -142,6 +150,112 @@ func runMemoryMetrics(ctx context.Context, args []string, stdout *os.File) error
 		)
 	}
 	return w.Flush()
+}
+
+func runMemoryBaselines(ctx context.Context, args []string, stdout *os.File) error {
+	fs := flag.NewFlagSet("memory baselines", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory baselines --config PATH <metric>")
+		fmt.Fprintln(fs.Output(), "")
+		fmt.Fprintln(fs.Output(), "Prints rolling-window statistics and a 30-day sparkline for a metric.")
+		fmt.Fprintln(fs.Output(), "")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
+	if help || err != nil {
+		return err
+	}
+	if *cfgPath == "" {
+		return usageErrorf("memory baselines: --config is required")
+	}
+	if fs.NArg() == 0 {
+		return usageErrorf("memory baselines: metric name required (e.g. plausible.daily.visitors)")
+	}
+	fqName := fs.Arg(0)
+
+	cat, store, err := openCatalogFromConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	rows, err := cat.ListBaselines(ctx, fqName)
+	if err != nil {
+		return fmt.Errorf("memory baselines: %w", err)
+	}
+
+	sparkline, err := cat.Sparkline(ctx, fqName, 30, 40)
+	if err != nil {
+		return fmt.Errorf("memory baselines: sparkline: %w", err)
+	}
+
+	if len(rows) == 0 {
+		fmt.Fprintf(stdout, "No baselines for %s. Run 'ridgeline sync' against a connector with declared metric columns.\n", fqName)
+		return nil
+	}
+
+	fmt.Fprintf(stdout, "Metric: %s\n", fqName)
+	if sparkline != "" {
+		fmt.Fprintf(stdout, "30d sparkline: %s\n", sparkline)
+	}
+	fmt.Fprintln(stdout, "")
+
+	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "WINDOW\tSAMPLES\tMEAN\tSTDDEV\tMIN\tMAX\tCOMPUTED")
+	fmt.Fprintln(w, strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 7)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 19))
+	for _, r := range rows {
+		fmt.Fprintf(w, "%dd\t%d\t%.4g\t%.4g\t%.4g\t%.4g\t%s\n",
+			r.WindowDays,
+			r.SampleCount,
+			r.Mean,
+			r.Stddev,
+			r.Min,
+			r.Max,
+			r.LastComputedAt.Format(time.RFC3339),
+		)
+	}
+	return w.Flush()
+}
+
+func runMemoryRecompute(ctx context.Context, args []string, stdout *os.File) error {
+	fs := flag.NewFlagSet("memory recompute", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	sinceStr := fs.String("since", "", "only recompute metrics with observations in this window (e.g. 7d, 720h); omit for all")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory recompute --config PATH [--since DURATION]")
+		fmt.Fprintln(fs.Output(), "")
+		fmt.Fprintln(fs.Output(), "Recomputes rolling-window baselines for all metrics from recorded history.")
+		fmt.Fprintln(fs.Output(), "")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
+	if help || err != nil {
+		return err
+	}
+	if *cfgPath == "" {
+		return usageErrorf("memory recompute: --config is required")
+	}
+
+	var since time.Duration
+	if *sinceStr != "" {
+		since, err = time.ParseDuration(*sinceStr)
+		if err != nil {
+			return usageErrorf("memory recompute: invalid --since %q: %v", *sinceStr, err)
+		}
+	}
+
+	cat, store, err := openCatalogFromConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	if err := cat.Recompute(ctx, since, memory.DefaultWindows); err != nil {
+		return fmt.Errorf("memory recompute: %w", err)
+	}
+	fmt.Fprintln(stdout, "Baselines recomputed.")
+	return nil
 }
 
 // openCatalogFromConfig loads the config at cfgPath, opens the state store,

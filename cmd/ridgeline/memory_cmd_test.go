@@ -121,3 +121,63 @@ func TestRunMemoryMetrics_EmptyAfterTestSrc(t *testing.T) {
 		t.Errorf("expected 'No metrics' message for testsrc, got:\n%s", out)
 	}
 }
+
+func TestRunMemoryBaselines_RequiresConfig(t *testing.T) {
+	t.Parallel()
+	err := runMemoryBaselines(context.Background(), nil, nil)
+	if err == nil {
+		t.Fatal("expected error when --config missing")
+	}
+}
+
+func TestRunMemoryBaselines_RequiresMetricArg(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := dir + "/state.db"
+	outDir := dir + "/out"
+	cfgPath := configFixture(t, dir, dbPath, outDir)
+	err := runMemoryBaselines(context.Background(), []string{"--config", cfgPath}, os.Stdout)
+	if err == nil {
+		t.Fatal("expected error when metric name missing")
+	}
+}
+
+func TestRunMemoryBaselines_NoData(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/state.db"
+	outDir := dir + "/out"
+	cfgPath := configFixture(t, dir, dbPath, outDir)
+
+	out := captureStdout(t, func() {
+		if err := runMemoryBaselines(context.Background(), []string{"--config", cfgPath, "app.unknown.metric"}, os.Stdout); err != nil {
+			t.Errorf("memory baselines: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No baselines") {
+		t.Errorf("expected 'No baselines' message, got:\n%s", out)
+	}
+}
+
+func TestRunMemoryRecompute_RequiresConfig(t *testing.T) {
+	t.Parallel()
+	err := runMemoryRecompute(context.Background(), nil, nil)
+	if err == nil {
+		t.Fatal("expected error when --config missing")
+	}
+}
+
+func TestRunMemoryRecompute_EmptyDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/state.db"
+	outDir := dir + "/out"
+	cfgPath := configFixture(t, dir, dbPath, outDir)
+
+	out := captureStdout(t, func() {
+		if err := runMemoryRecompute(context.Background(), []string{"--config", cfgPath}, os.Stdout); err != nil {
+			t.Errorf("memory recompute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "recomputed") {
+		t.Errorf("expected 'recomputed' in output, got:\n%s", out)
+	}
+}
