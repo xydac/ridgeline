@@ -971,6 +971,52 @@ ridgeline memory recompute --config ridgeline.yaml --since 30d
 The `--since` flag restricts recomputation to metrics that received new
 observations within that window.
 
+### Anomalies
+
+After each sync, Ridgeline checks every metric with an established baseline
+against the newly observed value. When a value deviates by more than `k`
+standard deviations from the rolling window mean, an anomaly event is
+written to the catalog. The event records:
+
+- the metric, the observed value, the baseline mean, and the sigma deviation
+- the window that triggered the flag (7d, 30d, or 90d)
+- a directional interpretation: `surprise-good`, `surprise-bad`, or
+  `surprise-neutral`, derived from the metric's declared directionality
+
+```
+ridgeline memory events --config ridgeline.yaml --since 7d
+```
+
+```
+TIME                  METRIC                         WINDOW  OBSERVED    MEAN        DEVIATION  DIRECTION
+-------------------   ----------------------------   ------  ----------  ----------  ---------  ----------------
+2026-08-09T12:00:00Z  plausible.daily.visitors       7d      724         1187        -4.32σ     surprise-bad
+2026-08-07T12:00:00Z  plausible.daily.bounce_rate    30d     61.4        38.2        +5.18σ     surprise-bad
+```
+
+Two knobs control detection sensitivity:
+
+- `anomaly_k` (default `2.5`): the standard deviation multiplier. A value of
+  `2.5` flags observations more than 2.5 standard deviations from the mean.
+  Lower values produce more events; higher values produce fewer.
+- `min_samples` (default `14`): the minimum number of historical observations
+  required before a metric is eligible for detection. This prevents false
+  positives during the first two weeks of tracking.
+
+Both knobs are configurable globally and per-metric in `ridgeline.yaml`:
+
+```yaml
+memory:
+  anomaly_k: 2.5
+  min_samples: 14
+  metric_overrides:
+    "plausible.daily.bounce_rate":
+      anomaly_k: 3.0
+```
+
+Events are never deleted; they accumulate as a historical record of
+surprising business moments. Use `--since 0` to list all events ever recorded.
+
 ## What exists today
 
 | Package                     | Status                                                                   |
