@@ -181,3 +181,27 @@ func TestRunMemoryRecompute_EmptyDB(t *testing.T) {
 		t.Errorf("expected 'recomputed' in output, got:\n%s", out)
 	}
 }
+
+func TestRunMemoryEvents_RequiresConfig(t *testing.T) {
+	t.Parallel()
+	err := runMemoryEvents(context.Background(), nil, nil)
+	if err == nil {
+		t.Fatal("expected error when --config missing")
+	}
+}
+
+func TestRunMemoryEvents_NoData(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/state.db"
+	outDir := dir + "/out"
+	cfgPath := configFixture(t, dir, dbPath, outDir)
+
+	out := captureStdout(t, func() {
+		if err := runMemoryEvents(context.Background(), []string{"--config", cfgPath, "--since", "7d"}, os.Stdout); err != nil {
+			t.Errorf("memory events: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No anomaly events") {
+		t.Errorf("expected 'No anomaly events' message, got:\n%s", out)
+	}
+}
