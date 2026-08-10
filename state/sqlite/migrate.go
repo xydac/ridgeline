@@ -89,6 +89,28 @@ CREATE TABLE IF NOT EXISTS bm_baselines (
 	PRIMARY KEY (fq_name, window_days)
 ) STRICT;`,
 	},
+	{
+		version: 8,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	kind TEXT NOT NULL DEFAULT 'anomaly',
+	metric_fq TEXT NOT NULL,
+	observed_value REAL NOT NULL,
+	baseline_mean REAL NOT NULL,
+	stddev_from_mean REAL NOT NULL,
+	direction TEXT NOT NULL DEFAULT 'surprise-neutral',
+	window_days INTEGER NOT NULL,
+	at TEXT NOT NULL,
+	UNIQUE (metric_fq, window_days, at)
+) STRICT;`,
+	},
+	{
+		version: 9,
+		stmt: `
+CREATE INDEX IF NOT EXISTS idx_bm_events_at
+	ON bm_events (at DESC);`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
