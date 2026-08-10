@@ -38,6 +38,62 @@ type File struct {
 	// Products maps a stable product id (used as the first segment
 	// of state keys) to its connector and sink configuration.
 	Products map[string]Product `yaml:"products"`
+
+	// Memory configures Business Memory anomaly detection.
+	// All fields are optional; zero values apply the documented defaults.
+	Memory MemoryConfig `yaml:"memory"`
+}
+
+// MemoryConfig holds global and per-metric anomaly detection settings.
+type MemoryConfig struct {
+	// AnomalyK is the stddev multiplier used to flag anomalies.
+	// A value of 2.5 flags observations more than 2.5 standard deviations
+	// from the rolling mean. Defaults to 2.5 when zero.
+	AnomalyK float64 `yaml:"anomaly_k"`
+
+	// MinSamples is the minimum number of baseline samples required
+	// before a metric is eligible for anomaly detection.
+	// Defaults to 14 when zero.
+	MinSamples int `yaml:"min_samples"`
+
+	// MetricOverrides maps a fully-qualified metric name to per-metric
+	// overrides. Keys must match the fq_name in the Business Memory
+	// catalog (e.g. "plausible.daily.visitors").
+	MetricOverrides map[string]MetricAnomalyOverride `yaml:"metric_overrides"`
+}
+
+// MetricAnomalyOverride overrides anomaly detection parameters for one metric.
+type MetricAnomalyOverride struct {
+	// AnomalyK overrides the global AnomalyK for this metric.
+	// Ignored when zero (global value applies).
+	AnomalyK float64 `yaml:"anomaly_k"`
+	// MinSamples overrides the global MinSamples for this metric.
+	// Ignored when zero (global value applies).
+	MinSamples int `yaml:"min_samples"`
+}
+
+// AnomalyKFor returns the effective k threshold for fqName, applying any
+// per-metric override. Falls back to the global value, then the package default.
+func (m MemoryConfig) AnomalyKFor(fqName string) float64 {
+	if ov, ok := m.MetricOverrides[fqName]; ok && ov.AnomalyK > 0 {
+		return ov.AnomalyK
+	}
+	if m.AnomalyK > 0 {
+		return m.AnomalyK
+	}
+	return 2.5
+}
+
+// MinSamplesFor returns the effective minimum sample count for fqName, applying
+// any per-metric override. Falls back to the global value, then the package default.
+func (m MemoryConfig) MinSamplesFor(fqName string) int {
+	if ov, ok := m.MetricOverrides[fqName]; ok && ov.MinSamples > 0 {
+		return ov.MinSamples
+	}
+	if m.MinSamples > 0 {
+		return m.MinSamples
+	}
+	return 14
 }
 
 // Product groups connectors and sinks under a shared namespace.

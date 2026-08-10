@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/xydac/ridgeline/config"
 	"github.com/xydac/ridgeline/connectors"
@@ -249,7 +250,7 @@ func runConfigSync(ctx context.Context, cfgPath string, continueOnError bool, fl
 	for _, pid := range cfg.ProductIDs() {
 		product := cfg.Products[pid]
 		for _, inst := range product.Connectors {
-			res, err := runConnectorInstance(ctx, store, cat, pid, inst, stdout, cs, flatSinks, logWriter)
+			res, err := runConnectorInstance(ctx, store, cat, cfg.Memory, pid, inst, stdout, cs, flatSinks, logWriter)
 			if err != nil {
 				if continueOnError {
 					fmt.Fprintf(os.Stderr, "sync error (continuing): product %s connector %s: %v\n", pid, inst.Name, err)
@@ -413,7 +414,7 @@ func buildEnricherSteps(inst config.ConnectorInstance) ([]pipeline.EnricherStep,
 // from connectors); nil means the default prefix-free stderr logger.
 // cat is optional; when non-nil, stream and metric observations are
 // recorded in the Business Memory catalog after a successful run.
-func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *memory.Catalog, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool, logWriter io.Writer) (pipeline.Result, error) {
+func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *memory.Catalog, memCfg config.MemoryConfig, pid string, inst config.ConnectorInstance, stdout io.Writer, cs *creds.Store, flatSinks bool, logWriter io.Writer) (pipeline.Result, error) {
 	conn, ok := connectors.Get(inst.Type)
 	if !ok {
 		return pipeline.Result{}, fmt.Errorf("connector type %q is not registered", inst.Type)
@@ -472,7 +473,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *m
 	}
 
 	if cat != nil {
-		updateBusinessMemory(ctx, cat, conn, inst, res)
+		updateBusinessMemory(ctx, cat, memCfg, conn, inst, res)
 	}
 
 	return res, nil
@@ -482,13 +483,19 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *m
 // successful connector run into the Business Memory catalog. Errors are
 // logged to stderr and never propagate to the caller; catalog writes are
 // always best-effort.
-func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, conn connectors.Connector, inst config.ConnectorInstance, res pipeline.Result) {
+func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg config.MemoryConfig, conn connectors.Connector, inst config.ConnectorInstance, res pipeline.Result) {
 	spec := conn.Spec()
 	specByName := map[string]connectors.StreamSpec{}
-	var metricsWithNewValues []string
+	type metricObs struct {
+		fqName string
+		value  float64
+	}
+	var newObs []metricObs
 	for _, ss := range spec.Streams {
 		specByName[ss.Name] = ss
 	}
+
+	now := time.Now().UTC()
 
 	for _, streamName := range inst.Streams {
 		sr := res.PerStream[streamName]
@@ -528,13 +535,18 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, conn connect
 				if err := cat.RecordMetricValue(ctx, fqName, *lastVal); err != nil {
 					fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
 				}
-				metricsWithNewValues = append(metricsWithNewValues, fqName)
+				newObs = append(newObs, metricObs{fqName: fqName, value: *lastVal})
 			}
 		}
 	}
-	for _, fqName := range metricsWithNewValues {
-		if err := cat.ComputeBaselines(ctx, fqName, memory.DefaultWindows); err != nil {
+	for _, obs := range newObs {
+		if err := cat.ComputeBaselines(ctx, obs.fqName, memory.DefaultWindows); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: business memory baselines: %v\n", err)
+		}
+		k := memCfg.AnomalyKFor(obs.fqName)
+		minS := memCfg.MinSamplesFor(obs.fqName)
+		if err := cat.DetectAndRecordAnomalies(ctx, obs.fqName, obs.value, now, k, minS); err != nil {
+			fmt.Fprintf(os.Stderr, "warn: business memory anomaly: %v\n", err)
 		}
 	}
 }
