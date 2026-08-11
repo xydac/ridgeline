@@ -64,7 +64,7 @@ func errCreds(err error) error {
 func runCreds(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		credsUsage(stderr)
-		return usageErrorf("creds: a verb is required (list, put, get, rm, oauth)")
+		return usageErrorf("a verb is required (list, put, get, rm, oauth)")
 	}
 	verb, rest := args[0], args[1:]
 	switch verb {
