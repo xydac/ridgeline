@@ -23,7 +23,7 @@ import (
 //	memory events    --config PATH           list anomaly events detected during sync
 func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 	if len(args) == 0 {
-		return usageErrorf("memory: subcommand required (streams, metrics, baselines, recompute, events)")
+		return usageErrorf("subcommand required (streams, metrics, baselines, recompute, events)")
 	}
 	switch args[0] {
 	case "streams":
@@ -46,7 +46,7 @@ func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 		fmt.Fprintln(stdout, "Query the Business Memory catalog.")
 		return nil
 	default:
-		return usageErrorf("memory: unknown subcommand %q (streams, metrics, baselines, recompute, events)", args[0])
+		return usageErrorf("unknown subcommand %q (streams, metrics, baselines, recompute, events)", args[0])
 	}
 }
 
@@ -65,7 +65,7 @@ func runMemoryStreams(ctx context.Context, args []string, stdout *os.File) error
 		return err
 	}
 	if *cfgPath == "" {
-		return usageErrorf("memory streams: --config is required")
+		return usageErrorf("streams: --config is required")
 	}
 
 	cat, store, err := openCatalogFromConfig(*cfgPath)
@@ -76,7 +76,7 @@ func runMemoryStreams(ctx context.Context, args []string, stdout *os.File) error
 
 	rows, err := cat.ListStreams(ctx)
 	if err != nil {
-		return fmt.Errorf("memory streams: %w", err)
+		return fmt.Errorf("streams: %w", err)
 	}
 	if len(rows) == 0 {
 		fmt.Fprintln(stdout, "No streams in Business Memory catalog. Run 'ridgeline sync' first.")
@@ -114,7 +114,7 @@ func runMemoryMetrics(ctx context.Context, args []string, stdout *os.File) error
 		return err
 	}
 	if *cfgPath == "" {
-		return usageErrorf("memory metrics: --config is required")
+		return usageErrorf("metrics: --config is required")
 	}
 
 	cat, store, err := openCatalogFromConfig(*cfgPath)
@@ -125,7 +125,7 @@ func runMemoryMetrics(ctx context.Context, args []string, stdout *os.File) error
 
 	rows, err := cat.ListMetrics(ctx)
 	if err != nil {
-		return fmt.Errorf("memory metrics: %w", err)
+		return fmt.Errorf("metrics: %w", err)
 	}
 	if len(rows) == 0 {
 		fmt.Fprintln(stdout, "No metrics in Business Memory catalog. Run 'ridgeline sync' against a connector with declared metric columns.")
@@ -171,10 +171,10 @@ func runMemoryBaselines(ctx context.Context, args []string, stdout *os.File) err
 		return err
 	}
 	if *cfgPath == "" {
-		return usageErrorf("memory baselines: --config is required")
+		return usageErrorf("baselines: --config is required")
 	}
 	if fs.NArg() == 0 {
-		return usageErrorf("memory baselines: metric name required (e.g. plausible.daily.visitors)")
+		return usageErrorf("baselines: metric name required (e.g. plausible.daily.visitors)")
 	}
 	fqName := fs.Arg(0)
 
@@ -186,12 +186,12 @@ func runMemoryBaselines(ctx context.Context, args []string, stdout *os.File) err
 
 	rows, err := cat.ListBaselines(ctx, fqName)
 	if err != nil {
-		return fmt.Errorf("memory baselines: %w", err)
+		return fmt.Errorf("baselines: %w", err)
 	}
 
 	sparkline, err := cat.Sparkline(ctx, fqName, 30, 40)
 	if err != nil {
-		return fmt.Errorf("memory baselines: sparkline: %w", err)
+		return fmt.Errorf("baselines: sparkline: %w", err)
 	}
 
 	if len(rows) == 0 {
@@ -238,14 +238,14 @@ func runMemoryRecompute(ctx context.Context, args []string, stdout *os.File) err
 		return err
 	}
 	if *cfgPath == "" {
-		return usageErrorf("memory recompute: --config is required")
+		return usageErrorf("recompute: --config is required")
 	}
 
 	var since time.Duration
 	if *sinceStr != "" {
 		since, err = time.ParseDuration(*sinceStr)
 		if err != nil {
-			return usageErrorf("memory recompute: invalid --since %q: %v", *sinceStr, err)
+			return usageErrorf("recompute: invalid --since %q: %v", *sinceStr, err)
 		}
 	}
 
@@ -256,7 +256,7 @@ func runMemoryRecompute(ctx context.Context, args []string, stdout *os.File) err
 	defer store.Close()
 
 	if err := cat.Recompute(ctx, since, memory.DefaultWindows); err != nil {
-		return fmt.Errorf("memory recompute: %w", err)
+		return fmt.Errorf("recompute: %w", err)
 	}
 	fmt.Fprintln(stdout, "Baselines recomputed.")
 	return nil
@@ -281,7 +281,7 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 		return err
 	}
 	if *cfgPath == "" {
-		return usageErrorf("memory events: --config is required")
+		return usageErrorf("events: --config is required")
 	}
 
 	var since time.Duration
@@ -293,7 +293,7 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 			if n, _ := fmt.Sscanf(*sinceStr, "%dd", &days); n == 1 {
 				since = time.Duration(days) * 24 * time.Hour
 			} else {
-				return usageErrorf("memory events: invalid --since %q: %v", *sinceStr, err)
+				return usageErrorf("events: invalid --since %q: %v", *sinceStr, err)
 			}
 		}
 	}
@@ -306,7 +306,7 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 
 	events, err := cat.ListEvents(ctx, since)
 	if err != nil {
-		return fmt.Errorf("memory events: %w", err)
+		return fmt.Errorf("events: %w", err)
 	}
 	if len(events) == 0 {
 		if since > 0 {
@@ -344,11 +344,11 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 func openCatalogFromConfig(cfgPath string) (*memory.Catalog, *sqlitestate.Store, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("memory: %w", err)
+		return nil, nil, err
 	}
 	store, err := sqlitestate.Open(cfg.StatePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("memory: %w", err)
+		return nil, nil, err
 	}
 	return memory.New(store.DB()), store, nil
 }
