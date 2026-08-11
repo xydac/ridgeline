@@ -180,5 +180,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline memory metrics   --config PATH")
 	fmt.Fprintln(w, "  ridgeline memory baselines --config PATH <metric>")
 	fmt.Fprintln(w, "  ridgeline memory recompute --config PATH [--since DURATION]")
+	fmt.Fprintln(w, "  ridgeline memory events    --config PATH [--since DURATION]")
 	fmt.Fprintln(w, "  ridgeline help")
 }
