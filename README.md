@@ -1017,6 +1017,67 @@ memory:
 Events are never deleted; they accumulate as a historical record of
 surprising business moments. Use `--since 0` to list all events ever recorded.
 
+### Reasoning: explain a metric
+
+`ridgeline explain` turns the memory catalog into a plain-text narrative.
+It assembles the metric's current value, its standing relative to the rolling
+baseline, the change from the prior period of the same length, and any anomalies
+detected during sync:
+
+```
+ridgeline explain plausible.daily.visitors --config ridgeline.yaml --since 7d
+```
+
+```
+plausible.daily.visitors -- last 7d
+
+Current value: 724 visitors (as of 2026-08-09).
+The 30d baseline is 1187 +/- 105 visitors (higher is better); current is -4.4 sigma from the mean.
+Compared to the prior 7d (mean 1151, 7 samples), this period is -37.1%.
+1 anomaly detected in the last 7d:
+  2026-08-09: 724 observed (-4.3 sigma from 30d baseline) -- surprise-bad
+
+Summary: visitors is below baseline (watch), with one surprise-bad spike on 2026-08-09.
+```
+
+Add `--json` to get the same content as a structured object for agent consumption:
+
+```
+ridgeline explain plausible.daily.visitors --config ridgeline.yaml --since 7d --json
+```
+
+```json
+{
+  "metric_fq": "plausible.daily.visitors",
+  "since": "7d",
+  "current_value": 724,
+  "current_at": "2026-08-09T12:00:00Z",
+  "direction": "higher_is_better",
+  "unit": "visitors",
+  "baseline": { "window_days": 30, "mean": 1187, "stddev": 105, "sample_count": 30 },
+  "window_mean": 952,
+  "window_samples": 7,
+  "prior_mean": 1151,
+  "prior_samples": 7,
+  "anomalies": [
+    {
+      "at": "2026-08-09T12:00:00Z",
+      "observed_value": 724,
+      "baseline_mean": 1187,
+      "stddev_from_mean": -4.3,
+      "window_days": 30,
+      "direction": "surprise-bad"
+    }
+  ],
+  "summary": "visitors is below baseline (watch), with one surprise-bad spike on 2026-08-09."
+}
+```
+
+The output is templated -- no LLM required. It can be piped directly into an
+agent prompt or used as the answer to "what happened to my visitors this week?"
+The `explain` command works for any metric in the catalog regardless of which
+connector produced it.
+
 ## What exists today
 
 | Package                     | Status                                                                   |
@@ -1042,9 +1103,9 @@ surprising business moments. Use `--since 0` to list all events ever recorded.
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `memory`                    | Business Memory catalog: streams, metrics, metric-value history, rolling-window baselines. |
+| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` reasoning primitive. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
