@@ -21,6 +21,7 @@
 //	tui --config PATH       interactive Bubble Tea view of configured
 //	                        streams with last-sync and record counts
 //	memory streams|metrics|baselines|recompute  query and maintain Business Memory
+//	explain <metric>        templated narrative from the Business Memory catalog
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
 // surface grows; for now flag + switch keeps the binary dep-free.
@@ -156,6 +157,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "memory: %v\n", err)
 			cmdExit(err)
 		}
+	case "explain":
+		if err := runExplain(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "explain: %v\n", err)
+			cmdExit(err)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "run 'ridgeline --help' for usage.")
@@ -181,5 +187,6 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline memory baselines --config PATH <metric>")
 	fmt.Fprintln(w, "  ridgeline memory recompute --config PATH [--since DURATION]")
 	fmt.Fprintln(w, "  ridgeline memory events    --config PATH [--since DURATION]")
+	fmt.Fprintln(w, "  ridgeline explain <metric> --config PATH [--since DURATION] [--json]")
 	fmt.Fprintln(w, "  ridgeline help")
 }
