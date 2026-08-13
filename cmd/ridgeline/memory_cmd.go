@@ -16,14 +16,15 @@ import (
 
 // runMemory dispatches `ridgeline memory <subcommand>`.
 //
-//	memory streams   --config PATH           list all streams in the Business Memory catalog
-//	memory metrics   --config PATH           list all metrics in the Business Memory catalog
-//	memory baselines --config PATH <metric>  print rolling-window baselines + sparkline
-//	memory recompute --config PATH           recompute all baselines from recorded history
-//	memory events    --config PATH           list anomaly events detected during sync
+//	memory streams   --config PATH                      list all streams
+//	memory metrics   --config PATH                      list all metrics
+//	memory baselines --config PATH <metric>             rolling-window baselines + sparkline
+//	memory recompute --config PATH                      recompute all baselines
+//	memory events    --config PATH                      list events (anomalies, deploys, commits)
+//	memory note      --config PATH --kind K --description D  insert a manual event
 func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 	if len(args) == 0 {
-		return usageErrorf("subcommand required (streams, metrics, baselines, recompute, events)")
+		return usageErrorf("subcommand required (streams, metrics, baselines, recompute, events, note)")
 	}
 	switch args[0] {
 	case "streams":
@@ -36,17 +37,20 @@ func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 		return runMemoryRecompute(ctx, args[1:], stdout)
 	case "events":
 		return runMemoryEvents(ctx, args[1:], stdout)
+	case "note":
+		return runMemoryNote(ctx, args[1:], stdout)
 	case "help", "--help", "-h":
 		fmt.Fprintln(stdout, "Usage: ridgeline memory streams   --config PATH")
 		fmt.Fprintln(stdout, "       ridgeline memory metrics   --config PATH")
 		fmt.Fprintln(stdout, "       ridgeline memory baselines --config PATH <metric>")
 		fmt.Fprintln(stdout, "       ridgeline memory recompute --config PATH [--since DURATION]")
 		fmt.Fprintln(stdout, "       ridgeline memory events    --config PATH [--since DURATION]")
+		fmt.Fprintln(stdout, "       ridgeline memory note      --config PATH --kind KIND --description TEXT [--at TIME]")
 		fmt.Fprintln(stdout, "")
-		fmt.Fprintln(stdout, "Query the Business Memory catalog.")
+		fmt.Fprintln(stdout, "Query and update the Business Memory catalog.")
 		return nil
 	default:
-		return usageErrorf("unknown subcommand %q (streams, metrics, baselines, recompute, events)", args[0])
+		return usageErrorf("unknown subcommand %q (streams, metrics, baselines, recompute, events, note)", args[0])
 	}
 }
 
@@ -269,10 +273,8 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory events --config PATH [--since DURATION]")
 		fmt.Fprintln(fs.Output(), "")
-		fmt.Fprintln(fs.Output(), "Lists anomaly events detected during sync, newest first.")
-		fmt.Fprintln(fs.Output(), "Direction labels: surprise-good (metric moved in the desired direction),")
-		fmt.Fprintln(fs.Output(), "                  surprise-bad  (metric moved against the desired direction),")
-		fmt.Fprintln(fs.Output(), "                  surprise-neutral (metric has neutral directionality).")
+		fmt.Fprintln(fs.Output(), "Lists all events in the Business Memory timeline (anomalies, deploys,")
+		fmt.Fprintln(fs.Output(), "commits, and manual notes), newest first.")
 		fmt.Fprintln(fs.Output(), "")
 		fs.PrintDefaults()
 	}
@@ -288,7 +290,6 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 	if *sinceStr != "" && *sinceStr != "0" {
 		since, err = time.ParseDuration(*sinceStr)
 		if err != nil {
-			// try "<N>d" shorthand: e.g. "7d"
 			var days int
 			if n, _ := fmt.Sscanf(*sinceStr, "%dd", &days); n == 1 {
 				since = time.Duration(days) * 24 * time.Hour
@@ -310,33 +311,86 @@ func runMemoryEvents(ctx context.Context, args []string, stdout *os.File) error 
 	}
 	if len(events) == 0 {
 		if since > 0 {
-			fmt.Fprintf(stdout, "No anomaly events in the last %s. Run 'ridgeline sync' to detect anomalies.\n", *sinceStr)
+			fmt.Fprintf(stdout, "No events in the last %s.\n", *sinceStr)
 		} else {
-			fmt.Fprintln(stdout, "No anomaly events recorded yet. Run 'ridgeline sync' to detect anomalies.")
+			fmt.Fprintln(stdout, "No events recorded yet.")
 		}
 		return nil
 	}
 
 	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tMETRIC\tWINDOW\tOBSERVED\tMEAN\tDEVIATION\tDIRECTION")
-	fmt.Fprintln(w, strings.Repeat("-", 19)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 6)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 9)+"\t"+strings.Repeat("-", 16))
+	fmt.Fprintln(w, "TIME\tKIND\tDETAIL")
+	fmt.Fprintln(w, strings.Repeat("-", 19)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 40))
 	for _, e := range events {
-		sign := "+"
-		if e.StddevFromMean < 0 {
-			sign = ""
+		detail := e.Description
+		if e.Kind == "anomaly" {
+			sign := "+"
+			if e.StddevFromMean < 0 {
+				sign = ""
+			}
+			detail = fmt.Sprintf("%s: %.4g (%s%.2fσ, %dd baseline) -- %s",
+				e.MetricFQ, e.ObservedValue, sign, e.StddevFromMean, e.WindowDays, e.Direction)
+		} else if detail == "" {
+			detail = e.MetricFQ
 		}
-		fmt.Fprintf(w, "%s\t%s\t%dd\t%.4g\t%.4g\t%s%.2fσ\t%s\n",
-			e.At.Format(time.RFC3339),
-			e.MetricFQ,
-			e.WindowDays,
-			e.ObservedValue,
-			e.BaselineMean,
-			sign,
-			e.StddevFromMean,
-			e.Direction,
-		)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", e.At.Format(time.RFC3339), e.Kind, detail)
 	}
 	return w.Flush()
+}
+
+func runMemoryNote(ctx context.Context, args []string, stdout *os.File) error {
+	fs := flag.NewFlagSet("memory note", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	kind := fs.String("kind", "", "event kind (e.g. deploy, release, incident, rollback)")
+	desc := fs.String("description", "", "human-readable description of the event")
+	atStr := fs.String("at", "", "event time in RFC3339 or YYYY-MM-DD (default: now)")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory note --config PATH --kind KIND --description TEXT [--at TIME]")
+		fmt.Fprintln(fs.Output(), "")
+		fmt.Fprintln(fs.Output(), "Records a manual event in the Business Memory timeline.")
+		fmt.Fprintln(fs.Output(), "Examples:")
+		fmt.Fprintln(fs.Output(), `  ridgeline memory note --config ridgeline.yaml --kind deploy --description "shipped v1.4"`)
+		fmt.Fprintln(fs.Output(), `  ridgeline memory note --config ridgeline.yaml --kind incident --description "db outage" --at 2026-08-01`)
+		fmt.Fprintln(fs.Output(), "")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
+	if help || err != nil {
+		return err
+	}
+	if *cfgPath == "" {
+		return usageErrorf("note: --config is required")
+	}
+	if *kind == "" {
+		return usageErrorf("note: --kind is required")
+	}
+	if *desc == "" {
+		return usageErrorf("note: --description is required")
+	}
+
+	at := time.Now().UTC()
+	if *atStr != "" {
+		// try RFC3339 first, then YYYY-MM-DD
+		if t, err2 := time.Parse(time.RFC3339, *atStr); err2 == nil {
+			at = t
+		} else if t, err2 := time.Parse("2006-01-02", *atStr); err2 == nil {
+			at = t.UTC()
+		} else {
+			return usageErrorf("note: --at %q must be RFC3339 or YYYY-MM-DD", *atStr)
+		}
+	}
+
+	cat, store, err := openCatalogFromConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	if err := cat.InsertManualEvent(ctx, *kind, *desc, at); err != nil {
+		return fmt.Errorf("note: %w", err)
+	}
+	fmt.Fprintf(stdout, "Recorded %s event at %s: %s\n", *kind, at.Format("2006-01-02T15:04:05Z"), *desc)
+	return nil
 }
 
 // openCatalogFromConfig loads the config at cfgPath, opens the state store,

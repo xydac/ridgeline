@@ -201,7 +201,7 @@ func TestRunMemoryEvents_NoData(t *testing.T) {
 			t.Errorf("memory events: %v", err)
 		}
 	})
-	if !strings.Contains(out, "No anomaly events") {
-		t.Errorf("expected 'No anomaly events' message, got:\n%s", out)
+	if !strings.Contains(out, "No events") {
+		t.Errorf("expected 'No events' message, got:\n%s", out)
 	}
 }
