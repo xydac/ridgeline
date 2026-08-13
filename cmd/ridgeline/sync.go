@@ -461,6 +461,13 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *m
 	if logWriter != nil {
 		req.Logger = log.New(logWriter, "", 0)
 	}
+	// Load pre-sync state so EventEmitter connectors can determine what
+	// was just synced (EmitEvents uses the previous cursor as its lower bound).
+	var preSyncState connectors.State
+	if _, ok := conn.(connectors.EventEmitter); ok && cat != nil {
+		preSyncState, _ = store.Load(ctx, req.Key)
+	}
+
 	fmt.Fprintf(stdout, "starting %s/%s (%s)...\n", pid, inst.Name, inst.Type)
 	res, err := pipeline.Run(ctx, conn, sink, store, req)
 	if err != nil {
@@ -474,9 +481,36 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *m
 
 	if cat != nil {
 		updateBusinessMemory(ctx, cat, memCfg, conn, inst, res)
+		if emitter, ok := conn.(connectors.EventEmitter); ok {
+			emitConnectorEvents(ctx, cat, emitter, conn.Spec().Name, inst, preSyncState)
+		}
 	}
 
 	return res, nil
+}
+
+// emitConnectorEvents calls EmitEvents on connectors that implement
+// EventEmitter and inserts the returned records into bm_events. preSyncState
+// is the connector's checkpoint from before this sync so the emitter returns
+// exactly the commits/events that were just extracted.
+func emitConnectorEvents(ctx context.Context, cat *memory.Catalog, emitter connectors.EventEmitter, connName string, inst config.ConnectorInstance, preSyncState connectors.State) {
+	connCfg := connectors.ConnectorConfig{}
+	for k, v := range inst.Config {
+		connCfg[k] = v
+	}
+	events, err := emitter.EmitEvents(ctx, connCfg, preSyncState)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warn: event emitter %s: %v\n", inst.Name, err)
+		return
+	}
+	for _, e := range events {
+		if err := cat.InsertCommitEvent(ctx, e.Hash, e.Description, e.At); err != nil {
+			fmt.Fprintf(os.Stderr, "warn: event emitter %s insert: %v\n", inst.Name, err)
+		}
+	}
+	if len(events) > 0 {
+		fmt.Fprintf(os.Stderr, "info: %s/%s: %d event(s) added to Business Memory timeline\n", connName, inst.Name, len(events))
+	}
 }
 
 // updateBusinessMemory records stream and metric observations from a
