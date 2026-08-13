@@ -1,6 +1,9 @@
 package connectors
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Connector is the contract every native data source implements.
 //
@@ -23,4 +26,23 @@ type Connector interface {
 	Validate(ctx context.Context, cfg ConnectorConfig) error
 	Discover(ctx context.Context, cfg ConnectorConfig) (*Catalog, error)
 	Extract(ctx context.Context, cfg ConnectorConfig, streams []Stream, state State) (<-chan Message, error)
+}
+
+// EventRecord is a Business Memory event emitted by an EventEmitter connector.
+type EventRecord struct {
+	// Hash is a stable deduplication key (e.g. git commit hash). Leave empty
+	// to allow duplicate insertions.
+	Hash        string
+	Kind        string
+	Description string
+	At          time.Time
+}
+
+// EventEmitter is an optional interface for connectors that also produce
+// Business Memory events alongside their stream records. The sync pipeline
+// calls EmitEvents after a successful run and inserts the returned records
+// into bm_events. Implementations must return only events not already
+// recorded (i.e. they are responsible for cursor tracking via state).
+type EventEmitter interface {
+	EmitEvents(ctx context.Context, cfg ConnectorConfig, state State) ([]EventRecord, error)
 }
