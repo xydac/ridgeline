@@ -1069,6 +1069,7 @@ ridgeline explain plausible.daily.visitors --config ridgeline.yaml --since 7d --
       "direction": "surprise-bad"
     }
   ],
+  "correlated_events": [],
   "summary": "visitors is below baseline (watch), with one surprise-bad spike on 2026-08-09."
 }
 ```
@@ -1077,6 +1078,67 @@ The output is templated -- no LLM required. It can be piped directly into an
 agent prompt or used as the answer to "what happened to my visitors this week?"
 The `explain` command works for any metric in the catalog regardless of which
 connector produced it.
+
+When the timeline includes correlated events (deploys, commits, notes from
+other connectors), `explain` surfaces them alongside the anomaly list so you
+can see causality at a glance:
+
+```
+Correlated events in window:
+  2026-08-09 [deploy]: shipped v2.1 -- routing refactor
+  2026-08-09 [commit]: refactor: replace custom router with stdlib mux
+```
+
+### Cross-connector event timeline
+
+The Business Memory timeline accumulates events from multiple sources. Two
+ways to add non-metric events:
+
+**Manual notes** -- record what you did:
+
+```
+ridgeline memory note --config ridgeline.yaml --kind deploy --description "shipped v2.1"
+ridgeline memory note --config ridgeline.yaml --kind rollback --description "reverted v2.1" --at 2026-08-10
+```
+
+Accepted `--at` formats: RFC3339 (`2026-08-10T14:00:00Z`) or `YYYY-MM-DD`.
+`--kind` is free-form; common values: `deploy`, `release`, `rollback`, `incident`, `migration`.
+
+**Git connector** -- reads commits from a local repository automatically on
+each sync. Configure it in `ridgeline.yaml`:
+
+```yaml
+connectors:
+  - name: myapp-git
+    type: git
+    streams: [commits]
+    config:
+      path: /home/user/code/myapp
+    sink:
+      type: parquet
+      options:
+        dir: data/git
+```
+
+On sync, every new commit is written to the parquet sink (queryable via
+`ridgeline query`) and also inserted into the Business Memory timeline as a
+`commit` event. Subsequent syncs are incremental -- only commits newer than
+the last-seen hash are processed.
+
+All events (anomalies, deploys, commits, notes) appear together in
+`ridgeline memory events`:
+
+```
+ridgeline memory events --config ridgeline.yaml --since 7d
+```
+
+```
+TIME                  KIND     DETAIL
+-------------------   ------   -------------------------------------------------
+2026-08-09T14:23:00Z  deploy   shipped v2.1 -- routing refactor
+2026-08-09T13:01:52Z  commit   refactor: replace custom router with stdlib mux
+2026-08-09T12:00:00Z  anomaly  plausible.daily.visitors: 724 (-4.32σ, 30d) -- surprise-bad
+```
 
 ## What exists today
 
@@ -1090,6 +1152,7 @@ connector produced it.
 | `connectors/plausible`      | Plausible Analytics daily timeseries (visitors, pageviews, bounce rate). |
 | `connectors/github`         | GitHub repository traffic: daily views and clones (PAT auth).           |
 | `connectors/posthog`        | PostHog individual events; typed timestamp, event, distinct_id columns.  |
+| `connectors/git`            | Reads local git commits into the Business Memory event timeline (incremental, by commit hash). |
 | `connectors/external`       | Runs any executable that speaks the JSON-lines protocol as a connector.  |
 | `sinks`                     | `Sink` interface, `SinkConfig` accessors, init-time registry.            |
 | `sinks/jsonl`               | JSON-lines file sink. Registers manifest partitions on Close.            |

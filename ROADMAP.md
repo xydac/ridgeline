@@ -49,5 +49,5 @@
 - [x] Baselines: rolling window statistics per metric (7d, 30d, 90d mean/stddev/min/max); `ridgeline memory baselines <metric>` with ASCII sparkline; `ridgeline memory recompute`
 - [x] Anomaly detection: deviations from baseline surface as events in `bm_events`; `ridgeline memory events --since 7d` with directional labels (surprise-good/bad/neutral); configurable k and min_samples globally and per-metric
 - [x] `ridgeline explain <metric> --since <window>` -- templated narrative from the memory catalog
-- [ ] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
+- [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
 - [ ] MCP server (`ridgeline mcp`) exposing `list_metrics` and `explain` as agent tools
