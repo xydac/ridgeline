@@ -212,6 +212,7 @@ func TestComposeNarrative_withAnomalyAndPrior(t *testing.T) {
 		PriorSamples:  7,
 		Anomalies: []EventRow{
 			{
+				Kind:           "anomaly",
 				At:             time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
 				MetricFQ:       "github.traffic.views.count",
 				ObservedValue:  1500,
@@ -254,6 +255,7 @@ func TestToExplainJSON_structure(t *testing.T) {
 		PriorSamples:  7,
 		Anomalies: []EventRow{
 			{
+				Kind:           "anomaly",
 				At:             time.Now().Add(-24 * time.Hour),
 				MetricFQ:       "github.traffic.views.count",
 				ObservedValue:  800,

@@ -17,6 +17,7 @@ type EventRow struct {
 	StddevFromMean float64
 	Direction      string
 	WindowDays     int
+	Description    string
 	At             time.Time
 }
 
@@ -102,17 +103,50 @@ VALUES ('anomaly', ?, ?, ?, ?, ?, ?, ?)`,
 	return nil
 }
 
-// ListEvents returns anomaly events newer than since (0 = all), newest-first.
+// InsertManualEvent inserts a user-created or connector-generated event
+// that is not an anomaly detection result. kind is free-form (e.g. "deploy",
+// "commit", "release"). Duplicate (kind, metric_fq=”, window_days=0, at)
+// tuples are ignored.
+func (c *Catalog) InsertManualEvent(ctx context.Context, kind, description string, at time.Time) error {
+	atStr := at.UTC().Format(time.RFC3339)
+	_, err := c.db.ExecContext(ctx, `
+INSERT OR IGNORE INTO bm_events
+	(kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, description, at)
+VALUES (?, '', 0.0, 0.0, 0.0, 'none', 0, ?, ?)`,
+		kind, description, atStr)
+	if err != nil {
+		return fmt.Errorf("memory: insert event %s: %w", kind, err)
+	}
+	return nil
+}
+
+// InsertCommitEvent inserts a git commit event, using the commit hash as the
+// deduplication key via metric_fq so repeated syncs of the same repo are
+// idempotent.
+func (c *Catalog) InsertCommitEvent(ctx context.Context, hash, description string, at time.Time) error {
+	atStr := at.UTC().Format(time.RFC3339)
+	_, err := c.db.ExecContext(ctx, `
+INSERT OR IGNORE INTO bm_events
+	(kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, description, at)
+VALUES ('commit', ?, 0.0, 0.0, 0.0, 'none', 0, ?, ?)`,
+		hash, description, atStr)
+	if err != nil {
+		return fmt.Errorf("memory: insert commit event %s: %w", hash, err)
+	}
+	return nil
+}
+
+// ListEvents returns events newer than since (0 = all), newest-first.
 func (c *Catalog) ListEvents(ctx context.Context, since time.Duration) ([]EventRow, error) {
 	var q string
 	var args []interface{}
 	if since > 0 {
 		cutoff := time.Now().UTC().Add(-since).Format(time.RFC3339)
-		q = `SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, at
+		q = `SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, COALESCE(description,''), at
 			 FROM bm_events WHERE at >= ? ORDER BY at DESC`
 		args = []interface{}{cutoff}
 	} else {
-		q = `SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, at
+		q = `SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, COALESCE(description,''), at
 			 FROM bm_events ORDER BY at DESC`
 	}
 
@@ -126,7 +160,7 @@ func (c *Catalog) ListEvents(ctx context.Context, since time.Duration) ([]EventR
 	for rows.Next() {
 		var r EventRow
 		var atStr string
-		if err := rows.Scan(&r.ID, &r.Kind, &r.MetricFQ, &r.ObservedValue, &r.BaselineMean, &r.StddevFromMean, &r.Direction, &r.WindowDays, &atStr); err != nil {
+		if err := rows.Scan(&r.ID, &r.Kind, &r.MetricFQ, &r.ObservedValue, &r.BaselineMean, &r.StddevFromMean, &r.Direction, &r.WindowDays, &r.Description, &atStr); err != nil {
 			return nil, fmt.Errorf("memory: scan event row: %w", err)
 		}
 		r.At, _ = time.Parse(time.RFC3339, atStr)

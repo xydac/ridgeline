@@ -111,6 +111,30 @@ CREATE TABLE IF NOT EXISTS bm_events (
 CREATE INDEX IF NOT EXISTS idx_bm_events_at
 	ON bm_events (at DESC);`,
 	},
+	{
+		version: 10,
+		stmt: `
+CREATE TABLE bm_events_v10 (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	kind TEXT NOT NULL DEFAULT 'anomaly',
+	metric_fq TEXT NOT NULL DEFAULT '',
+	observed_value REAL NOT NULL DEFAULT 0.0,
+	baseline_mean REAL NOT NULL DEFAULT 0.0,
+	stddev_from_mean REAL NOT NULL DEFAULT 0.0,
+	direction TEXT NOT NULL DEFAULT 'surprise-neutral',
+	window_days INTEGER NOT NULL DEFAULT 0,
+	description TEXT,
+	at TEXT NOT NULL,
+	UNIQUE (kind, metric_fq, window_days, at)
+) STRICT;
+INSERT INTO bm_events_v10
+	SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean,
+	       direction, window_days, NULL, at
+	FROM bm_events;
+DROP TABLE bm_events;
+ALTER TABLE bm_events_v10 RENAME TO bm_events;
+CREATE INDEX IF NOT EXISTS idx_bm_events_at_v10 ON bm_events (at DESC);`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.

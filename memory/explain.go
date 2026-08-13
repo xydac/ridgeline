@@ -23,24 +23,32 @@ type ExplainData struct {
 	WindowSamples int
 	PriorMean     *float64 // mean in [now-2*since, now-since]; nil if no data
 	PriorSamples  int
-	Anomalies     []EventRow // anomaly events in the since window, newest-first
+	Anomalies     []EventRow // all events in the window: anomalies + correlated (deploys, commits, notes)
 }
 
 // ExplainJSON is the structured output format for --json.
 type ExplainJSON struct {
-	MetricFQ      string        `json:"metric_fq"`
-	Since         string        `json:"since"`
-	CurrentValue  *float64      `json:"current_value,omitempty"`
-	CurrentAt     *string       `json:"current_at,omitempty"`
-	Direction     string        `json:"direction"`
-	Unit          string        `json:"unit"`
-	Baseline      *BaselineJSON `json:"baseline,omitempty"`
-	WindowMean    float64       `json:"window_mean"`
-	WindowSamples int           `json:"window_samples"`
-	PriorMean     *float64      `json:"prior_mean,omitempty"`
-	PriorSamples  int           `json:"prior_samples,omitempty"`
-	Anomalies     []AnomalyJSON `json:"anomalies"`
-	Summary       string        `json:"summary"`
+	MetricFQ         string           `json:"metric_fq"`
+	Since            string           `json:"since"`
+	CurrentValue     *float64         `json:"current_value,omitempty"`
+	CurrentAt        *string          `json:"current_at,omitempty"`
+	Direction        string           `json:"direction"`
+	Unit             string           `json:"unit"`
+	Baseline         *BaselineJSON    `json:"baseline,omitempty"`
+	WindowMean       float64          `json:"window_mean"`
+	WindowSamples    int              `json:"window_samples"`
+	PriorMean        *float64         `json:"prior_mean,omitempty"`
+	PriorSamples     int              `json:"prior_samples,omitempty"`
+	Anomalies        []AnomalyJSON    `json:"anomalies"`
+	CorrelatedEvents []CorrelatedJSON `json:"correlated_events"`
+	Summary          string           `json:"summary"`
+}
+
+// CorrelatedJSON is one non-anomaly event in ExplainJSON (deploy, commit, note).
+type CorrelatedJSON struct {
+	At          string `json:"at"`
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
 }
 
 // BaselineJSON is the baseline sub-object in ExplainJSON.
@@ -105,17 +113,18 @@ func (c *Catalog) ExplainMetric(ctx context.Context, fqName string, since time.D
 // ToExplainJSON converts ExplainData to the structured JSON output type.
 func ToExplainJSON(d *ExplainData) *ExplainJSON {
 	j := &ExplainJSON{
-		MetricFQ:      d.MetricFQ,
-		Since:         FormatSince(d.Since),
-		CurrentValue:  d.CurrentValue,
-		Direction:     d.Direction,
-		Unit:          d.Unit,
-		WindowMean:    d.WindowMean,
-		WindowSamples: d.WindowSamples,
-		PriorMean:     d.PriorMean,
-		PriorSamples:  d.PriorSamples,
-		Anomalies:     []AnomalyJSON{},
-		Summary:       composeSummary(d),
+		MetricFQ:         d.MetricFQ,
+		Since:            FormatSince(d.Since),
+		CurrentValue:     d.CurrentValue,
+		Direction:        d.Direction,
+		Unit:             d.Unit,
+		WindowMean:       d.WindowMean,
+		WindowSamples:    d.WindowSamples,
+		PriorMean:        d.PriorMean,
+		PriorSamples:     d.PriorSamples,
+		Anomalies:        []AnomalyJSON{},
+		CorrelatedEvents: []CorrelatedJSON{},
+		Summary:          composeSummary(d),
 	}
 	if d.CurrentAt != nil {
 		s := d.CurrentAt.Format(time.RFC3339)
@@ -130,14 +139,26 @@ func ToExplainJSON(d *ExplainData) *ExplainJSON {
 		}
 	}
 	for _, e := range d.Anomalies {
-		j.Anomalies = append(j.Anomalies, AnomalyJSON{
-			At:             e.At.Format(time.RFC3339),
-			ObservedValue:  e.ObservedValue,
-			BaselineMean:   e.BaselineMean,
-			StddevFromMean: e.StddevFromMean,
-			WindowDays:     e.WindowDays,
-			Direction:      e.Direction,
-		})
+		if e.Kind == "anomaly" {
+			j.Anomalies = append(j.Anomalies, AnomalyJSON{
+				At:             e.At.Format(time.RFC3339),
+				ObservedValue:  e.ObservedValue,
+				BaselineMean:   e.BaselineMean,
+				StddevFromMean: e.StddevFromMean,
+				WindowDays:     e.WindowDays,
+				Direction:      e.Direction,
+			})
+		} else {
+			label := e.Description
+			if label == "" {
+				label = e.MetricFQ
+			}
+			j.CorrelatedEvents = append(j.CorrelatedEvents, CorrelatedJSON{
+				At:          e.At.Format(time.RFC3339),
+				Kind:        e.Kind,
+				Description: label,
+			})
+		}
 	}
 	return j
 }
@@ -194,17 +215,37 @@ func ComposeNarrative(d *ExplainData) string {
 			sinceStr, *d.PriorMean, d.PriorSamples, pct)
 	}
 
-	if len(d.Anomalies) == 0 {
+	var anomalies, correlated []EventRow
+	for _, e := range d.Anomalies {
+		if e.Kind == "anomaly" {
+			anomalies = append(anomalies, e)
+		} else {
+			correlated = append(correlated, e)
+		}
+	}
+
+	if len(anomalies) == 0 {
 		fmt.Fprintf(&sb, "No anomalies detected in the last %s.\n", sinceStr)
 	} else {
 		word := "anomaly"
-		if len(d.Anomalies) > 1 {
+		if len(anomalies) > 1 {
 			word = "anomalies"
 		}
-		fmt.Fprintf(&sb, "%d %s detected in the last %s:\n", len(d.Anomalies), word, sinceStr)
-		for _, e := range d.Anomalies {
+		fmt.Fprintf(&sb, "%d %s detected in the last %s:\n", len(anomalies), word, sinceStr)
+		for _, e := range anomalies {
 			fmt.Fprintf(&sb, "  %s: %.4g observed (%+.1f sigma from %dd baseline) -- %s\n",
 				e.At.Format("2006-01-02"), e.ObservedValue, e.StddevFromMean, e.WindowDays, e.Direction)
+		}
+	}
+
+	if len(correlated) > 0 {
+		fmt.Fprintf(&sb, "Correlated events in window:\n")
+		for _, e := range correlated {
+			label := e.Description
+			if label == "" {
+				label = e.MetricFQ
+			}
+			fmt.Fprintf(&sb, "  %s [%s]: %s\n", e.At.Format("2006-01-02"), e.Kind, label)
 		}
 	}
 
@@ -250,19 +291,33 @@ func composeSummary(d *ExplainData) string {
 		}
 	}
 
+	var anomalies, correlated []EventRow
+	for _, e := range d.Anomalies {
+		if e.Kind == "anomaly" {
+			anomalies = append(anomalies, e)
+		} else {
+			correlated = append(correlated, e)
+		}
+	}
+
 	anomalyPart := ""
-	if len(d.Anomalies) > 0 {
-		a := d.Anomalies[0]
-		if len(d.Anomalies) == 1 {
+	if len(anomalies) > 0 {
+		a := anomalies[0]
+		if len(anomalies) == 1 {
 			anomalyPart = fmt.Sprintf(", with one %s spike on %s",
 				a.Direction, a.At.Format("2006-01-02"))
 		} else {
 			anomalyPart = fmt.Sprintf(", with %d anomalies including a %s spike on %s",
-				len(d.Anomalies), a.Direction, a.At.Format("2006-01-02"))
+				len(anomalies), a.Direction, a.At.Format("2006-01-02"))
 		}
 	}
 
-	return fmt.Sprintf("%s is %s%s.", short, trend, anomalyPart)
+	correlatedPart := ""
+	if len(correlated) > 0 {
+		correlatedPart = fmt.Sprintf("; %d correlated event(s) in window", len(correlated))
+	}
+
+	return fmt.Sprintf("%s is %s%s%s.", short, trend, anomalyPart, correlatedPart)
 }
 
 func metricShortName(fq string) string {
@@ -329,14 +384,18 @@ func (c *Catalog) periodMean(ctx context.Context, fqName string, start, end time
 	return sum / float64(n), n
 }
 
-// eventsInWindow returns anomaly events for fqName in the last since duration,
-// newest-first.
+// eventsInWindow returns events in the last since duration, newest-first.
+// It includes both anomaly events for fqName and all non-anomaly events
+// (deploys, commits, manual notes) so explain can surface cross-source
+// correlations.
 func (c *Catalog) eventsInWindow(ctx context.Context, fqName string, since time.Duration) ([]EventRow, error) {
 	cutoff := time.Now().UTC().Add(-since).Format(time.RFC3339)
 	rows, err := c.db.QueryContext(ctx,
-		`SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, at
-		 FROM bm_events WHERE metric_fq = ? AND at >= ? ORDER BY at DESC`,
-		fqName, cutoff)
+		`SELECT id, kind, metric_fq, observed_value, baseline_mean, stddev_from_mean, direction, window_days, COALESCE(description,''), at
+		 FROM bm_events
+		 WHERE at >= ? AND (metric_fq = ? OR kind != 'anomaly')
+		 ORDER BY at DESC`,
+		cutoff, fqName)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +405,7 @@ func (c *Catalog) eventsInWindow(ctx context.Context, fqName string, since time.
 		var r EventRow
 		var atStr string
 		if err := rows.Scan(&r.ID, &r.Kind, &r.MetricFQ, &r.ObservedValue, &r.BaselineMean,
-			&r.StddevFromMean, &r.Direction, &r.WindowDays, &atStr); err != nil {
+			&r.StddevFromMean, &r.Direction, &r.WindowDays, &r.Description, &atStr); err != nil {
 			return nil, err
 		}
 		r.At, _ = time.Parse(time.RFC3339, atStr)
