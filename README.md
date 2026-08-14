@@ -1140,6 +1140,71 @@ TIME                  KIND     DETAIL
 2026-08-09T12:00:00Z  anomaly  plausible.daily.visitors: 724 (-4.32σ, 30d) -- surprise-bad
 ```
 
+## MCP server
+
+Ridgeline exposes its Business Memory to AI agents via a
+[Model Context Protocol](https://spec.modelcontextprotocol.io) server. Once
+configured, an agent can call `list_metrics` or `explain` against your real
+synced data without any custom glue code.
+
+### Connecting to Claude Desktop
+
+Add an entry in `claude_desktop_config.json` (usually at
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "ridgeline": {
+      "command": "ridgeline",
+      "args": ["mcp", "--config", "/path/to/ridgeline.yaml"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. Ridgeline now appears as a connected tool source.
+
+### Tools
+
+**`list_metrics`** -- returns all metrics in the Business Memory catalog as a
+JSON array. Each element includes `fq_name`, `unit`, `direction`,
+`aggregation`, and `last_value`.
+
+**`explain(metric_fq, since)`** -- returns a structured JSON narrative for the
+metric covering current value, baseline comparison, prior-period trend,
+anomalies, and correlated events. `since` defaults to `7d`; accepts `Nd` or
+Go duration strings (`24h`, `168h`).
+
+### Example agent transcript
+
+```
+User: Why did my signups drop this week?
+
+Claude: [calls explain(metric_fq="myapp.daily.signups", since="7d")]
+
+Result:
+{
+  "metric_fq": "myapp.daily.signups",
+  "since": "7d",
+  "current_value": 38,
+  "direction": "higher_is_better",
+  "baseline": {"window_days": 30, "mean": 91.4, "stddev": 14.2},
+  "anomalies": [{"at": "2026-08-12T00:00:00Z", "stddev_from_mean": -3.76, "direction": "surprise-bad"}],
+  "correlated_events": [{"at": "2026-08-12", "kind": "deploy", "description": "migrated auth to new provider"}],
+  "summary": "signups is below baseline (watch), with one surprise-bad spike on 2026-08-12; 1 correlated event(s) in window."
+}
+```
+
+### Running manually
+
+```
+ridgeline mcp --config ridgeline.yaml
+```
+
+The server reads JSON-RPC messages from stdin and writes responses to stdout.
+All diagnostic output goes to stderr so it does not corrupt the transport.
+
 ## What exists today
 
 | Package                     | Status                                                                   |
@@ -1168,7 +1233,7 @@ TIME                  KIND     DETAIL
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
 | `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` reasoning primitive. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `mcp`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
