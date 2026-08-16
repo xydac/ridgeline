@@ -22,7 +22,12 @@ const DefaultBaseURL = "https://plausible.io"
 // DefaultLookbackDays is the initial backfill window when no cursor exists.
 const DefaultLookbackDays = 30
 
-// StreamTimeseries is the daily aggregate metrics stream.
+// StreamDaily is the canonical name for the daily aggregate metrics stream.
+const StreamDaily = "daily"
+
+// StreamTimeseries is a deprecated alias for StreamDaily.
+// Configs that still use "timeseries" continue to work; new configs
+// should use "daily" to match the documented metric names.
 const StreamTimeseries = "timeseries"
 
 // cursorKey holds the last successfully fetched date (YYYY-MM-DD).
@@ -56,7 +61,7 @@ func (c *Connector) Spec() connectors.ConnectorSpec {
 		AuthType:    connectors.AuthAPIKey,
 		AuthConfig:  &connectors.AuthConfig{KeyFields: []string{"api_token"}},
 		Streams: []connectors.StreamSpec{{
-			Name:        StreamTimeseries,
+			Name:        StreamDaily,
 			Description: "Daily visitors, pageviews, bounce rate, and visit duration for the configured site.",
 			Kind:        connectors.Metric,
 			SyncModes:   []connectors.SyncMode{connectors.Incremental, connectors.FullRefresh},
@@ -99,7 +104,7 @@ func (c *Connector) Validate(_ context.Context, cfg connectors.ConnectorConfig) 
 	return nil
 }
 
-// Discover reports the timeseries stream as available.
+// Discover reports the daily stream as available.
 func (c *Connector) Discover(_ context.Context, _ connectors.ConnectorConfig) (*connectors.Catalog, error) {
 	spec := c.Spec()
 	out := make([]connectors.DiscoveredStream, 0, len(spec.Streams))
@@ -109,9 +114,10 @@ func (c *Connector) Discover(_ context.Context, _ connectors.ConnectorConfig) (*
 	return &connectors.Catalog{Streams: out}, nil
 }
 
-// Extract fetches the timeseries stream from Plausible and closes the
-// returned channel when done. Each call fetches dates from (cursor+1 day)
-// through yesterday using the /api/v1/stats/timeseries endpoint.
+// Extract fetches the daily stream from Plausible and closes the returned
+// channel when done. Each call fetches dates from (cursor+1 day) through
+// yesterday using the /api/v1/stats/timeseries endpoint. The deprecated
+// "timeseries" stream name is accepted as an alias for "daily".
 func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig, streams []connectors.Stream, state connectors.State) (<-chan connectors.Message, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.String("base_url")), "/")
 	if baseURL == "" {
@@ -134,9 +140,9 @@ func (c *Connector) Extract(ctx context.Context, cfg connectors.ConnectorConfig,
 	go func() {
 		defer close(ch)
 		for _, s := range streams {
-			if s.Name != StreamTimeseries {
+			if s.Name != StreamDaily && s.Name != StreamTimeseries {
 				sendMessage(ctx, ch, connectors.LogMessage(connectors.LevelWarn,
-					fmt.Sprintf("plausible: unknown stream %q (only %q is supported)", s.Name, StreamTimeseries)))
+					fmt.Sprintf("plausible: unknown stream %q (supported: %q)", s.Name, StreamDaily)))
 				continue
 			}
 

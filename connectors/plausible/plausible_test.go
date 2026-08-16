@@ -58,7 +58,7 @@ func TestSpec(t *testing.T) {
 		t.Fatal("Spec: no streams")
 	}
 	ts := spec.Streams[0]
-	if ts.Name != plausible.StreamTimeseries {
+	if ts.Name != plausible.StreamDaily {
 		t.Fatalf("stream name: got %q", ts.Name)
 	}
 	cols := map[string]connectors.ColumnType{}
@@ -132,7 +132,7 @@ func TestExtract_BasicTimeseries(t *testing.T) {
 		"site_id":   "example.com",
 		"api_token": "mytoken",
 	}
-	streams := []connectors.Stream{{Name: plausible.StreamTimeseries, Mode: connectors.Incremental}}
+	streams := []connectors.Stream{{Name: plausible.StreamDaily, Mode: connectors.Incremental}}
 	ch, err := c.Extract(context.Background(), cfg, streams, nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
@@ -149,7 +149,7 @@ func TestExtract_BasicTimeseries(t *testing.T) {
 	}
 
 	r0 := records[0]
-	if r0.Stream != plausible.StreamTimeseries {
+	if r0.Stream != plausible.StreamDaily {
 		t.Errorf("stream: got %q", r0.Stream)
 	}
 	wantTS := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
@@ -194,7 +194,7 @@ func TestExtract_IncrementalCursor(t *testing.T) {
 		"api_token": "tok",
 	}
 	state := connectors.State{"last_date": "2026-04-21"}
-	streams := []connectors.Stream{{Name: plausible.StreamTimeseries, Mode: connectors.Incremental}}
+	streams := []connectors.Stream{{Name: plausible.StreamDaily, Mode: connectors.Incremental}}
 	ch, err := c.Extract(context.Background(), cfg, streams, state)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
@@ -233,7 +233,7 @@ func TestExtract_AlreadyUpToDate(t *testing.T) {
 		"api_token": "tok",
 	}
 	state := connectors.State{"last_date": "2026-04-23"} // yesterday
-	streams := []connectors.Stream{{Name: plausible.StreamTimeseries, Mode: connectors.Incremental}}
+	streams := []connectors.Stream{{Name: plausible.StreamDaily, Mode: connectors.Incremental}}
 	ch, err := c.Extract(context.Background(), cfg, streams, state)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
@@ -263,7 +263,7 @@ func TestExtract_Unauthorized(t *testing.T) {
 		"site_id":   "example.com",
 		"api_token": "badtoken",
 	}
-	streams := []connectors.Stream{{Name: plausible.StreamTimeseries, Mode: connectors.Incremental}}
+	streams := []connectors.Stream{{Name: plausible.StreamDaily, Mode: connectors.Incremental}}
 	ch, err := c.Extract(context.Background(), cfg, streams, nil)
 	if err != nil {
 		t.Fatalf("Extract returned error: %v", err)
