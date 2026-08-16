@@ -69,6 +69,42 @@ Output tags (plugin -> orchestrator) are **UPPERCASE**.
 <- {"type":"DONE"}
 ```
 
+### Metric stream with Business Memory semantics
+
+To participate in Business Memory (baselines, anomaly detection, `ridgeline explain`),
+a stream must declare itself as `kind: metric` and annotate numeric columns with
+`direction` and `aggregation`. Without this declaration the stream is stored as
+`unstructured` and will not appear in `ridgeline memory metrics`.
+
+```
+-> {"type":"extract","streams":[{"name":"metrics","mode":"incremental"}],"state":{}}
+<- {"type":"SCHEMA","stream":"metrics","schema":{
+     "kind":"metric",
+     "columns":[
+       {"name":"date","type":"timestamp","key":true},
+       {"name":"requests","type":"int","direction":"higher_is_better","aggregation":"sum"},
+       {"name":"error_rate","type":"float","unit":"%","direction":"lower_is_better","aggregation":"avg"}
+     ]
+   }}
+<- {"type":"RECORD","stream":"metrics","timestamp":"2026-08-01T00:00:00Z","data":{"date":"2026-08-01","requests":1000,"error_rate":0.5}}
+<- {"type":"STATE","state":{"since_day":1}}
+<- {"type":"DONE"}
+```
+
+**`schema.kind`** (optional string): semantic classification of the stream.
+- `"metric"` - quantitative measurements; enables baselines, anomaly detection, `explain`
+- `"event"` - discrete occurrences with timestamps
+- `"dimension"` - reference entities (users, products)
+- `"unstructured"` (default) - no quantitative interpretation
+
+**Column semantic fields** (optional, meaningful only on `kind: metric` streams):
+
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `unit` | any string | human-readable unit label (e.g. `"seconds"`, `"%"`, `"USD"`) |
+| `direction` | `"higher_is_better"`, `"lower_is_better"`, `"neutral"` | whether an increase is good news |
+| `aggregation` | `"sum"`, `"avg"`, `"last"`, `"count"`, `"none"` | recommended rollup function |
+
 ### `enrich` round trip
 
 ```

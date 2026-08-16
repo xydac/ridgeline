@@ -512,16 +512,17 @@ products:
           api_token_ref: plausible_token
           # base_url: https://plausible.io   # omit for cloud; set for self-hosted
           # lookback_days: 30                # initial backfill window (default 30)
-        streams: [timeseries]
+        streams: [daily]
         sink:
           type: parquet
           options:
             dir: ./plausible-out
 ```
 
-The `timeseries` stream fetches from `/api/v1/stats/timeseries` with
+The `daily` stream fetches from `/api/v1/stats/timeseries` with
 `interval=date`. Each sync requests from `(last_date + 1)` through
-yesterday so today's incomplete data is never written.
+yesterday so today's incomplete data is never written. The legacy name
+`timeseries` is accepted as a stream alias for existing configs.
 
 ### Pulling GitHub repository traffic
 
@@ -620,9 +621,9 @@ products:
         config:
           command: python3
           args: ["./examples/external/myconnector.py"]
-        streams: [events]
+        streams: [metrics]
         sink:
-          type: jsonl
+          type: parquet
           options:
             dir: ./py-out
 ```
@@ -632,14 +633,26 @@ products:
 # loaded ridgeline.yaml
 # state: ./ridgeline.db
 # starting myapp/pydemo (external)...
-# myapp/pydemo: 3 extracted, 3 persisted, 1 states saved
-# done: 3 extracted, 3 persisted
+# myapp/pydemo: 7 extracted, 7 persisted, 1 states saved
+# done: 7 extracted, 7 persisted
+
+ridgeline memory metrics --config ridgeline.yaml
+# METRIC                      UNIT  DIRECTION        AGG  LAST VALUE  LAST SEEN
+# myapp.metrics.error_rate    %     lower_is_better  avg  1.30        2026-08-15T00:00:00Z
+# myapp.metrics.p99_latency   ms    lower_is_better  avg  134.00      2026-08-15T00:00:00Z
+# myapp.metrics.requests            higher_is_better sum  1070.00     2026-08-15T00:00:00Z
 ```
 
 The runner sends one `extract` command on the child's stdin (with the
 configured streams and the persisted incremental state) and reads
 RECORD, STATE, LOG, SCHEMA, ERROR, and DONE messages back. Anything
 the child writes to stderr is surfaced as a warn-level log.
+
+To participate in Business Memory (baselines, anomaly detection, `ridgeline explain`),
+the child should emit a `SCHEMA` message with `kind: metric` and per-column semantic
+annotations before its first `RECORD`. See [`docs/protocol.md`](docs/protocol.md) for
+the full field reference. Without a `SCHEMA` message the stream is stored as
+`unstructured` and will not appear in `ridgeline memory metrics`.
 
 #### RECORD field reference
 
@@ -858,7 +871,7 @@ To inspect what Ridgeline knows about a data source:
 
 ```
 ridgeline schema plausible
-ridgeline schema plausible.timeseries
+ridgeline schema plausible.daily
 ridgeline schema github.views
 ```
 
@@ -866,7 +879,7 @@ Example output:
 
 ```
 connector:  plausible
-stream:     timeseries
+stream:     daily
 kind:       metric
 description: Daily visitors, pageviews, bounce rate, and visit duration for the configured site.
 columns:
