@@ -472,6 +472,54 @@ func TestExtractSkipsRecordWithOutOfRangeTimestamp(t *testing.T) {
 
 // TestExtractSkipsRecordForUnknownStream verifies that a RECORD whose
 // stream is not in the configured streams list is warned and skipped (F-097).
+// TestExtractSchemaKindAndSemantics verifies that a SCHEMA message carrying
+// kind and column-level semantics is translated into a connectors.Schema
+// with the correct SemanticKind and ColumnSemantics values (F-128).
+func TestExtractSchemaKindAndSemantics(t *testing.T) {
+	t.Parallel()
+	c := external.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	streams := []connectors.Stream{{Name: "metrics", Mode: connectors.Incremental}}
+	ch, err := c.Extract(ctx, helperConfig("schema-with-semantics"), streams, nil)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	var gotSchema *connectors.Schema
+	for m := range ch {
+		if m.Type == connectors.SchemaMsg && m.Schema != nil {
+			s := *m.Schema
+			gotSchema = &s
+		}
+	}
+	if gotSchema == nil {
+		t.Fatal("no SchemaMsg received from child")
+	}
+	if gotSchema.Kind != connectors.Metric {
+		t.Errorf("Kind = %v, want Metric", gotSchema.Kind)
+	}
+	var reqCol *connectors.Column
+	for i := range gotSchema.Columns {
+		if gotSchema.Columns[i].Name == "requests" {
+			c := gotSchema.Columns[i]
+			reqCol = &c
+			break
+		}
+	}
+	if reqCol == nil {
+		t.Fatal("no 'requests' column in translated schema")
+	}
+	if reqCol.Semantics == nil {
+		t.Fatal("requests column has nil Semantics, want non-nil")
+	}
+	if reqCol.Semantics.Direction != connectors.HigherIsBetter {
+		t.Errorf("Direction = %v, want HigherIsBetter", reqCol.Semantics.Direction)
+	}
+	if reqCol.Semantics.Aggregation != connectors.AggSum {
+		t.Errorf("Aggregation = %v, want AggSum", reqCol.Semantics.Aggregation)
+	}
+}
+
 func TestExtractSkipsRecordForUnknownStream(t *testing.T) {
 	t.Parallel()
 	c := external.New()
@@ -608,6 +656,16 @@ func TestHelperProcess(t *testing.T) {
 		// RECORD for a stream not in the configured list; must warn+skip (F-097).
 		// The connector is configured with streams:[events]; this emits "ghost".
 		os.Stdout.Write([]byte("{\"type\":\"RECORD\",\"stream\":\"ghost\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"data\":{\"id\":\"g1\"}}\n"))
+	case "schema-with-semantics":
+		// SCHEMA with kind and column-level semantics, followed by one RECORD.
+		// Tests the F-128 fix: kind and semantics must survive protocol translation.
+		os.Stdout.Write([]byte(`{"type":"SCHEMA","stream":"metrics","schema":{"kind":"metric","columns":[` +
+			`{"name":"date","type":"timestamp","key":true},` +
+			`{"name":"requests","type":"int","direction":"higher_is_better","aggregation":"sum"},` +
+			`{"name":"error_rate","type":"float","unit":"%","direction":"lower_is_better","aggregation":"avg"}` +
+			`]}}` + "\n"))
+		os.Stdout.Write([]byte(`{"type":"RECORD","stream":"metrics","timestamp":"2026-08-01T00:00:00Z","data":{"requests":1000,"error_rate":0.5}}` + "\n"))
+		os.Stdout.Write([]byte(`{"type":"DONE"}` + "\n"))
 	}
 }
 

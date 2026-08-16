@@ -231,6 +231,9 @@ type Column struct {
 // connectors may emit extra fields not declared here, but sinks should
 // preserve declared columns even when records omit them.
 type Schema struct {
+	// Kind is the semantic classification of the stream. The zero value
+	// (Unstructured) means no explicit classification was declared.
+	Kind    SemanticKind
 	Columns []Column
 }
 

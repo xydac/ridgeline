@@ -534,11 +534,23 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 	for _, streamName := range inst.Streams {
 		sr := res.PerStream[streamName]
 		ss, known := specByName[streamName]
-		kind := "unstructured"
+
+		// For connectors whose static Spec().Streams is empty (e.g. the
+		// external runner), fall back to any schema the connector announced
+		// at runtime via SCHEMA messages. This lets external connectors
+		// participate in Business Memory without a hard-coded spec entry.
+		var effectiveSchema connectors.Schema
+		effectiveKind := connectors.Unstructured
 		if known {
-			kind = ss.Kind.String()
+			effectiveSchema = ss.Schema
+			effectiveKind = ss.Kind
+		} else if obs, ok := res.ObservedSchemas[streamName]; ok {
+			effectiveSchema = obs
+			effectiveKind = obs.Kind
+			known = true
 		}
-		if err := cat.UpsertStream(ctx, spec.Name, streamName, kind, int64(sr.Records)); err != nil {
+
+		if err := cat.UpsertStream(ctx, spec.Name, streamName, effectiveKind.String(), int64(sr.Records)); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
 		}
 
@@ -546,7 +558,7 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 			continue
 		}
 		lastRec := res.LastObserved[streamName]
-		for _, col := range ss.Schema.Columns {
+		for _, col := range effectiveSchema.Columns {
 			if col.Semantics == nil {
 				continue
 			}

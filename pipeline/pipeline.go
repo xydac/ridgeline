@@ -91,6 +91,11 @@ type Result struct {
 	// SchemaMessages counts schema announcements received. Useful for
 	// tests that assert connectors emit schemas.
 	SchemaMessages int
+	// ObservedSchemas holds the most-recently-announced schema per stream.
+	// Populated from SchemaMsg messages during extraction; callers can use
+	// this to access runtime-declared kind and column semantics for
+	// connectors (e.g. external) whose static Spec().Streams is empty.
+	ObservedSchemas map[string]connectors.Schema
 	// Skipped is the number of records dropped before reaching the
 	// pipeline (e.g. external RECORD messages with a missing data field).
 	Skipped int
@@ -271,6 +276,12 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 				}
 			case connectors.SchemaMsg:
 				result.SchemaMessages++
+				if msg.Schema != nil {
+					if result.ObservedSchemas == nil {
+						result.ObservedSchemas = make(map[string]connectors.Schema)
+					}
+					result.ObservedSchemas[msg.Stream] = *msg.Schema
+				}
 			case connectors.SkippedMsg:
 				result.Skipped++
 			case connectors.ErrorMsg:

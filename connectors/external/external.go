@@ -301,7 +301,7 @@ func decodeOutputs(ctx context.Context, ch chan<- connectors.Message, r io.Reade
 			if out.Schema == nil {
 				continue
 			}
-			schema := connectors.Schema{Columns: columnsFromProtocol(out.Schema.Columns)}
+			schema := schemaFromProtocol(out.Schema)
 			if !send(ctx, ch, connectors.SchemaMessage(out.Stream, schema)) {
 				return ctx.Err()
 			}
@@ -390,20 +390,76 @@ func drainStderr(ctx context.Context, ch chan<- connectors.Message, r io.Reader)
 	}
 }
 
+// schemaFromProtocol converts a wire Schema into the connectors shape,
+// translating Kind and per-column semantic fields so an external connector
+// can participate in Business Memory on equal footing with built-in connectors.
+func schemaFromProtocol(s *protocol.Schema) connectors.Schema {
+	return connectors.Schema{
+		Kind:    semanticKindFromString(s.Kind),
+		Columns: columnsFromProtocol(s.Columns),
+	}
+}
+
 // columnsFromProtocol converts wire schema columns into the connectors
 // shape. Type strings map to the connectors.ColumnType enum; unknown
 // types fall back to connectors.JSON so no data is silently dropped.
+// Unit, Direction, and Aggregation are translated to ColumnSemantics when
+// at least one of them is set on the wire column.
 func columnsFromProtocol(cols []protocol.Column) []connectors.Column {
 	out := make([]connectors.Column, 0, len(cols))
 	for _, c := range cols {
-		out = append(out, connectors.Column{
+		col := connectors.Column{
 			Name:     c.Name,
 			Type:     columnTypeFromString(c.Type),
 			Required: c.Required,
 			Key:      c.Key,
-		})
+		}
+		if c.Unit != "" || c.Direction != "" || c.Aggregation != "" {
+			col.Semantics = &connectors.ColumnSemantics{
+				Unit:        c.Unit,
+				Direction:   directionalityFromString(c.Direction),
+				Aggregation: aggregationFromString(c.Aggregation),
+			}
+		}
+		out = append(out, col)
 	}
 	return out
+}
+
+func semanticKindFromString(s string) connectors.SemanticKind {
+	switch strings.ToLower(s) {
+	case "metric":
+		return connectors.Metric
+	case "event":
+		return connectors.Event
+	case "dimension":
+		return connectors.Dimension
+	}
+	return connectors.Unstructured
+}
+
+func directionalityFromString(s string) connectors.Directionality {
+	switch strings.ToLower(s) {
+	case "higher_is_better":
+		return connectors.HigherIsBetter
+	case "lower_is_better":
+		return connectors.LowerIsBetter
+	}
+	return connectors.Neutral
+}
+
+func aggregationFromString(s string) connectors.AggregationHint {
+	switch strings.ToLower(s) {
+	case "sum":
+		return connectors.AggSum
+	case "avg":
+		return connectors.AggAvg
+	case "last":
+		return connectors.AggLast
+	case "count":
+		return connectors.AggCount
+	}
+	return connectors.AggNone
 }
 
 func columnTypeFromString(s string) connectors.ColumnType {

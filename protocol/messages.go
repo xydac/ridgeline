@@ -98,16 +98,36 @@ type StreamSpec struct {
 }
 
 // Schema is the wire form of a stream's schema.
+//
+// The optional Kind field classifies the stream in business terms and maps
+// to the internal SemanticKind enum. Accepted values: "metric", "event",
+// "dimension", "unstructured". Omitting the field is equivalent to
+// "unstructured" for backward compatibility.
 type Schema struct {
+	// Kind is the semantic classification of the stream. Optional.
+	// Valid values: "metric", "event", "dimension", "unstructured".
+	Kind    string   `json:"kind,omitempty"`
 	Columns []Column `json:"columns"`
 }
 
 // Column is the wire form of one schema column.
+//
+// Unit, Direction, and Aggregation carry optional column-level business
+// semantics for metric streams. They map to ColumnSemantics in the
+// internal connector types.
 type Column struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Required bool   `json:"required,omitempty"`
 	Key      bool   `json:"key,omitempty"`
+	// Unit is a human-readable unit label (e.g. "seconds", "%", "USD").
+	Unit string `json:"unit,omitempty"`
+	// Direction signals whether higher or lower values are preferable.
+	// Valid values: "higher_is_better", "lower_is_better", "neutral".
+	Direction string `json:"direction,omitempty"`
+	// Aggregation is the recommended rollup function for the column.
+	// Valid values: "sum", "avg", "last", "count", "none".
+	Aggregation string `json:"aggregation,omitempty"`
 }
 
 // MarshalLine returns v encoded as a single JSON line terminated by '\n'.
