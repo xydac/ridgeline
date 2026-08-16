@@ -199,7 +199,14 @@ func runMemoryBaselines(ctx context.Context, args []string, stdout *os.File) err
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintf(stdout, "No baselines for %s. Run 'ridgeline sync' against a connector with declared metric columns.\n", fqName)
+		declared, err := cat.MetricDeclared(ctx, fqName)
+		if err != nil {
+			return fmt.Errorf("baselines: %w", err)
+		}
+		if !declared {
+			return fmt.Errorf("unknown metric %q: not in Business Memory catalog (run 'ridgeline memory metrics' to list known metrics)", fqName)
+		}
+		fmt.Fprintf(stdout, "No baselines yet for %s. Run 'ridgeline sync' to populate observations.\n", fqName)
 		return nil
 	}
 

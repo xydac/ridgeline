@@ -155,6 +155,39 @@ func TestUpsertMetric_lastValuePreservedWhenNil(t *testing.T) {
 	}
 }
 
+func TestMetricDeclared(t *testing.T) {
+	ctx := context.Background()
+	cat := openTestCatalog(t)
+
+	declared, err := cat.MetricDeclared(ctx, "app.missing.metric")
+	if err != nil {
+		t.Fatalf("MetricDeclared: %v", err)
+	}
+	if declared {
+		t.Error("metric should not be declared before upsert")
+	}
+
+	if err := cat.UpsertMetric(ctx, "app.daily.visitors", "", "higher_is_better", "sum", nil); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	declared, err = cat.MetricDeclared(ctx, "app.daily.visitors")
+	if err != nil {
+		t.Fatalf("MetricDeclared: %v", err)
+	}
+	if !declared {
+		t.Error("metric should be declared after upsert")
+	}
+
+	declared, err = cat.MetricDeclared(ctx, "app.missing.metric")
+	if err != nil {
+		t.Fatalf("MetricDeclared: %v", err)
+	}
+	if declared {
+		t.Error("different metric should still not be declared")
+	}
+}
+
 func TestListMetrics_order(t *testing.T) {
 	ctx := context.Background()
 	cat := openTestCatalog(t)

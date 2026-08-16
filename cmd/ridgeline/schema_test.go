@@ -22,7 +22,7 @@ func TestRunSchema_PlausibleAll(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"kind:       metric",
-		"stream:     timeseries",
+		"stream:     daily",
 		"visitors",
 		"higher_is_better",
 		"bounce_rate",

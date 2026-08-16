@@ -111,6 +111,20 @@ ORDER BY connector, stream`)
 	return out, rows.Err()
 }
 
+// MetricDeclared reports whether fqName is present in bm_metrics.
+// It distinguishes "metric was never declared" from "declared but no
+// baselines computed yet", enabling callers to surface a clear error
+// for typo'd or impossible metric names.
+func (c *Catalog) MetricDeclared(ctx context.Context, fqName string) (bool, error) {
+	var n int
+	err := c.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM bm_metrics WHERE fq_name = ?`, fqName).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("memory: metric declared check for %s: %w", fqName, err)
+	}
+	return n > 0, nil
+}
+
 // ListMetrics returns all metrics known to Business Memory, ordered by
 // fully-qualified name.
 func (c *Catalog) ListMetrics(ctx context.Context) ([]MetricRow, error) {

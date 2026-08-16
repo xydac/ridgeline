@@ -142,19 +142,18 @@ func TestRunMemoryBaselines_RequiresMetricArg(t *testing.T) {
 	}
 }
 
-func TestRunMemoryBaselines_NoData(t *testing.T) {
+func TestRunMemoryBaselines_UnknownMetricReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := dir + "/state.db"
 	outDir := dir + "/out"
 	cfgPath := configFixture(t, dir, dbPath, outDir)
 
-	out := captureStdout(t, func() {
-		if err := runMemoryBaselines(context.Background(), []string{"--config", cfgPath, "app.unknown.metric"}, os.Stdout); err != nil {
-			t.Errorf("memory baselines: %v", err)
-		}
-	})
-	if !strings.Contains(out, "No baselines") {
-		t.Errorf("expected 'No baselines' message, got:\n%s", out)
+	err := runMemoryBaselines(context.Background(), []string{"--config", cfgPath, "does.not.exist"}, os.Stdout)
+	if err == nil {
+		t.Fatal("expected error for unknown metric, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown metric") {
+		t.Errorf("error should mention 'unknown metric', got: %v", err)
 	}
 }
 
