@@ -1102,6 +1102,63 @@ Correlated events in window:
   2026-08-09 [commit]: refactor: replace custom router with stdlib mux
 ```
 
+### Reasoning: compare two metrics
+
+`ridgeline compare` produces a pairwise narrative that walks both metrics
+through the same baseline/anomaly pipeline `explain` uses, then composes a
+comparative verdict -- whether they moved together, diverged, and which anomalies
+or correlated events the two windows share:
+
+```
+ridgeline compare plausible.daily.visitors plausible.daily.pageviews \
+  --config ridgeline.yaml --since 7d
+```
+
+```
+Comparing visitors vs pageviews -- last 7d
+
+visitors: current 724 visitors (-37.1% vs prior), -4.4 sigma from 30d baseline.
+pageviews: current 2890 pageviews (-31.2% vs prior), -3.9 sigma from 30d baseline.
+
+Verdict: both regressed.
+visitors: 1 anomaly(s) -- surprise-bad
+pageviews: 1 anomaly(s) -- surprise-bad
+1 shared event(s) in window:
+  2026-08-09 [deploy]: shipped v2.1 -- routing refactor
+
+Summary: visitors and pageviews both regressed.
+```
+
+Add `--json` to get the same content as a structured object with per-metric
+`explain` sub-objects, a top-level `verdict`, `diverged` flag, and
+`shared_events` array suitable for agent consumption.
+
+### Reasoning: period-over-period comparison
+
+Use `--against RECENT,PRIOR` to compare one metric against a prior window of
+a different length:
+
+```
+ridgeline compare plausible.daily.visitors --against 7d,14d \
+  --config ridgeline.yaml
+```
+
+```
+visitors -- last 7d vs prior 14d
+
+Recent 7d: mean 952 visitors (7 sample(s)).
+Prior 14d: mean 1151 visitors (14 sample(s)).
+Change: -17.3% vs prior period.
+Verdict: regressed.
+The 30d baseline is 1187 +/- 105 visitors (higher is better); recent mean is -2.2 sigma.
+1 anomaly(s) in recent window:
+  2026-08-09: 724 observed (-4.3 sigma from 30d baseline) -- surprise-bad
+
+Summary: visitors regressed (-17.3% vs prior 14d).
+```
+
+Both forms work with `--json` and produce structured output for agent consumption.
+
 ### Cross-connector event timeline
 
 The Business Memory timeline accumulates events from multiple sources. Two
@@ -1244,9 +1301,9 @@ All diagnostic output goes to stderr so it does not corrupt the transport.
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` reasoning primitive. |
+| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` / `compare` reasoning primitives. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `mcp`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `mcp`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
