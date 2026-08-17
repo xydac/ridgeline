@@ -22,6 +22,8 @@
 //	                        streams with last-sync and record counts
 //	memory streams|metrics|baselines|recompute  query and maintain Business Memory
 //	explain <metric>        templated narrative from the Business Memory catalog
+//	compare <metric-a> <metric-b>  pairwise comparison narrative
+//	compare <metric> --against RECENT,PRIOR  period-over-period comparison narrative
 //	mcp --config PATH       stdio MCP server: list_metrics + explain as agent tools
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
@@ -163,6 +165,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "explain: %v\n", err)
 			cmdExit(err)
 		}
+	case "compare":
+		if err := runCompare(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "compare: %v\n", err)
+			cmdExit(err)
+		}
 	case "mcp":
 		if err := runMCP(context.Background(), os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "mcp: %v\n", err)
@@ -194,6 +201,8 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline memory recompute --config PATH [--since DURATION]")
 	fmt.Fprintln(w, "  ridgeline memory events    --config PATH [--since DURATION]")
 	fmt.Fprintln(w, "  ridgeline explain <metric> --config PATH [--since DURATION] [--json]")
+	fmt.Fprintln(w, "  ridgeline compare <metric-a> <metric-b> --config PATH [--since DURATION] [--json]")
+	fmt.Fprintln(w, "  ridgeline compare <metric> --against RECENT,PRIOR --config PATH [--json]")
 	fmt.Fprintln(w, "  ridgeline mcp --config PATH")
 	fmt.Fprintln(w, "  ridgeline help")
 }
