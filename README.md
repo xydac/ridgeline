@@ -1159,6 +1159,46 @@ Summary: visitors regressed (-17.3% vs prior 14d).
 
 Both forms work with `--json` and produce structured output for agent consumption.
 
+### Reasoning: investigate a metric
+
+`ridgeline investigate` produces a cross-source causal narrative: it runs the
+same baseline and anomaly analysis as `explain`, then correlates any detected
+anomalies with non-metric events (deploys, commits, manual notes) by temporal
+proximity, and computes Pearson correlation against sibling metrics in the same
+window.
+
+```
+ridgeline investigate plausible.daily.visitors --config ridgeline.yaml --since 14d
+```
+
+```
+Investigating visitors -- last 14d
+
+1 anomaly(s) detected:
+  2026-08-13: 312 (-69% vs baseline 1014, 5.2 stddev, surprise-bad)
+
+Correlated events (within 48h before anomaly):
+  2026-08-13 09:14 [deploy]: shipped v0.2.0-rc1 (12.2h before anomaly at 2026-08-13)
+  2026-08-12 22:30 [commit]: Remove caching layer (22.5h before anomaly at 2026-08-13)
+
+Sibling metric correlation:
+  plausible.daily.pageviews: r=0.94 (moved together, 14 shared days)
+  plausible.daily.bounce_rate: r=-0.81 (moved inversely, 14 shared days)
+
+```
+
+Use `--json` for structured output:
+
+```
+ridgeline investigate plausible.daily.visitors --config ridgeline.yaml --since 14d --json
+```
+
+The JSON response includes `explain` (the full explain payload), `causal_candidates`
+(each with `event_at`, `kind`, `description`, `anomaly_at`, `proximity_hours`), and
+`sibling_correlations` (each with `metric_fq`, `r`, `samples`). This shape is designed
+for agent consumption: an AI assistant can read the causal candidates and phrase a
+hypothesis ("the caching layer removal appears correlated with the visitor drop").
+
 ### Cross-connector event timeline
 
 The Business Memory timeline accumulates events from multiple sources. Two
