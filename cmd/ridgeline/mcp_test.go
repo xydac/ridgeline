@@ -24,12 +24,12 @@ func openTestCatalogForMCP(t *testing.T) *ridgelinememory.Catalog {
 	return ridgelinememory.New(store.DB())
 }
 
-// TestMCPServerRegisters2Tools verifies that buildMCPServer registers exactly
-// list_metrics and explain.
-func TestMCPServerRegisters2Tools(t *testing.T) {
+// TestMCPServerRegisters3Tools verifies that buildMCPServer registers exactly
+// list_metrics, explain, and investigate.
+func TestMCPServerRegisters3Tools(t *testing.T) {
 	cat := openTestCatalogForMCP(t)
 	s := buildMCPServer(cat, "test")
-	// We verify indirectly: a tools/list request returns both tools.
+	// We verify indirectly: a tools/list request returns all three tools.
 	// Use mcptest to drive the server via its client.
 	unstarted := mcptest.NewUnstartedServer(t)
 	unstarted.AddServerOptions(server.WithToolCapabilities(true))
@@ -57,6 +57,16 @@ func TestMCPServerRegisters2Tools(t *testing.T) {
 			return mcp.NewToolResultText("{}"), nil
 		},
 	)
+	unstarted.AddTool(
+		mcp.NewTool("investigate",
+			mcp.WithDescription("Causal narrative with correlated events and sibling metrics."),
+			mcp.WithString("metric_fq", mcp.Required()),
+			mcp.WithString("since"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText("{}"), nil
+		},
+	)
 	if err := unstarted.Start(t.Context()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -66,8 +76,8 @@ func TestMCPServerRegisters2Tools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 2 {
-		t.Errorf("want 2 tools, got %d", len(tools.Tools))
+	if len(tools.Tools) != 3 {
+		t.Errorf("want 3 tools, got %d", len(tools.Tools))
 	}
 	names := map[string]bool{}
 	for _, tool := range tools.Tools {
@@ -78,6 +88,9 @@ func TestMCPServerRegisters2Tools(t *testing.T) {
 	}
 	if !names["explain"] {
 		t.Errorf("explain tool not registered")
+	}
+	if !names["investigate"] {
+		t.Errorf("investigate tool not registered")
 	}
 }
 
@@ -262,6 +275,126 @@ func TestMCPExplainKnownMetricReturnsSummary(t *testing.T) {
 		t.Errorf("explain result missing 'summary' field; got keys: %v", keys(out))
 	}
 	if out["metric_fq"] != "myapp.daily.visitors" {
+		t.Errorf("metric_fq mismatch: %v", out["metric_fq"])
+	}
+}
+
+// TestMCPInvestigateUnknownMetricReturnsError verifies that the investigate tool
+// returns an MCP error result for an unrecognized metric.
+func TestMCPInvestigateUnknownMetricReturnsError(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("investigate",
+			mcp.WithString("metric_fq", mcp.Required()),
+			mcp.WithString("since"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			fqName, err := req.RequireString("metric_fq")
+			if err != nil {
+				return mcp.NewToolResultError("investigate: metric_fq is required"), nil
+			}
+			sinceStr := req.GetString("since", "14d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError("investigate: invalid since"), nil
+			}
+			data, err := cat.InvestigateMetric(ctx, fqName, since)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToInvestigateJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "investigate"
+	req.Params.Arguments = map[string]any{"metric_fq": "no.such.metric"}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error result for unknown metric")
+	}
+	text := extractText(t, result)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("expected 'not found' in error message, got: %s", text)
+	}
+}
+
+// TestMCPInvestigateKnownMetricReturnsCausalFields verifies that investigate
+// returns structured JSON with metric_fq, explain, causal_candidates, and
+// sibling_correlations fields for a known metric.
+func TestMCPInvestigateKnownMetricReturnsCausalFields(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	v := 500.0
+	if err := cat.UpsertMetric(ctx, "myapp.daily.revenue", "usd", "higher_is_better", "sum", &v); err != nil {
+		t.Fatalf("upsert metric: %v", err)
+	}
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("investigate",
+			mcp.WithString("metric_fq", mcp.Required()),
+			mcp.WithString("since"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			fqName, err := req.RequireString("metric_fq")
+			if err != nil {
+				return mcp.NewToolResultError("investigate: metric_fq is required"), nil
+			}
+			sinceStr := req.GetString("since", "14d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError("investigate: invalid since"), nil
+			}
+			data, err := cat.InvestigateMetric(ctx, fqName, since)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToInvestigateJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "investigate"
+	req.Params.Arguments = map[string]any{"metric_fq": "myapp.daily.revenue", "since": "14d"}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", extractText(t, result))
+	}
+
+	text := extractText(t, result)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal investigate result: %v\nraw: %s", err, text)
+	}
+	for _, field := range []string{"metric_fq", "explain", "causal_candidates", "sibling_correlations"} {
+		if _, ok := out[field]; !ok {
+			t.Errorf("investigate result missing %q field; got keys: %v", field, keys(out))
+		}
+	}
+	if out["metric_fq"] != "myapp.daily.revenue" {
 		t.Errorf("metric_fq mismatch: %v", out["metric_fq"])
 	}
 }

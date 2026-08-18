@@ -98,15 +98,49 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 		},
 	)
 
+	s.AddTool(
+		mcp.NewTool("investigate",
+			mcp.WithDescription("Produce a cross-source causal narrative for a metric: anomalies, events correlated by temporal proximity (deploys, commits, notes), and Pearson correlation against sibling metrics."),
+			mcp.WithString("metric_fq",
+				mcp.Required(),
+				mcp.Description("Fully-qualified metric name (e.g. plausible.daily.visitors)."),
+			),
+			mcp.WithString("since",
+				mcp.Description("Time window to analyze (e.g. 14d, 30d). Defaults to 14d."),
+			),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			fqName, err := req.RequireString("metric_fq")
+			if err != nil {
+				return mcp.NewToolResultError("investigate: metric_fq is required"), nil
+			}
+			sinceStr := req.GetString("since", "14d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("investigate: invalid since %q: %v", sinceStr, err)), nil
+			}
+			data, err := cat.InvestigateMetric(ctx, fqName, since)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("investigate: %v", err)), nil
+			}
+			b, err := json.Marshal(ridgelinememory.ToInvestigateJSON(data))
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("investigate: marshal: %v", err)), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+
 	return s
 }
 
 // runMCP handles `ridgeline mcp --config PATH`.
 //
-// It starts a Model Context Protocol server over stdio, exposing two tools:
+// It starts a Model Context Protocol server over stdio, exposing three tools:
 //
 //	list_metrics -- return all metrics in the Business Memory catalog
 //	explain      -- return a structured narrative for a metric
+//	investigate  -- causal narrative: anomalies, correlated events, sibling correlation
 //
 // The server reads JSON-RPC messages from stdin and writes responses to stdout.
 // All diagnostic output goes to stderr so it does not corrupt the transport.
@@ -117,9 +151,10 @@ func runMCP(ctx context.Context, args []string) error {
 		fmt.Fprintln(fs.Output(), "Usage: ridgeline mcp --config PATH")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Run a Model Context Protocol server over stdio.")
-		fmt.Fprintln(fs.Output(), "Exposes two tools to the connected agent:")
+		fmt.Fprintln(fs.Output(), "Exposes three tools to the connected agent:")
 		fmt.Fprintln(fs.Output(), "  list_metrics  -- return all metrics in the Business Memory catalog")
 		fmt.Fprintln(fs.Output(), "  explain       -- return a narrative for a metric over a time window")
+		fmt.Fprintln(fs.Output(), "  investigate   -- causal narrative with correlated events and sibling metrics")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Wire ridgeline into Claude Desktop by adding an entry under")
 		fmt.Fprintln(fs.Output(), "\"mcpServers\" in claude_desktop_config.json.")
