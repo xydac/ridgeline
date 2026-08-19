@@ -1254,8 +1254,8 @@ TIME                  KIND     DETAIL
 
 Ridgeline exposes its Business Memory to AI agents via a
 [Model Context Protocol](https://spec.modelcontextprotocol.io) server. Once
-configured, an agent can call `list_metrics` or `explain` against your real
-synced data without any custom glue code.
+configured, an agent can call `list_metrics`, `explain`, or `investigate`
+against your real synced data without any custom glue code.
 
 ### Connecting to Claude Desktop
 
@@ -1285,6 +1285,12 @@ JSON array. Each element includes `fq_name`, `unit`, `direction`,
 metric covering current value, baseline comparison, prior-period trend,
 anomalies, and correlated events. `since` defaults to `7d`; accepts `Nd` or
 Go duration strings (`24h`, `168h`).
+
+**`investigate(metric_fq, since)`** -- returns a cross-source causal narrative
+for the metric: anomalies in the window, events that fall within a temporal
+proximity window of each anomaly (candidate causes), and sibling metrics
+ranked by Pearson correlation over the same window. `since` defaults to `7d`
+and accepts the same forms as `explain`.
 
 ### Example agent transcript
 
@@ -1341,9 +1347,9 @@ All diagnostic output goes to stderr so it does not corrupt the transport.
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` / `compare` reasoning primitives. |
+| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` / `compare` / `investigate` reasoning primitives. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `mcp`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `investigate`, `mcp`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
