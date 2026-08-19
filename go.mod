@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/marcboeker/go-duckdb/v2 v2.4.3
+	github.com/mark3labs/mcp-go v0.58.0
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/parquet-go/parquet-go v0.29.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -38,7 +39,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/marcboeker/go-duckdb/arrowmapping v0.0.21 // indirect
 	github.com/marcboeker/go-duckdb/mapping v0.0.21 // indirect
-	github.com/mark3labs/mcp-go v0.58.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
@@ -50,7 +50,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
