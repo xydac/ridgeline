@@ -168,6 +168,9 @@ func runMCP(ctx context.Context, args []string) error {
 	if *cfgPath == "" {
 		return usageErrorf("mcp: --config is required")
 	}
+	if fs.NArg() > 0 {
+		return usageErrorf("mcp: unexpected argument %q", fs.Arg(0))
+	}
 
 	cat, store, err := openCatalogFromConfig(*cfgPath)
 	if err != nil {
