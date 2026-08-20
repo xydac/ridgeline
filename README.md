@@ -1199,6 +1199,59 @@ The JSON response includes `explain` (the full explain payload), `causal_candida
 for agent consumption: an AI assistant can read the causal candidates and phrase a
 hypothesis ("the caching layer removal appears correlated with the visitor drop").
 
+### Reasoning: summarize all tracked metrics
+
+`ridgeline summarize` answers "what happened this week?" across your whole
+Business Memory catalog. It ranks every tracked metric by directionality-adjusted
+deviation from its baseline -- surprise-bad events (a metric that should be high but
+is low) rank above surprise-good events of the same magnitude -- and prints the most
+actionable ones grouped by connector.
+
+```
+ridgeline summarize --config ridgeline.yaml --since 7d
+```
+
+```
+Business Memory: 6 metric(s) across 2 connector(s) -- last 7d
+
+[plausible]
+  plausible.daily.visitors: 724 visitors (-4.3 sigma from 30d baseline, surprise-bad)
+  plausible.daily.pageviews: 1891 pageviews (-3.1 sigma from 30d baseline, surprise-bad)
+  plausible.daily.bounce_rate: 62.4% (within baseline range)
+
+[github]
+  github.commits.total: 18 commits (+1.2 sigma from 30d baseline, above average)
+
+```
+
+Use `--top N` to show more or fewer metrics (default 5). Use `--json` for
+structured output where each entry includes the full explain payload:
+
+```
+ridgeline summarize --config ridgeline.yaml --since 7d --top 3 --json
+```
+
+```json
+{
+  "since": "7d",
+  "total_metrics": 6,
+  "total_connectors": 2,
+  "top_metrics": [
+    {
+      "metric_fq": "plausible.daily.visitors",
+      "connector": "plausible",
+      "score": 4.31,
+      "explain": { ... }
+    },
+    ...
+  ]
+}
+```
+
+`score` is the directionality-adjusted z-score (positive = surprise-bad,
+negative = surprise-good). An agent can sort or filter by score to focus on
+the metrics that need attention.
+
 ### Cross-connector event timeline
 
 The Business Memory timeline accumulates events from multiple sources. Two
@@ -1347,9 +1400,9 @@ All diagnostic output goes to stderr so it does not corrupt the transport.
 | `state/sqlite`              | Durable `StateStore` on pure-Go SQLite (modernc.org/sqlite).             |
 | `creds`                     | AES-256-GCM credential store, shares the SQLite database.                |
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
-| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` / `compare` / `investigate` reasoning primitives. |
+| `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` / `compare` / `investigate` / `summarize` reasoning primitives. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `investigate`, `mcp`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `investigate`, `summarize`, `mcp`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
