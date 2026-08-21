@@ -23,7 +23,8 @@ type ExplainData struct {
 	WindowSamples int
 	PriorMean     *float64 // mean in [now-2*since, now-since]; nil if no data
 	PriorSamples  int
-	Anomalies     []EventRow // all events in the window: anomalies + correlated (deploys, commits, notes)
+	Anomalies     []EventRow      // all events in the window: anomalies + correlated (deploys, commits, notes)
+	Confidence    ConfidenceScore // derived from baseline sample count
 }
 
 // ExplainJSON is the structured output format for --json.
@@ -41,6 +42,7 @@ type ExplainJSON struct {
 	PriorSamples     int              `json:"prior_samples,omitempty"`
 	Anomalies        []AnomalyJSON    `json:"anomalies"`
 	CorrelatedEvents []CorrelatedJSON `json:"correlated_events"`
+	Confidence       float64          `json:"confidence"`
 	Summary          string           `json:"summary"`
 }
 
@@ -107,6 +109,10 @@ func (c *Catalog) ExplainMetric(ctx context.Context, fqName string, since time.D
 
 	d.Anomalies, _ = c.eventsInWindow(ctx, fqName, since)
 
+	if d.Baseline != nil {
+		d.Confidence = ScoreBaseline(d.Baseline.SampleCount)
+	}
+
 	return d, nil
 }
 
@@ -124,6 +130,7 @@ func ToExplainJSON(d *ExplainData) *ExplainJSON {
 		PriorSamples:     d.PriorSamples,
 		Anomalies:        []AnomalyJSON{},
 		CorrelatedEvents: []CorrelatedJSON{},
+		Confidence:       d.Confidence.Float64(),
 		Summary:          composeSummary(d),
 	}
 	if d.CurrentAt != nil {
@@ -317,7 +324,8 @@ func composeSummary(d *ExplainData) string {
 		correlatedPart = fmt.Sprintf("; %d correlated event(s) in window", len(correlated))
 	}
 
-	return fmt.Sprintf("%s is %s%s%s.", short, trend, anomalyPart, correlatedPart)
+	confTag := d.Confidence.Tag(baselineDetail(d.Baseline))
+	return fmt.Sprintf("%s is %s%s%s %s.", short, trend, anomalyPart, correlatedPart, confTag)
 }
 
 func metricShortName(fq string) string {
