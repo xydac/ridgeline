@@ -1083,7 +1083,8 @@ ridgeline explain plausible.daily.visitors --config ridgeline.yaml --since 7d --
     }
   ],
   "correlated_events": [],
-  "summary": "visitors is below baseline (watch), with one surprise-bad spike on 2026-08-09."
+  "confidence": 0.33,
+  "summary": "visitors is below baseline (watch), with one surprise-bad spike on 2026-08-09 (low confidence: 30-day baseline, n=30)."
 }
 ```
 
@@ -1241,6 +1242,7 @@ ridgeline summarize --config ridgeline.yaml --since 7d --top 3 --json
       "metric_fq": "plausible.daily.visitors",
       "connector": "plausible",
       "score": 4.31,
+      "confidence": 0.92,
       "explain": { ... }
     },
     ...
@@ -1251,6 +1253,47 @@ ridgeline summarize --config ridgeline.yaml --since 7d --top 3 --json
 `score` is the directionality-adjusted z-score (positive = surprise-bad,
 negative = surprise-good). An agent can sort or filter by score to focus on
 the metrics that need attention.
+
+### Confidence scoring
+
+Every reasoning primitive attaches a numeric confidence score to its output.
+The score is in `[0, 1]` and reflects how much evidence backs a claim.
+
+**Score sources:**
+
+| Claim type | Evidence | Formula |
+|---|---|---|
+| Baseline claim | Sample count behind the baseline | `min(1.0, n/90)` -- saturates at 90 samples |
+| Anomaly claim | Absolute z-score of the event | `min(1.0, \|z\|/3.0)` -- saturates at 3 sigma |
+| Causal candidate | Hours between event and anomaly | `1 - hours/48` -- linear decay over 48h |
+| Sibling correlation | Pearson r and sample count | `\|r\| * min(1.0, n/30)` -- requires 5+ shared days |
+
+**Text output** includes a tag on the summary line:
+
+```
+visitors is below baseline (watch), with one downward spike on 2026-08-13
+(low confidence: 7-day baseline, n=7).
+```
+
+**JSON output** carries a `confidence` field (float) on every result object:
+
+```json
+{
+  "metric_fq": "plausible.daily.visitors",
+  "confidence": 0.92,
+  "summary": "visitors is above baseline (positive) (high confidence: 90-day baseline, n=83)."
+}
+```
+
+**How to read scores:**
+- `>= 0.75` -- high confidence; claim is backed by substantial data.
+- `0.40 - 0.75` -- medium confidence; directionally reliable but thin data.
+- `< 0.40` -- low confidence; treat as a signal to collect more data, not a firm finding.
+
+A metric that was first synced yesterday will show low confidence until its
+baseline window fills. An anomaly at 4 sigma shows high anomaly confidence even
+with a short baseline. Agents can gate on `confidence >= 0.75` to suppress
+low-evidence findings from automated alerts.
 
 ### Cross-connector event timeline
 
