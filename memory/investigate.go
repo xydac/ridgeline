@@ -32,12 +32,13 @@ type SiblingCorrelation struct {
 
 // InvestigateJSON is the structured JSON output for investigate.
 type InvestigateJSON struct {
-	MetricFQ string                `json:"metric_fq"`
-	Since    string                `json:"since"`
-	Explain  *ExplainJSON          `json:"explain"`
-	Causal   []CausalCandidateJSON `json:"causal_candidates"`
-	Siblings []SiblingCorrJSON     `json:"sibling_correlations"`
-	Summary  string                `json:"summary"`
+	MetricFQ   string                `json:"metric_fq"`
+	Since      string                `json:"since"`
+	Explain    *ExplainJSON          `json:"explain"`
+	Causal     []CausalCandidateJSON `json:"causal_candidates"`
+	Siblings   []SiblingCorrJSON     `json:"sibling_correlations"`
+	Confidence float64               `json:"confidence"`
+	Summary    string                `json:"summary"`
 }
 
 // CausalCandidateJSON is one causal candidate in InvestigateJSON.
@@ -47,13 +48,15 @@ type CausalCandidateJSON struct {
 	Description    string  `json:"description"`
 	AnomalyAt      string  `json:"anomaly_at"`
 	ProximityHours float64 `json:"proximity_hours"`
+	Confidence     float64 `json:"confidence"`
 }
 
 // SiblingCorrJSON is one sibling correlation in InvestigateJSON.
 type SiblingCorrJSON struct {
-	MetricFQ string  `json:"metric_fq"`
-	R        float64 `json:"r"`
-	Samples  int     `json:"samples"`
+	MetricFQ   string  `json:"metric_fq"`
+	R          float64 `json:"r"`
+	Samples    int     `json:"samples"`
+	Confidence float64 `json:"confidence"`
 }
 
 // causalProximityWindow is how far before an anomaly we look for causal events.
@@ -277,7 +280,9 @@ func ComposeCausalNarrative(d *InvestigateData) string {
 			if s.R < 0 {
 				dir = "moved inversely"
 			}
-			fmt.Fprintf(&sb, "  %s: r=%.2f (%s, %d shared days)\n", s.MetricFQ, s.R, dir, s.Samples)
+			sibConf := ScoreCorrelation(math.Abs(s.R), s.Samples)
+			fmt.Fprintf(&sb, "  %s: r=%.2f (%s, %d shared days) %s\n",
+				s.MetricFQ, s.R, dir, s.Samples, sibConf.Tag(""))
 		}
 		fmt.Fprintln(&sb, "")
 	} else {
@@ -289,32 +294,39 @@ func ComposeCausalNarrative(d *InvestigateData) string {
 
 // ToInvestigateJSON converts InvestigateData to the structured JSON output type.
 func ToInvestigateJSON(d *InvestigateData) *InvestigateJSON {
+	// Overall investigation confidence comes from the explain baseline.
+	overallConf := d.Explain.Confidence
 	j := &InvestigateJSON{
-		MetricFQ: d.Explain.MetricFQ,
-		Since:    FormatSince(d.Explain.Since),
-		Explain:  ToExplainJSON(d.Explain),
-		Causal:   []CausalCandidateJSON{},
-		Siblings: []SiblingCorrJSON{},
-		Summary:  composeSummary(d.Explain),
+		MetricFQ:   d.Explain.MetricFQ,
+		Since:      FormatSince(d.Explain.Since),
+		Explain:    ToExplainJSON(d.Explain),
+		Causal:     []CausalCandidateJSON{},
+		Siblings:   []SiblingCorrJSON{},
+		Confidence: overallConf.Float64(),
+		Summary:    fmt.Sprintf("%s %s.", composeSummary(d.Explain), overallConf.Tag(baselineDetail(d.Explain.Baseline))),
 	}
 	for _, c := range d.Causal {
 		label := c.Event.Description
 		if label == "" {
 			label = c.Event.Kind
 		}
+		causalConf := ScoreProximity(c.ProximityHours)
 		j.Causal = append(j.Causal, CausalCandidateJSON{
 			EventAt:        c.Event.At.Format(time.RFC3339),
 			Kind:           c.Event.Kind,
 			Description:    label,
 			AnomalyAt:      c.AnomalyAt.Format(time.RFC3339),
 			ProximityHours: c.ProximityHours,
+			Confidence:     causalConf.Float64(),
 		})
 	}
 	for _, s := range d.Siblings {
+		sibConf := ScoreCorrelation(math.Abs(s.R), s.Samples)
 		j.Siblings = append(j.Siblings, SiblingCorrJSON{
-			MetricFQ: s.MetricFQ,
-			R:        s.R,
-			Samples:  s.Samples,
+			MetricFQ:   s.MetricFQ,
+			R:          s.R,
+			Samples:    s.Samples,
+			Confidence: sibConf.Float64(),
 		})
 	}
 	return j

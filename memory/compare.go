@@ -27,6 +27,7 @@ type CompareJSON struct {
 	Verdict      string           `json:"verdict"`
 	Diverged     bool             `json:"diverged"`
 	SharedEvents []CorrelatedJSON `json:"shared_events"`
+	Confidence   float64          `json:"confidence"`
 	Summary      string           `json:"summary"`
 }
 
@@ -61,6 +62,7 @@ type PeriodOverPeriodJSON struct {
 	Verdict       string        `json:"verdict"`
 	Baseline      *BaselineJSON `json:"baseline,omitempty"`
 	Anomalies     []AnomalyJSON `json:"anomalies"`
+	Confidence    float64       `json:"confidence"`
 	Summary       string        `json:"summary"`
 }
 
@@ -163,7 +165,8 @@ func ComposePairwiseNarrative(d *CompareData) string {
 		}
 	}
 
-	fmt.Fprintf(&sb, "\nSummary: %s and %s %s.\n", aName, bName, d.Verdict)
+	pairConf := ConfidenceScore((d.A.Confidence.Float64() + d.B.Confidence.Float64()) / 2)
+	fmt.Fprintf(&sb, "\nSummary: %s and %s %s %s.\n", aName, bName, d.Verdict, pairConf.Tag(baselineDetail(d.A.Baseline)))
 	return sb.String()
 }
 
@@ -219,8 +222,12 @@ func ComposePeriodOverPeriodNarrative(d *PeriodOverPeriodData) string {
 		fmt.Fprintf(&sb, "No anomalies detected in the recent %s.\n", sinceStr)
 	}
 
-	fmt.Fprintf(&sb, "\nSummary: %s %s (%.1f%% vs prior %s).\n",
-		short, d.Verdict, d.PctChange, priorStr)
+	popConf := ScoreBaseline(0)
+	if d.Baseline != nil {
+		popConf = ScoreBaseline(d.Baseline.SampleCount)
+	}
+	fmt.Fprintf(&sb, "\nSummary: %s %s (%.1f%% vs prior %s) %s.\n",
+		short, d.Verdict, d.PctChange, priorStr, popConf.Tag(baselineDetail(d.Baseline)))
 	return sb.String()
 }
 
@@ -228,6 +235,8 @@ func ComposePeriodOverPeriodNarrative(d *PeriodOverPeriodData) string {
 func ToCompareJSON(d *CompareData) *CompareJSON {
 	aName := metricShortName(d.A.MetricFQ)
 	bName := metricShortName(d.B.MetricFQ)
+	// Confidence for the pairwise verdict is the average of both metrics' confidence.
+	pairConf := ConfidenceScore((d.A.Confidence.Float64() + d.B.Confidence.Float64()) / 2)
 	j := &CompareJSON{
 		Since:        FormatSince(d.Since),
 		MetricA:      ToExplainJSON(d.A),
@@ -235,7 +244,8 @@ func ToCompareJSON(d *CompareData) *CompareJSON {
 		Verdict:      d.Verdict,
 		Diverged:     d.Diverged,
 		SharedEvents: []CorrelatedJSON{},
-		Summary:      fmt.Sprintf("%s and %s %s.", aName, bName, d.Verdict),
+		Confidence:   pairConf.Float64(),
+		Summary:      fmt.Sprintf("%s and %s %s %s.", aName, bName, d.Verdict, pairConf.Tag(baselineDetail(d.A.Baseline))),
 	}
 	for _, e := range d.SharedEvents {
 		label := e.Description
@@ -254,6 +264,10 @@ func ToCompareJSON(d *CompareData) *CompareJSON {
 // ToPeriodOverPeriodJSON converts PeriodOverPeriodData to the structured JSON output type.
 func ToPeriodOverPeriodJSON(d *PeriodOverPeriodData) *PeriodOverPeriodJSON {
 	short := metricShortName(d.MetricFQ)
+	conf := ScoreBaseline(0)
+	if d.Baseline != nil {
+		conf = ScoreBaseline(d.Baseline.SampleCount)
+	}
 	j := &PeriodOverPeriodJSON{
 		MetricFQ:      d.MetricFQ,
 		Since:         FormatSince(d.Since),
@@ -266,7 +280,8 @@ func ToPeriodOverPeriodJSON(d *PeriodOverPeriodData) *PeriodOverPeriodJSON {
 		Direction:     d.Direction,
 		Verdict:       d.Verdict,
 		Anomalies:     []AnomalyJSON{},
-		Summary:       fmt.Sprintf("%s %s (%.1f%% vs prior %s).", short, d.Verdict, d.PctChange, FormatSince(d.PriorSince)),
+		Confidence:    conf.Float64(),
+		Summary:       fmt.Sprintf("%s %s (%.1f%% vs prior %s) %s.", short, d.Verdict, d.PctChange, FormatSince(d.PriorSince), conf.Tag(baselineDetail(d.Baseline))),
 	}
 	if d.Baseline != nil {
 		j.Baseline = &BaselineJSON{

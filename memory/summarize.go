@@ -37,10 +37,11 @@ type SummaryJSON struct {
 
 // MetricSummaryJSON is one entry in SummaryJSON.TopMetrics.
 type MetricSummaryJSON struct {
-	MetricFQ  string       `json:"metric_fq"`
-	Connector string       `json:"connector"`
-	Score     float64      `json:"score"`
-	Explain   *ExplainJSON `json:"explain"`
+	MetricFQ   string       `json:"metric_fq"`
+	Connector  string       `json:"connector"`
+	Score      float64      `json:"score"`
+	Confidence float64      `json:"confidence"`
+	Explain    *ExplainJSON `json:"explain"`
 }
 
 // SummarizeAll walks all metrics in bm_metrics, calls ExplainMetric on each,
@@ -176,14 +177,18 @@ func ToSummaryJSON(d *SummarizeData) *SummaryJSON {
 		TopMetrics:      make([]MetricSummaryJSON, 0, len(d.TopMetrics)),
 	}
 	for _, ms := range d.TopMetrics {
+		conf := ConfidenceScore(0)
+		if ms.Explain != nil {
+			conf = ms.Explain.Confidence
+		}
 		entry := MetricSummaryJSON{
-			MetricFQ:  ms.FQName,
-			Connector: ms.Connector,
-			Score:     ms.Score,
+			MetricFQ:   ms.FQName,
+			Connector:  ms.Connector,
+			Score:      ms.Score,
+			Confidence: conf.Float64(),
 		}
 		if ms.Explain != nil {
-			ej := ToExplainJSON(ms.Explain)
-			entry.Explain = ej
+			entry.Explain = ToExplainJSON(ms.Explain)
 		}
 		j.TopMetrics = append(j.TopMetrics, entry)
 	}
