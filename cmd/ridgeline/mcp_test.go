@@ -24,12 +24,12 @@ func openTestCatalogForMCP(t *testing.T) *ridgelinememory.Catalog {
 	return ridgelinememory.New(store.DB())
 }
 
-// TestMCPServerRegisters3Tools verifies that buildMCPServer registers exactly
-// list_metrics, explain, and investigate.
-func TestMCPServerRegisters3Tools(t *testing.T) {
+// TestMCPServerRegisters5Tools verifies that buildMCPServer registers exactly
+// list_metrics, explain, investigate, compare, and summarize.
+func TestMCPServerRegisters5Tools(t *testing.T) {
 	cat := openTestCatalogForMCP(t)
 	s := buildMCPServer(cat, "test")
-	// We verify indirectly: a tools/list request returns all three tools.
+	// We verify indirectly: a tools/list request returns all five tools.
 	// Use mcptest to drive the server via its client.
 	unstarted := mcptest.NewUnstartedServer(t)
 	unstarted.AddServerOptions(server.WithToolCapabilities(true))
@@ -37,36 +37,15 @@ func TestMCPServerRegisters3Tools(t *testing.T) {
 	// Rebuild with mcptest so we have a real transport:
 	// mcptest can't accept an MCPServer; we re-register by creating a second server
 	// that mirrors buildMCPServer. This confirms the API surface is correct.
-	unstarted.AddTool(
-		mcp.NewTool("list_metrics",
-			mcp.WithDescription("List all metrics tracked in the Business Memory catalog."),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			rows, _ := cat.ListMetrics(ctx)
-			b, _ := json.Marshal(rows)
-			return mcp.NewToolResultText(string(b)), nil
-		},
-	)
-	unstarted.AddTool(
-		mcp.NewTool("explain",
-			mcp.WithDescription("Return a structured narrative for a metric."),
-			mcp.WithString("metric_fq", mcp.Required()),
-			mcp.WithString("since"),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText("{}"), nil
-		},
-	)
-	unstarted.AddTool(
-		mcp.NewTool("investigate",
-			mcp.WithDescription("Causal narrative with correlated events and sibling metrics."),
-			mcp.WithString("metric_fq", mcp.Required()),
-			mcp.WithString("since"),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText("{}"), nil
-		},
-	)
+	for _, name := range []string{"list_metrics", "explain", "investigate", "compare", "summarize"} {
+		n := name
+		unstarted.AddTool(
+			mcp.NewTool(n),
+			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return mcp.NewToolResultText("{}"), nil
+			},
+		)
+	}
 	if err := unstarted.Start(t.Context()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -76,21 +55,17 @@ func TestMCPServerRegisters3Tools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 3 {
-		t.Errorf("want 3 tools, got %d", len(tools.Tools))
+	if len(tools.Tools) != 5 {
+		t.Errorf("want 5 tools, got %d", len(tools.Tools))
 	}
 	names := map[string]bool{}
 	for _, tool := range tools.Tools {
 		names[tool.Name] = true
 	}
-	if !names["list_metrics"] {
-		t.Errorf("list_metrics tool not registered")
-	}
-	if !names["explain"] {
-		t.Errorf("explain tool not registered")
-	}
-	if !names["investigate"] {
-		t.Errorf("investigate tool not registered")
+	for _, want := range []string{"list_metrics", "explain", "investigate", "compare", "summarize"} {
+		if !names[want] {
+			t.Errorf("%s tool not registered", want)
+		}
 	}
 }
 
@@ -396,6 +371,151 @@ func TestMCPInvestigateKnownMetricReturnsCausalFields(t *testing.T) {
 	}
 	if out["metric_fq"] != "myapp.daily.revenue" {
 		t.Errorf("metric_fq mismatch: %v", out["metric_fq"])
+	}
+}
+
+// TestMCPCompareKnownMetricsReturnsVerdictFields verifies that compare returns
+// structured JSON with metric_a, metric_b, verdict, and summary fields.
+func TestMCPCompareKnownMetricsReturnsVerdictFields(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	va, vb := 100.0, 200.0
+	if err := cat.UpsertMetric(ctx, "myapp.daily.visitors", "users", "higher_is_better", "sum", &va); err != nil {
+		t.Fatalf("upsert metric a: %v", err)
+	}
+	if err := cat.UpsertMetric(ctx, "myapp.daily.pageviews", "count", "higher_is_better", "sum", &vb); err != nil {
+		t.Fatalf("upsert metric b: %v", err)
+	}
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("compare",
+			mcp.WithString("metric_a", mcp.Required()),
+			mcp.WithString("metric_b", mcp.Required()),
+			mcp.WithString("since"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			metricA, err := req.RequireString("metric_a")
+			if err != nil {
+				return mcp.NewToolResultError("compare: metric_a is required"), nil
+			}
+			metricB, err := req.RequireString("metric_b")
+			if err != nil {
+				return mcp.NewToolResultError("compare: metric_b is required"), nil
+			}
+			sinceStr := req.GetString("since", "7d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError("compare: invalid since"), nil
+			}
+			data, err := cat.CompareMetrics(ctx, metricA, metricB, since)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToCompareJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "compare"
+	req.Params.Arguments = map[string]any{
+		"metric_a": "myapp.daily.visitors",
+		"metric_b": "myapp.daily.pageviews",
+		"since":    "7d",
+	}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", extractText(t, result))
+	}
+
+	text := extractText(t, result)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal compare result: %v\nraw: %s", err, text)
+	}
+	for _, field := range []string{"metric_a", "metric_b", "verdict", "summary"} {
+		if _, ok := out[field]; !ok {
+			t.Errorf("compare result missing %q field; got keys: %v", field, keys(out))
+		}
+	}
+}
+
+// TestMCPSummarizeReturnsTopMetrics verifies that summarize returns structured
+// JSON with total_metrics and top_metrics fields for a catalog with known data.
+func TestMCPSummarizeReturnsTopMetrics(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	for _, fq := range []string{"myapp.daily.visitors", "myapp.daily.signups", "myapp.daily.errors"} {
+		v := 42.0
+		if err := cat.UpsertMetric(ctx, fq, "count", "higher_is_better", "sum", &v); err != nil {
+			t.Fatalf("upsert metric %s: %v", fq, err)
+		}
+	}
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("summarize",
+			mcp.WithString("since"),
+			mcp.WithNumber("top"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			sinceStr := req.GetString("since", "7d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError("summarize: invalid since"), nil
+			}
+			topK := int(req.GetFloat("top", 5))
+			if topK <= 0 {
+				topK = 5
+			}
+			data, err := cat.SummarizeAll(ctx, since, topK)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToSummaryJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "summarize"
+	req.Params.Arguments = map[string]any{"since": "7d", "top": 5}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", extractText(t, result))
+	}
+
+	text := extractText(t, result)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal summarize result: %v\nraw: %s", err, text)
+	}
+	for _, field := range []string{"total_metrics", "top_metrics"} {
+		if _, ok := out[field]; !ok {
+			t.Errorf("summarize result missing %q field; got keys: %v", field, keys(out))
+		}
+	}
+	if n, ok := out["total_metrics"].(float64); !ok || int(n) != 3 {
+		t.Errorf("want total_metrics=3, got %v", out["total_metrics"])
 	}
 }
 
