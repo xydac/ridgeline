@@ -1350,8 +1350,8 @@ TIME                  KIND     DETAIL
 
 Ridgeline exposes its Business Memory to AI agents via a
 [Model Context Protocol](https://spec.modelcontextprotocol.io) server. Once
-configured, an agent can call `list_metrics`, `explain`, or `investigate`
-against your real synced data without any custom glue code.
+configured, an agent can call five tools against your real synced data without
+any custom glue code.
 
 ### Connecting to Claude Desktop
 
@@ -1385,17 +1385,32 @@ Go duration strings (`24h`, `168h`).
 **`investigate(metric_fq, since)`** -- returns a cross-source causal narrative
 for the metric: anomalies in the window, events that fall within a temporal
 proximity window of each anomaly (candidate causes), and sibling metrics
-ranked by Pearson correlation over the same window. `since` defaults to `7d`
+ranked by Pearson correlation over the same window. `since` defaults to `14d`
 and accepts the same forms as `explain`.
 
-### Example agent transcript
+**`compare(metric_a, metric_b, since)`** -- runs `explain` on both metrics
+over the same window and returns a side-by-side JSON result with per-metric
+baselines, anomalies, shared correlated events, a directional verdict
+(`both-improved`, `diverged`, `both-regressed`, or `unchanged`), and a
+confidence score. `since` defaults to `7d`.
+
+**`summarize(since, top)`** -- walks all tracked metrics, ranks them by
+directionality-weighted deviation from baseline (surprise-bad events surface
+first), and returns the top-`top` results as a JSON array. Each entry includes
+the full `explain` payload and a `score`. Use this to answer "what should I
+focus on this week?" `since` defaults to `7d`; `top` defaults to 5.
+
+### Example agent transcripts
+
+**Diagnosing a drop:**
 
 ```
 User: Why did my signups drop this week?
 
 Claude: [calls explain(metric_fq="myapp.daily.signups", since="7d")]
+        [calls investigate(metric_fq="myapp.daily.signups", since="14d")]
 
-Result:
+explain result:
 {
   "metric_fq": "myapp.daily.signups",
   "since": "7d",
@@ -1404,7 +1419,46 @@ Result:
   "baseline": {"window_days": 30, "mean": 91.4, "stddev": 14.2},
   "anomalies": [{"at": "2026-08-12T00:00:00Z", "stddev_from_mean": -3.76, "direction": "surprise-bad"}],
   "correlated_events": [{"at": "2026-08-12", "kind": "deploy", "description": "migrated auth to new provider"}],
-  "summary": "signups is below baseline (watch), with one surprise-bad spike on 2026-08-12; 1 correlated event(s) in window."
+  "confidence": 0.87,
+  "summary": "signups is below baseline (watch), with one surprise-bad spike on 2026-08-12."
+}
+```
+
+**Weekly focus question:**
+
+```
+User: What should I focus on this week?
+
+Claude: [calls summarize(since="7d", top=5)]
+
+Result:
+{
+  "since": "7d",
+  "total_metrics": 12,
+  "total_connectors": 3,
+  "top_metrics": [
+    {"metric_fq": "myapp.daily.signups", "connector": "myapp", "score": 3.76, "confidence": 0.87, "explain": {...}},
+    ...
+  ]
+}
+```
+
+**Comparing two metrics:**
+
+```
+User: Did pageviews and signups move together last month?
+
+Claude: [calls compare(metric_a="myapp.daily.pageviews", metric_b="myapp.daily.signups", since="30d")]
+
+Result:
+{
+  "since": "30d",
+  "verdict": "diverged",
+  "diverged": true,
+  "confidence": 0.72,
+  "summary": "pageviews improved 12% while signups regressed 24%; metrics diverged.",
+  "metric_a": {...},
+  "metric_b": {...}
 }
 ```
 
