@@ -131,16 +131,91 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 		},
 	)
 
+	s.AddTool(
+		mcp.NewTool("compare",
+			mcp.WithDescription("Compare two metrics side-by-side over the same time window. Returns baseline, anomalies, and a verdict (both-improved, diverged, both-regressed, or unchanged) for each metric, plus shared correlated events and a confidence score."),
+			mcp.WithString("metric_a",
+				mcp.Required(),
+				mcp.Description("First fully-qualified metric name (e.g. plausible.daily.visitors)."),
+			),
+			mcp.WithString("metric_b",
+				mcp.Required(),
+				mcp.Description("Second fully-qualified metric name (e.g. plausible.daily.pageviews)."),
+			),
+			mcp.WithString("since",
+				mcp.Description("Time window for both metrics (e.g. 7d, 30d). Defaults to 7d."),
+			),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			metricA, err := req.RequireString("metric_a")
+			if err != nil {
+				return mcp.NewToolResultError("compare: metric_a is required"), nil
+			}
+			metricB, err := req.RequireString("metric_b")
+			if err != nil {
+				return mcp.NewToolResultError("compare: metric_b is required"), nil
+			}
+			sinceStr := req.GetString("since", "7d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("compare: invalid since %q: %v", sinceStr, err)), nil
+			}
+			data, err := cat.CompareMetrics(ctx, metricA, metricB, since)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("compare: %v", err)), nil
+			}
+			b, err := json.Marshal(ridgelinememory.ToCompareJSON(data))
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("compare: marshal: %v", err)), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("summarize",
+			mcp.WithDescription("Return a ranked overview of all tracked metrics, ordered by directionality-weighted deviation from baseline. Surfaces the most notable metrics (surprise-bad events first) across all connectors. Use this to answer 'what should I focus on this week?'"),
+			mcp.WithString("since",
+				mcp.Description("Time window to analyze (e.g. 7d, 30d). Defaults to 7d."),
+			),
+			mcp.WithNumber("top",
+				mcp.Description("Maximum number of metrics to return. Defaults to 5."),
+			),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			sinceStr := req.GetString("since", "7d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("summarize: invalid since %q: %v", sinceStr, err)), nil
+			}
+			topK := int(req.GetFloat("top", 5))
+			if topK <= 0 {
+				topK = 5
+			}
+			data, err := cat.SummarizeAll(ctx, since, topK)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("summarize: %v", err)), nil
+			}
+			b, err := json.Marshal(ridgelinememory.ToSummaryJSON(data))
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("summarize: marshal: %v", err)), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+
 	return s
 }
 
 // runMCP handles `ridgeline mcp --config PATH`.
 //
-// It starts a Model Context Protocol server over stdio, exposing three tools:
+// It starts a Model Context Protocol server over stdio, exposing five tools:
 //
 //	list_metrics -- return all metrics in the Business Memory catalog
-//	explain      -- return a structured narrative for a metric
+//	explain      -- structured narrative for one metric over a time window
 //	investigate  -- causal narrative: anomalies, correlated events, sibling correlation
+//	compare      -- pairwise comparison of two metrics over the same window
+//	summarize    -- ranked overview of all tracked metrics (what to focus on)
 //
 // The server reads JSON-RPC messages from stdin and writes responses to stdout.
 // All diagnostic output goes to stderr so it does not corrupt the transport.
@@ -151,10 +226,12 @@ func runMCP(ctx context.Context, args []string) error {
 		fmt.Fprintln(fs.Output(), "Usage: ridgeline mcp --config PATH")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Run a Model Context Protocol server over stdio.")
-		fmt.Fprintln(fs.Output(), "Exposes three tools to the connected agent:")
+		fmt.Fprintln(fs.Output(), "Exposes five tools to the connected agent:")
 		fmt.Fprintln(fs.Output(), "  list_metrics  -- return all metrics in the Business Memory catalog")
 		fmt.Fprintln(fs.Output(), "  explain       -- return a narrative for a metric over a time window")
 		fmt.Fprintln(fs.Output(), "  investigate   -- causal narrative with correlated events and sibling metrics")
+		fmt.Fprintln(fs.Output(), "  compare       -- pairwise comparison of two metrics over the same window")
+		fmt.Fprintln(fs.Output(), "  summarize     -- ranked overview of all tracked metrics")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Wire ridgeline into Claude Desktop by adding an entry under")
 		fmt.Fprintln(fs.Output(), "\"mcpServers\" in claude_desktop_config.json.")
