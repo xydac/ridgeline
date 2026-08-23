@@ -1311,19 +1311,24 @@ Accepted `--at` formats: RFC3339 (`2026-08-10T14:00:00Z`) or `YYYY-MM-DD`.
 `--kind` is free-form; common values: `deploy`, `release`, `rollback`, `incident`, `migration`.
 
 **Git connector** -- reads commits from a local repository automatically on
-each sync. Configure it in `ridgeline.yaml`:
+each sync. Configure it in `ridgeline.yaml` under the usual
+`products.<name>.connectors` block:
 
 ```yaml
-connectors:
-  - name: myapp-git
-    type: git
-    streams: [commits]
-    config:
-      path: /home/user/code/myapp
-    sink:
-      type: parquet
-      options:
-        dir: data/git
+version: 1
+state_path: ./ridgeline.db
+products:
+  myapp:
+    connectors:
+      - name: myapp-git
+        type: git
+        streams: [commits]
+        config:
+          path: /home/user/code/myapp
+        sink:
+          type: parquet
+          options:
+            dir: data/git
 ```
 
 On sync, every new commit is written to the parquet sink (queryable via
