@@ -24,6 +24,21 @@ type mcpMetric struct {
 	LastValueAt *string  `json:"last_value_at,omitempty"`
 }
 
+// readOnlyToolAnnotation describes every tool the ridgeline MCP server exposes:
+// each one only reads from the local Business Memory catalog, never mutates
+// state, is safe to call repeatedly with the same arguments, and touches no
+// external systems. Agent clients use these hints to decide whether to prompt
+// the user before invoking a tool.
+func readOnlyToolAnnotation() mcp.ToolAnnotation {
+	t, f := true, false
+	return mcp.ToolAnnotation{
+		ReadOnlyHint:    &t,
+		DestructiveHint: &f,
+		IdempotentHint:  &t,
+		OpenWorldHint:   &f,
+	}
+}
+
 // buildMCPServer constructs and returns the ridgeline MCP server backed by cat.
 // Extracted from runMCP to allow testing the tool handlers independently.
 func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPServer {
@@ -32,10 +47,12 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 		version,
 		server.WithToolCapabilities(true),
 	)
+	annot := mcp.WithToolAnnotation(readOnlyToolAnnotation())
 
 	s.AddTool(
 		mcp.NewTool("list_metrics",
 			mcp.WithDescription("List all metrics tracked in the Business Memory catalog. Returns metric name, unit, directionality, aggregation hint, and last observed value."),
+			annot,
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			rows, err := cat.ListMetrics(ctx)
@@ -75,6 +92,7 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 			mcp.WithString("since",
 				mcp.Description("Time window to analyze (e.g. 7d, 30d, 24h). Defaults to 7d."),
 			),
+			annot,
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			fqName, err := req.RequireString("metric_fq")
@@ -108,6 +126,7 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 			mcp.WithString("since",
 				mcp.Description("Time window to analyze (e.g. 14d, 30d). Defaults to 14d."),
 			),
+			annot,
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			fqName, err := req.RequireString("metric_fq")
@@ -145,6 +164,7 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 			mcp.WithString("since",
 				mcp.Description("Time window for both metrics (e.g. 7d, 30d). Defaults to 7d."),
 			),
+			annot,
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			metricA, err := req.RequireString("metric_a")
@@ -181,6 +201,7 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 			mcp.WithNumber("top",
 				mcp.Description("Maximum number of metrics to return. Defaults to 5."),
 			),
+			annot,
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			sinceStr := req.GetString("since", "7d")
