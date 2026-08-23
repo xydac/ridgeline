@@ -53,4 +53,14 @@
 - [x] `ridgeline investigate <metric>` -- cross-source causal narrative correlating anomalies with events by temporal proximity and ranking sibling metrics by Pearson correlation
 - [x] `ridgeline summarize` -- ranked narrative overview of all tracked metrics; directionality-adjusted scoring surfaces surprise-bad events first; grouped by connector; `--top N` and `--json` flags
 - [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
-- [x] MCP server (`ridgeline mcp`) exposing `list_metrics`, `explain`, and `investigate` as agent tools
+- [x] MCP server (`ridgeline mcp`) exposing `list_metrics`, `explain`, `investigate`, `compare`, and `summarize` as agent tools
+
+## Known gaps (Phase 2)
+
+- A relative `state_path` in `ridgeline.yaml` resolves against the process working directory rather than the config file's directory, so running `ridgeline` from a different cwd silently opens an empty state database.
+- The top-level `--help` block enumerates most `memory` subcommands but omits `memory note`, the only write path into the Business Memory timeline; two help surfaces disagree on the command inventory.
+- `ridgeline schema <connector>` with no stream argument returns a lookup error for an empty stream name on connectors whose schema is declared at runtime (e.g. `external`); it should either list streams or explain that the schema is dynamic.
+- `ridgeline summarize` on a catalog whose only synced streams are `unstructured` prints "no metrics recorded; run ridgeline sync" even though sync just succeeded; guidance should distinguish an un-synced catalog from one whose connectors carry no metric-typed streams.
+- The `memory:` block accepts semantically impossible values (negative `anomaly_k`, `min_samples: 0`, empty-string metric keys, overrides for metrics not in the catalog) with exit 0.
+- External JSON-lines connectors cannot declare `kind: metric` in a `SCHEMA` message; the stream is silently classified as `unstructured` and never enters Business Memory.
+- Positional-then-flag argument order (`ridgeline explain metric.name --since 7d`) is rejected by `explain`, `compare`, `investigate`, and `summarize` even though it matches the README examples; the error blames the flag rather than the ordering.
