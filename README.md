@@ -1,23 +1,52 @@
 # Ridgeline
 
-Self-hosted intelligence platform for indie developers.
+**Business Memory for indie developers.** Persistent, queryable understanding
+of your business that AI agents can reason over.
 
-Extract from anywhere. Enrich with AI. Query with SQL. Alert on what
-matters. One binary. Pluggable connectors in any language. DuckDB-powered.
+Ridgeline syncs data from your analytics, search, product, and code platforms
+into a local data store, builds rolling baselines and anomaly detection on
+every metric, and exposes a reasoning layer -- `explain`, `compare`,
+`investigate`, `summarize` -- that answers questions like "why did signups drop
+last week?" without sending your data to an LLM.
 
-> **Status: early bootstrap.** The ETL core runs end-to-end from a
-> ridgeline.yaml config: SQLite-backed state (durable across restarts),
-> an AES-256-GCM credential store with a `ridgeline creds` CLI, JSON-lines
-> and Parquet sinks, native connectors for Hacker News (Algolia public
-> API), Umami (self-hosted analytics, API key or username/password
-> login), Google Search Console (OAuth 2.0 via a browser PKCE flow
-> or a bring-your-own refresh token), Plausible Analytics (daily
-> timeseries via API token), GitHub repository traffic (daily views
-> and clones via PAT), and PostHog (individual events via Personal API
-> Key), an external runner that lets you wire any
-> executable that speaks JSON-lines as a connector, and an in-process
-> DuckDB `ridgeline query` command. See [ROADMAP.md](ROADMAP.md). Built
-> in public.
+One binary. Pluggable connectors in any language. DuckDB-powered. MCP-ready.
+Built in public.
+
+## What's new in v0.2.0
+
+**Business Memory.** Ridgeline now maintains a persistent catalog of every
+stream and metric it has ever observed, surviving sink wipes. It builds
+7-, 30-, and 90-day rolling baselines per metric and surfaces deviations as
+typed anomaly events (`surprise-good`, `surprise-bad`, `surprise-neutral`).
+
+**Reasoning layer.** Four CLI primitives answer natural-language questions
+about your data directly from the memory catalog -- no LLM required:
+
+- `ridgeline explain <metric> --since <window>` -- templated narrative for one
+  metric: trend, anomalies, correlated events.
+- `ridgeline compare <a> <b> --since <window>` -- pairwise or
+  period-over-period narrative comparing two metrics or two windows.
+- `ridgeline investigate <metric> --since <window>` -- cross-source causal
+  narrative: correlates anomalies with git commits, deploys, and sibling
+  metrics.
+- `ridgeline summarize --since <window>` -- ranked weekly overview across all
+  tracked metrics; surfaces the highest-signal changes first.
+
+Every primitive reports a **confidence score** derived from baseline sample
+count, anomaly magnitude, and event temporal proximity.
+
+**MCP server.** `ridgeline mcp` exposes all five reasoning tools
+(`list_metrics`, `explain`, `investigate`, `compare`, `summarize`) as an MCP
+stdio server. Wire it into Claude Desktop to ask questions about your business
+in natural language backed by your own data.
+
+**External connector metric semantics.** External JSON-lines connectors can
+now declare `kind: metric` in their `SCHEMA` message, making custom connectors
+full participants in the Business Memory stack.
+
+**Cross-connector event timeline.** The `git` connector streams local repo
+commits into `bm_events`, so `investigate` can correlate traffic anomalies
+with code changes across data sources.
 
 ## Try it now
 
