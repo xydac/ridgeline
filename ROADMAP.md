@@ -57,10 +57,7 @@
 
 ## Known gaps (Phase 2)
 
-- A relative `state_path` in `ridgeline.yaml` resolves against the process working directory rather than the config file's directory, so running `ridgeline` from a different cwd silently opens an empty state database.
-- The top-level `--help` block enumerates most `memory` subcommands but omits `memory note`, the only write path into the Business Memory timeline; two help surfaces disagree on the command inventory.
-- `ridgeline schema <connector>` with no stream argument returns a lookup error for an empty stream name on connectors whose schema is declared at runtime (e.g. `external`); it should either list streams or explain that the schema is dynamic.
-- `ridgeline summarize` on a catalog whose only synced streams are `unstructured` prints "no metrics recorded; run ridgeline sync" even though sync just succeeded; guidance should distinguish an un-synced catalog from one whose connectors carry no metric-typed streams.
-- The `memory:` block accepts semantically impossible values (negative `anomaly_k`, `min_samples: 0`, empty-string metric keys, overrides for metrics not in the catalog) with exit 0.
-- External JSON-lines connectors cannot declare `kind: metric` in a `SCHEMA` message; the stream is silently classified as `unstructured` and never enters Business Memory.
-- Positional-then-flag argument order (`ridgeline explain metric.name --since 7d`) is rejected by `explain`, `compare`, `investigate`, and `summarize` even though it matches the README examples; the error blames the flag rather than the ordering.
+- The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
+- `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
+- CLI exit codes for misinvocation (missing required flag, unknown flag, unexpected positional) are inconsistent across subcommands: some exit 1, others exit 2. Establish a single convention (2 for usage errors, 1 for runtime failures) and apply it uniformly.
+- The external JSON-lines protocol rejects string-encoded numeric epochs (e.g. `"timestamp":"1710495000"`) with the generic message `unparseable timestamp <value>`. Either accept the same string-encoded epoch forms the `ts_normalize` enricher already documents, or return an error that names the string type as the reason for rejection so authors of external connectors can act on it.
