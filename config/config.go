@@ -199,16 +199,35 @@ func ParseCreds(b []byte) (*File, error) {
 // Load reads path, expands paths beginning with ~/, applies defaults,
 // and validates the result. The returned File is safe to use directly;
 // no further defaulting is required.
+//
+// Relative state_path and key_path values are resolved against the
+// directory that contains path, not the process working directory. This
+// matches how users configure these fields: relative to the config file,
+// not relative to wherever they happen to invoke the binary.
 func Load(path string) (*File, error) {
 	if path == "" {
 		return nil, fmt.Errorf("config: path must not be empty")
 	}
-	raw, err := os.ReadFile(path)
+	absPath, err := filepath.Abs(path)
 	if err != nil {
-		// os.ReadFile already includes the path; don't double-wrap.
+		return nil, fmt.Errorf("config: resolve path: %w", err)
+	}
+	raw, err := os.ReadFile(absPath)
+	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	return Parse(raw)
+	f, err := Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	configDir := filepath.Dir(absPath)
+	if !filepath.IsAbs(f.StatePath) {
+		f.StatePath = filepath.Join(configDir, f.StatePath)
+	}
+	if !filepath.IsAbs(f.KeyPath) {
+		f.KeyPath = filepath.Join(configDir, f.KeyPath)
+	}
+	return f, nil
 }
 
 // Parse decodes b as YAML and validates it. Callers who want to
@@ -246,6 +265,23 @@ func (f *File) Validate() error {
 	}
 	if len(f.Products) == 0 {
 		return fmt.Errorf("config: at least one product is required under products:")
+	}
+	if f.Memory.AnomalyK < 0 {
+		return fmt.Errorf("config: memory.anomaly_k must be a positive number (got %g); omit the field to use the default of 2.5", f.Memory.AnomalyK)
+	}
+	if f.Memory.MinSamples < 0 {
+		return fmt.Errorf("config: memory.min_samples must be a non-negative integer (got %d); omit the field to use the default of 14", f.Memory.MinSamples)
+	}
+	for key, ov := range f.Memory.MetricOverrides {
+		if key == "" {
+			return fmt.Errorf("config: memory.metric_overrides: metric key must not be empty")
+		}
+		if ov.AnomalyK < 0 {
+			return fmt.Errorf("config: memory.metric_overrides[%q]: anomaly_k must be a positive number (got %g)", key, ov.AnomalyK)
+		}
+		if ov.MinSamples < 0 {
+			return fmt.Errorf("config: memory.metric_overrides[%q]: min_samples must be a non-negative integer (got %d)", key, ov.MinSamples)
+		}
 	}
 	for id, p := range f.Products {
 		if id == "" {

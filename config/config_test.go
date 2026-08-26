@@ -479,3 +479,135 @@ func TestParse_CommentsOnlyYAML(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_RelativeStatePath(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ridgeline.yaml")
+	content := `
+version: 1
+state_path: ridgeline.db
+key_path: ridgeline.key
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config:
+          records: 1
+        streams: [pages]
+        sink:
+          type: jsonl
+          options:
+            dir: ./out
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := filepath.Join(dir, "ridgeline.db")
+	if f.StatePath != want {
+		t.Errorf("StatePath: got %q, want %q", f.StatePath, want)
+	}
+	wantKey := filepath.Join(dir, "ridgeline.key")
+	if f.KeyPath != wantKey {
+		t.Errorf("KeyPath: got %q, want %q", f.KeyPath, wantKey)
+	}
+}
+
+func TestValidate_MemoryKnobs(t *testing.T) {
+	base := `
+version: 1
+state_path: /tmp/r.db
+key_path: /tmp/r.key
+products:
+  myapp:
+    connectors:
+      - name: demo
+        type: testsrc
+        config:
+          records: 1
+        streams: [pages]
+        sink:
+          type: jsonl
+          options:
+            dir: ./out
+`
+	cases := []struct {
+		name    string
+		extra   string
+		wantErr string
+	}{
+		{
+			name: "negative anomaly_k rejected",
+			extra: `
+memory:
+  anomaly_k: -1.5
+`,
+			wantErr: "anomaly_k",
+		},
+		{
+			name: "negative min_samples rejected",
+			extra: `
+memory:
+  min_samples: -3
+`,
+			wantErr: "min_samples",
+		},
+		{
+			name: "empty override key rejected",
+			extra: `
+memory:
+  metric_overrides:
+    "":
+      anomaly_k: 2.0
+`,
+			wantErr: "must not be empty",
+		},
+		{
+			name: "negative override anomaly_k rejected",
+			extra: `
+memory:
+  metric_overrides:
+    myapp.daily.visitors:
+      anomaly_k: -2.0
+`,
+			wantErr: "anomaly_k",
+		},
+		{
+			name: "zero anomaly_k accepted (means use default)",
+			extra: `
+memory:
+  anomaly_k: 0
+`,
+			wantErr: "",
+		},
+		{
+			name: "zero min_samples accepted (means use default)",
+			extra: `
+memory:
+  min_samples: 0
+`,
+			wantErr: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := config.Parse([]byte(base + tc.extra))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
