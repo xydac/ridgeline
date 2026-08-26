@@ -29,7 +29,7 @@ func runInvestigate(ctx context.Context, args []string, stdout *os.File) error {
 		fmt.Fprintln(fs.Output(), "")
 		fs.PrintDefaults()
 	}
-	help, err := parseSubcommandFlags(fs, stdout, args)
+	help, err := parseSubcommandFlags(fs, stdout, liftFlags(fs, args))
 	if help || err != nil {
 		return err
 	}
