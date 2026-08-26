@@ -21,10 +21,12 @@ type MetricSummary struct {
 // SummarizeData is the output of SummarizeAll: a ranked set of notable metrics
 // across the whole Business Memory catalog.
 type SummarizeData struct {
-	Since           time.Duration
-	TotalMetrics    int
-	TotalConnectors int
-	TopMetrics      []MetricSummary // ordered by Score descending, capped at TopK
+	Since               time.Duration
+	TotalMetrics        int
+	TotalConnectors     int
+	TotalStreams        int             // all synced streams, including unstructured
+	UnstructuredStreams []string        // connector.stream pairs with no metric columns
+	TopMetrics          []MetricSummary // ordered by Score descending, capped at TopK
 }
 
 // SummaryJSON is the structured output type for --json.
@@ -49,9 +51,30 @@ type MetricSummaryJSON struct {
 // Metrics that fail explain (e.g. no baseline, no samples) are included at
 // score 0 so a user with a fresh catalog still gets output.
 func (c *Catalog) SummarizeAll(ctx context.Context, since time.Duration, topK int) (*SummarizeData, error) {
+	streams, err := c.ListStreams(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("summarize: list streams: %w", err)
+	}
 	metrics, err := c.ListMetrics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("summarize: list metrics: %w", err)
+	}
+
+	// Build the set of streams that have at least one metric column.
+	metricStreams := map[string]struct{}{}
+	for _, m := range metrics {
+		// fqName is connector.stream.col; stream key is connector.stream
+		parts := strings.SplitN(m.FQName, ".", 3)
+		if len(parts) >= 2 {
+			metricStreams[parts[0]+"."+parts[1]] = struct{}{}
+		}
+	}
+	var unstructured []string
+	for _, s := range streams {
+		key := s.Connector + "." + s.Stream
+		if _, ok := metricStreams[key]; !ok {
+			unstructured = append(unstructured, key)
+		}
 	}
 
 	connectorSet := map[string]struct{}{}
@@ -90,10 +113,12 @@ func (c *Catalog) SummarizeAll(ctx context.Context, since time.Duration, topK in
 	}
 
 	return &SummarizeData{
-		Since:           since,
-		TotalMetrics:    len(metrics),
-		TotalConnectors: len(connectorSet),
-		TopMetrics:      top,
+		Since:               since,
+		TotalMetrics:        len(metrics),
+		TotalConnectors:     len(connectorSet),
+		TotalStreams:        len(streams),
+		UnstructuredStreams: unstructured,
+		TopMetrics:          top,
 	}, nil
 }
 
@@ -136,7 +161,15 @@ func ComposeSummaryNarrative(d *SummarizeData) string {
 		d.TotalMetrics, d.TotalConnectors, sinceStr)
 
 	if len(d.TopMetrics) == 0 {
-		fmt.Fprintln(&sb, "No metrics recorded. Run 'ridgeline sync' to populate Business Memory.")
+		if d.TotalStreams > 0 && len(d.UnstructuredStreams) > 0 {
+			// Sync ran but none of the synced streams carry metric-kind columns.
+			fmt.Fprintf(&sb, "No metric-typed streams in this catalog.\n")
+			fmt.Fprintf(&sb, "The following streams carry unstructured data only: %s\n", strings.Join(d.UnstructuredStreams, ", "))
+			fmt.Fprintln(&sb, "To use Business Memory, configure a connector that declares metric columns (e.g. plausible, posthog, umami)")
+			fmt.Fprintln(&sb, "or add kind: metric to a SCHEMA message in your external connector.")
+		} else {
+			fmt.Fprintln(&sb, "No metrics recorded. Run 'ridgeline sync' to populate Business Memory.")
+		}
 		return sb.String()
 	}
 

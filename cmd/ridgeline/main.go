@@ -213,6 +213,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline memory baselines --config PATH <metric>")
 	fmt.Fprintln(w, "  ridgeline memory recompute --config PATH [--since DURATION]")
 	fmt.Fprintln(w, "  ridgeline memory events    --config PATH [--since DURATION]")
+	fmt.Fprintln(w, "  ridgeline memory note      --config PATH <text>")
 	fmt.Fprintln(w, "  ridgeline explain <metric> --config PATH [--since DURATION] [--json]")
 	fmt.Fprintln(w, "  ridgeline compare <metric-a> <metric-b> --config PATH [--since DURATION] [--json]")
 	fmt.Fprintln(w, "  ridgeline compare <metric> --against RECENT,PRIOR --config PATH [--json]")

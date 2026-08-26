@@ -40,6 +40,15 @@ func runSchema(args []string, out io.Writer) error {
 	}
 
 	spec := conn.Spec()
+	if len(spec.Streams) == 0 {
+		// Connectors whose schema is declared at runtime (e.g. external) have no
+		// static stream list. Report this explicitly rather than producing an
+		// error about a stream named "".
+		fmt.Fprintf(out, "connector:  %s\n", connectorName)
+		fmt.Fprintln(out, "schema:     declared at runtime by each connector instance")
+		fmt.Fprintln(out, "            use a SCHEMA message in the JSON-lines protocol to declare stream kinds and columns")
+		return nil
+	}
 	printed := 0
 	for _, ss := range spec.Streams {
 		if streamFilter != "" && ss.Name != streamFilter {
