@@ -33,14 +33,6 @@
 - [x] `sync --continue-on-error`: partial failure mode that runs remaining connectors after one fails, exits 3 on partial and 1 on total failure
 - [x] Enricher transform stage: `Enricher` interface with per-batch semantics, init-time registry, `enrichers:` config section on each connector, built-in `url_host` enricher (hostname extraction from URL fields), built-in `ts_normalize` enricher (timestamp normalization to UTC RFC 3339)
 
-
-## Known gaps
-
-- The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
-- `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
-- CLI exit codes for misinvocation (missing required flag, unknown flag, unexpected positional) are inconsistent across subcommands: some exit 1, others exit 2. Establish a single convention (2 for usage errors, 1 for runtime failures) and apply it uniformly.
-- The external JSON-lines protocol rejects string-encoded numeric epochs (e.g. `"timestamp":"1710495000"`) with the generic message `unparseable timestamp <value>`. Either accept the same string-encoded epoch forms the `ts_normalize` enricher already documents, or return an error that names the string type as the reason for rejection so authors of external connectors can act on it.
-
 ## Phase 2: Business Memory
 
 - [x] Business Memory catalog: `bm_streams` and `bm_metrics` tables persist observed streams and metric columns across sync runs
@@ -55,8 +47,10 @@
 - [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
 - [x] MCP server (`ridgeline mcp`) exposing `list_metrics`, `explain`, `investigate`, `compare`, and `summarize` as agent tools
 
-## Known gaps (Phase 2)
+## Known gaps
 
+- Baselines bucket samples by ingest time rather than by each record's timestamp or declared `key` column, so a single sync that backfills 40 days of daily records collapses into one baseline sample (`n=1`) instead of ~40. Anomaly detection cannot fire until at least three separate sync runs land on three separate days, so the reasoning layer answers "near baseline, low confidence" on the exact happy path a new user hits after a first backfill.
+- Business Memory identifies streams and metrics by `<connector type>.<stream>.<column>`, ignoring the connector's configured `name` and its parent product. Two connectors of the same type (two Plausible sites, staging + production, two external plugins declaring the same stream name) silently merge their rows into one catalog entry, so baselines are computed over an interleaved mixture and there is no name a user can pass to `explain` to isolate one instance.
 - The `url_host` enricher preserves the parsed host's letter case, so `example.com`, `Example.com`, and `EXAMPLE.COM` land in three distinct GROUP BY buckets even though the README's stated rationale is "group by domain in DuckDB". Normalize to lowercase per RFC 3986, or document that SQL must wrap the field in `lower()`.
 - `creds oauth gsc --client-secret-file` stores the file contents verbatim, but the README tells users to point it at Google's `client_secret.json` wrapper. Either extract the secret from the JSON wrapper or document that the file must contain just the secret string.
 - CLI exit codes for misinvocation (missing required flag, unknown flag, unexpected positional) are inconsistent across subcommands: some exit 1, others exit 2. Establish a single convention (2 for usage errors, 1 for runtime failures) and apply it uniformly.
