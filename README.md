@@ -6,8 +6,9 @@ of your business that AI agents can reason over.
 Ridgeline syncs data from your analytics, search, product, and code platforms
 into a local data store, builds rolling baselines and anomaly detection on
 every metric, and exposes a reasoning layer -- `explain`, `compare`,
-`investigate`, `summarize` -- that answers questions like "why did signups drop
-last week?" without sending your data to an LLM.
+`investigate`, `summarize`, `forecast` -- that answers questions like "why did
+signups drop last week?" and "where is this metric headed?" without sending
+your data to an LLM.
 
 One binary. Pluggable connectors in any language. DuckDB-powered. MCP-ready.
 Built in public.
@@ -29,11 +30,14 @@ about your data directly from the memory catalog -- no LLM required:
 - `ridgeline investigate <metric> --since <window>` -- cross-source causal
   narrative: correlates anomalies with git commits, deploys, and sibling
   metrics.
+- `ridgeline forecast <metric> --horizon <window>` -- directional projection
+  (linear regression over up to 90 days of history) with a confidence score
 - `ridgeline summarize --since <window>` -- ranked weekly overview across all
   tracked metrics; surfaces the highest-signal changes first.
 
 Every primitive reports a **confidence score** derived from baseline sample
-count, anomaly magnitude, and event temporal proximity.
+count, anomaly magnitude, event temporal proximity, and regression fit quality
+(R^2) for forecast projections.
 
 **MCP server.** `ridgeline mcp` exposes all five reasoning tools
 (`list_metrics`, `explain`, `investigate`, `compare`, `summarize`) as an MCP
@@ -1283,6 +1287,60 @@ ridgeline summarize --config ridgeline.yaml --since 7d --top 3 --json
 negative = surprise-good). An agent can sort or filter by score to focus on
 the metrics that need attention.
 
+### Reasoning: forecast a metric
+
+`ridgeline forecast` answers "where is this metric headed?" by fitting a
+linear regression to up to 90 days of observed values and projecting the
+trend forward over a horizon you specify. The output includes a directional
+label (`likely-improvement`, `stable`, or `likely-decline`), a projected
+mean with an uncertainty band, and a confidence score that combines sample
+count with regression R^2.
+
+```
+ridgeline forecast myapp.daily.visitors --config ridgeline.yaml --horizon 7d
+```
+
+```
+myapp.daily.visitors -- 7d forecast
+
+Trend: trending toward improvement (slope 12.3 visitors/day, R^2 = 0.91).
+Projected 7d mean: 1420 +/- 68 visitors (7-day horizon, n=30 observations).
+Relative to the 30d baseline (mean 1210 visitors): +17.4%.
+
+Summary: visitors is trending toward improvement; projected 7d mean 1420 visitors (high confidence: n=30, R^2=0.91).
+```
+
+Use `--horizon 14d` or `--horizon 30d` to look further ahead. Use `--json`
+for structured output suitable for agent consumption:
+
+```
+ridgeline forecast myapp.daily.visitors --config ridgeline.yaml --horizon 7d --json
+```
+
+```json
+{
+  "metric_fq": "myapp.daily.visitors",
+  "horizon": "7d",
+  "direction": "higher_is_better",
+  "unit": "visitors",
+  "sample_count": 30,
+  "slope_per_day": 12.3,
+  "r_squared": 0.91,
+  "projected_mean": 1420,
+  "band_width": 68,
+  "directional_label": "likely-improvement",
+  "confidence": 0.88,
+  "baseline": { "window_days": 30, "mean": 1210, "stddev": 95, "sample_count": 30 },
+  "summary": "visitors is trending toward improvement; projected 7d mean 1420 visitors (high confidence: n=30, R^2=0.91)."
+}
+```
+
+When R^2 is below 0.3 the narrative includes a note that the series is
+high-variance and the projection should be treated as directional only, not
+a numerical guarantee. Confidence is the product of baseline evidence weight
+(`min(1, n/90)`) and a fit-quality factor (`0.5 + 0.5 * R^2`), so a
+noisy series with good coverage still yields meaningful directional output.
+
 ### Confidence scoring
 
 Every reasoning primitive attaches a numeric confidence score to its output.
@@ -1296,6 +1354,7 @@ The score is in `[0, 1]` and reflects how much evidence backs a claim.
 | Anomaly claim | Absolute z-score of the event | `min(1.0, \|z\|/3.0)` -- saturates at 3 sigma |
 | Causal candidate | Hours between event and anomaly | `1 - hours/48` -- linear decay over 48h |
 | Sibling correlation | Pearson r and sample count | `\|r\| * min(1.0, n/30)` -- requires 5+ shared days |
+| Forecast projection | Sample count and regression R^2 | `min(1, n/90) * (0.5 + 0.5 * R^2)` -- penalizes noisy fits |
 
 **Text output** includes a tag on the summary line:
 
