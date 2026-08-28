@@ -26,6 +26,7 @@
 //	compare <metric> --against RECENT,PRIOR  period-over-period comparison narrative
 //	investigate <metric>    cross-source causal narrative with sibling-metric correlation
 //	summarize               ranked narrative overview of all tracked metrics
+//	forecast <metric>       directional projection via linear regression over metric history
 //	mcp --config PATH       stdio MCP server: list_metrics + explain as agent tools
 //
 // Cobra will replace the hand-rolled argv dispatch once the command
@@ -183,6 +184,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "summarize: %v\n", err)
 			cmdExit(err)
 		}
+	case "forecast":
+		if err := runForecast(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "forecast: %v\n", err)
+			cmdExit(err)
+		}
 	case "mcp":
 		if err := runMCP(context.Background(), os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "mcp: %v\n", err)
@@ -219,6 +225,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline compare <metric> --against RECENT,PRIOR --config PATH [--json]")
 	fmt.Fprintln(w, "  ridgeline investigate <metric> --config PATH [--since DURATION] [--json]")
 	fmt.Fprintln(w, "  ridgeline summarize --config PATH [--since DURATION] [--top N] [--json]")
+	fmt.Fprintln(w, "  ridgeline forecast <metric> --config PATH [--horizon DURATION] [--json]")
 	fmt.Fprintln(w, "  ridgeline mcp --config PATH")
 	fmt.Fprintln(w, "  ridgeline help")
 }
