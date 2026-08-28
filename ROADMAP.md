@@ -44,6 +44,7 @@
 - [x] `ridgeline compare` -- pairwise and period-over-period narrative across two metrics or windows
 - [x] `ridgeline investigate <metric>` -- cross-source causal narrative correlating anomalies with events by temporal proximity and ranking sibling metrics by Pearson correlation
 - [x] `ridgeline summarize` -- ranked narrative overview of all tracked metrics; directionality-adjusted scoring surfaces surprise-bad events first; grouped by connector; `--top N` and `--json` flags
+- [x] `ridgeline forecast <metric> --horizon <window>` -- directional projection via linear regression over up to 90 days of metric history; directional label (likely-improvement / stable / likely-decline), projected mean with uncertainty band, confidence from sample count and R^2
 - [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
 - [x] MCP server (`ridgeline mcp`) exposing `list_metrics`, `explain`, `investigate`, `compare`, and `summarize` as agent tools
 
