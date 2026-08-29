@@ -5,10 +5,10 @@ of your business that AI agents can reason over.
 
 Ridgeline syncs data from your analytics, search, product, and code platforms
 into a local data store, builds rolling baselines and anomaly detection on
-every metric, and exposes a reasoning layer -- `explain`, `compare`,
-`investigate`, `summarize`, `forecast` -- that answers questions like "why did
-signups drop last week?" and "where is this metric headed?" without sending
-your data to an LLM.
+every metric, and exposes a reasoning layer -- `explain`, `compare`, `investigate`,
+`summarize`, `forecast`, `recommend` -- that answers questions like "why did
+signups drop last week?", "where is this metric headed?", and "what should I
+focus on this week?" without sending your data to an LLM.
 
 One binary. Pluggable connectors in any language. DuckDB-powered. MCP-ready.
 Built in public.
@@ -31,9 +31,12 @@ about your data directly from the memory catalog -- no LLM required:
   narrative: correlates anomalies with git commits, deploys, and sibling
   metrics.
 - `ridgeline forecast <metric> --horizon <window>` -- directional projection
-  (linear regression over up to 90 days of history) with a confidence score
+  (linear regression over up to 90 days of history) with a confidence score.
 - `ridgeline summarize --since <window>` -- ranked weekly overview across all
   tracked metrics; surfaces the highest-signal changes first.
+- `ridgeline recommend --since <window>` -- ranked focus list composing
+  anomaly detection, forecast trajectory, and baseline deviation; each item
+  includes a one-sentence reason and a suggested next `ridgeline` command.
 
 Every primitive reports a **confidence score** derived from baseline sample
 count, anomaly magnitude, event temporal proximity, and regression fit quality
@@ -1340,6 +1343,75 @@ high-variance and the projection should be treated as directional only, not
 a numerical guarantee. Confidence is the product of baseline evidence weight
 (`min(1, n/90)`) and a fit-quality factor (`0.5 + 0.5 * R^2`), so a
 noisy series with good coverage still yields meaningful directional output.
+
+### Reasoning: what should I focus on this week?
+
+`ridgeline recommend` answers the question a founder or indie developer asks
+on Monday morning: "What in my business needs attention right now?" It composes
+the four preceding primitives -- baseline deviation, anomaly detection, forecast
+trajectory, and explain -- into a ranked list of focus areas, each with a
+one-sentence reason and a suggested next command.
+
+```
+ridgeline recommend --config ridgeline.yaml --since 7d
+```
+
+```
+Focus areas for the last 7d:
+
+1. myapp.daily.visitors [anomaly] (score: 4.2, confidence: 71%)
+   visitors dropped 40% (4.2 stddev below baseline); forecast shows likely-decline.
+   -> ridgeline investigate myapp.daily.visitors
+
+2. myapp.errors [trending up] (score: 1.8, confidence: 58%)
+   errors 1.8 stddev from baseline; forecast shows likely-decline.
+   -> ridgeline forecast myapp.errors
+
+3. myapp.revenue (score: 0.9, confidence: 44%)
+   revenue has minor deviation from baseline.
+   -> ridgeline explain myapp.revenue
+```
+
+**Ranking formula:**
+
+- Base score: directionality-adjusted deviation from baseline (same formula as `summarize`).
+- Forecast boost: `+1.0` when a metric is trending in the wrong direction (declining
+  `higher_is_better`, or rising `lower_is_better`); `-0.5` when trending in the right
+  direction (lower urgency).
+- Metrics at baseline with stable forecasts are excluded entirely.
+
+**Suggested commands** are chosen by signal type:
+
+| Signal | Suggested command |
+|---|---|
+| Surprise-bad anomaly | `ridgeline investigate <metric>` |
+| Declining forecast, no anomaly | `ridgeline forecast <metric>` |
+| Surprise-good or mild deviation | `ridgeline explain <metric>` |
+
+Use `--top N` to control how many items appear (default 5). Use `--json` for
+structured output including scores and confidence values:
+
+```
+ridgeline recommend --config ridgeline.yaml --since 7d --json
+```
+
+```json
+{
+  "since": "7d",
+  "items": [
+    {
+      "metric_fq": "myapp.daily.visitors",
+      "connector": "myapp",
+      "score": 4.2,
+      "anomaly_label": "surprise-bad",
+      "forecast_label": "likely-decline",
+      "reason": "visitors dropped 40% (4.2 stddev below baseline); forecast shows likely-decline.",
+      "suggested_command": "ridgeline investigate myapp.daily.visitors",
+      "confidence": 0.71
+    }
+  ]
+}
+```
 
 ### Confidence scoring
 
