@@ -37,6 +37,9 @@ about your data directly from the memory catalog -- no LLM required:
 - `ridgeline recommend --since <window>` -- ranked focus list composing
   anomaly detection, forecast trajectory, and baseline deviation; each item
   includes a one-sentence reason and a suggested next `ridgeline` command.
+- `ridgeline monitor add|list|rm|run` -- register threshold watch rules that
+  fire when a metric crosses a value or deviates from its baseline by N sigma;
+  triggered rules append events to Business Memory for downstream reasoning.
 
 Every primitive reports a **confidence score** derived from baseline sample
 count, anomaly magnitude, event temporal proximity, and regression fit quality
@@ -1411,6 +1414,92 @@ ridgeline recommend --config ridgeline.yaml --since 7d --json
     }
   ]
 }
+```
+
+### Reasoning: monitor -- register watch conditions
+
+`ridgeline monitor` registers threshold rules against Business Memory metrics and evaluates them on demand. Rules persist across invocations; run `ridgeline monitor run` after each sync to detect violations.
+
+**Condition grammar:**
+
+| Expression | Triggers when |
+|---|---|
+| `above N` | metric's last value exceeds N |
+| `below N` | metric's last value falls below N |
+| `deviates-by Nsigma` | `|last_value - baseline_mean|` >= N standard deviations |
+
+**Register a rule:**
+
+```
+ridgeline monitor add visitors-low \
+    --config ridgeline.yaml \
+    --metric myapp.daily.visitors \
+    --condition 'below 500'
+
+ridgeline monitor add bounce-spike \
+    --config ridgeline.yaml \
+    --metric myapp.daily.bounce_rate \
+    --condition 'deviates-by 3sigma'
+```
+
+**List registered rules:**
+
+```
+ridgeline monitor list --config ridgeline.yaml
+```
+
+```
+NAME           METRIC                      CONDITION         LAST TRIGGERED
+visitors-low   myapp.daily.visitors        below 500         never
+bounce-spike   myapp.daily.bounce_rate     deviates-by 3sigma  never
+```
+
+**Evaluate all rules:**
+
+```
+ridgeline monitor run --config ridgeline.yaml
+```
+
+```
+Evaluated 2 watch rule(s).
+1 rule(s) triggered:
+
+  visitors-low  myapp.daily.visitors  below 500  (value: 312)
+
+Triggered events have been recorded in 'ridgeline memory events'.
+```
+
+Each triggered rule appends a `monitor` event to `bm_events`. View triggered events with:
+
+```
+ridgeline memory events --config ridgeline.yaml --since 7d
+```
+
+Use `--json` on `monitor run` for structured output:
+
+```
+ridgeline monitor run --config ridgeline.yaml --json
+```
+
+```json
+{
+  "evaluated": 2,
+  "triggered": [
+    {
+      "watch_name": "visitors-low",
+      "metric_fq": "myapp.daily.visitors",
+      "condition": "below 500",
+      "value": 312,
+      "at": "2026-08-30T12:01:00Z"
+    }
+  ]
+}
+```
+
+**Remove a rule:**
+
+```
+ridgeline monitor rm visitors-low --config ridgeline.yaml
 ```
 
 ### Confidence scoring
