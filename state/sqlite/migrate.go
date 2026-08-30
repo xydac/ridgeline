@@ -135,6 +135,21 @@ DROP TABLE bm_events;
 ALTER TABLE bm_events_v10 RENAME TO bm_events;
 CREATE INDEX IF NOT EXISTS idx_bm_events_at_v10 ON bm_events (at DESC);`,
 	},
+	{
+		version: 11,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_watches (
+	name TEXT PRIMARY KEY,
+	metric_fq TEXT NOT NULL,
+	op TEXT NOT NULL,
+	threshold REAL NOT NULL,
+	unit TEXT NOT NULL DEFAULT '',
+	condition TEXT NOT NULL,
+	extra TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL,
+	last_triggered_at TEXT
+) STRICT;`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
