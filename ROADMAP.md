@@ -46,6 +46,7 @@
 - [x] `ridgeline summarize` -- ranked narrative overview of all tracked metrics; directionality-adjusted scoring surfaces surprise-bad events first; grouped by connector; `--top N` and `--json` flags
 - [x] `ridgeline forecast <metric> --horizon <window>` -- directional projection via linear regression over up to 90 days of metric history; directional label (likely-improvement / stable / likely-decline), projected mean with uncertainty band, confidence from sample count and R^2
 - [x] `ridgeline recommend --since <window>` -- ranked focus list composing anomaly detection, forecast trajectory, and baseline deviation; each item includes a one-sentence reason, a combined score, and a suggested next ridgeline command; `--json` returns structured output with confidence values
+- [x] `ridgeline monitor add|list|rm|run` -- register threshold watch rules that persist to `bm_watches`; `monitor run` evaluates rules against current Business Memory state and appends triggered events to `bm_events`; condition grammar: `above N`, `below N`, `deviates-by Nsigma`; `--json` returns structured triggered-event list
 - [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
 - [x] MCP server (`ridgeline mcp`) exposing `list_metrics`, `explain`, `investigate`, `compare`, and `summarize` as agent tools
 
