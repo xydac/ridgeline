@@ -61,7 +61,6 @@ type streamFile struct {
 // Name returns the registered sink name.
 func (s *Sink) Name() string { return Name }
 
-// Init opens the sink for writing. cfg must contain a "dir" entry.
 // ValidateConfig checks option keys and required fields without any IO.
 // status calls this to surface config errors before the first sync.
 func (s *Sink) ValidateConfig(cfg sinks.SinkConfig) error {
@@ -78,8 +77,9 @@ func (s *Sink) ValidateConfig(cfg sinks.SinkConfig) error {
 	return nil
 }
 
-// Unknown option keys are rejected at Init with a did-you-mean hint,
-// so a mistyped "dirr" surfaces here instead of downstream as
+// Init opens the sink for writing. cfg must contain a "dir" entry.
+// Unknown option keys are rejected here with a did-you-mean hint,
+// so a mistyped "dirr" surfaces at Init instead of downstream as
 // "dir is required".
 func (s *Sink) Init(_ context.Context, cfg sinks.SinkConfig) error {
 	s.mu.Lock()
