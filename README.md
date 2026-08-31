@@ -20,7 +20,7 @@ stream and metric it has ever observed, surviving sink wipes. It builds
 7-, 30-, and 90-day rolling baselines per metric and surfaces deviations as
 typed anomaly events (`surprise-good`, `surprise-bad`, `surprise-neutral`).
 
-**Reasoning layer.** Four CLI primitives answer natural-language questions
+**Reasoning layer.** Seven CLI primitives answer natural-language questions
 about your data directly from the memory catalog -- no LLM required:
 
 - `ridgeline explain <metric> --since <window>` -- templated narrative for one
@@ -45,7 +45,7 @@ Every primitive reports a **confidence score** derived from baseline sample
 count, anomaly magnitude, event temporal proximity, and regression fit quality
 (R^2) for forecast projections.
 
-**MCP server.** `ridgeline mcp` exposes all five reasoning tools
+**MCP server.** `ridgeline mcp` exposes five reasoning tools
 (`list_metrics`, `explain`, `investigate`, `compare`, `summarize`) as an MCP
 stdio server. Wire it into Claude Desktop to ask questions about your business
 in natural language backed by your own data.
