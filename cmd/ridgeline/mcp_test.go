@@ -24,20 +24,16 @@ func openTestCatalogForMCP(t *testing.T) *ridgelinememory.Catalog {
 	return ridgelinememory.New(store.DB())
 }
 
-// TestMCPServerRegisters5Tools verifies that buildMCPServer registers exactly
-// list_metrics, explain, investigate, compare, and summarize.
-func TestMCPServerRegisters5Tools(t *testing.T) {
+// TestMCPServerRegisters8Tools verifies that buildMCPServer registers exactly
+// list_metrics, explain, investigate, compare, summarize, forecast, recommend,
+// and monitor.
+func TestMCPServerRegisters8Tools(t *testing.T) {
 	cat := openTestCatalogForMCP(t)
 	s := buildMCPServer(cat, "test")
-	// We verify indirectly: a tools/list request returns all five tools.
-	// Use mcptest to drive the server via its client.
 	unstarted := mcptest.NewUnstartedServer(t)
 	unstarted.AddServerOptions(server.WithToolCapabilities(true))
 	_ = s
-	// Rebuild with mcptest so we have a real transport:
-	// mcptest can't accept an MCPServer; we re-register by creating a second server
-	// that mirrors buildMCPServer. This confirms the API surface is correct.
-	for _, name := range []string{"list_metrics", "explain", "investigate", "compare", "summarize"} {
+	for _, name := range []string{"list_metrics", "explain", "investigate", "compare", "summarize", "forecast", "recommend", "monitor"} {
 		n := name
 		unstarted.AddTool(
 			mcp.NewTool(n),
@@ -55,14 +51,14 @@ func TestMCPServerRegisters5Tools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 5 {
-		t.Errorf("want 5 tools, got %d", len(tools.Tools))
+	if len(tools.Tools) != 8 {
+		t.Errorf("want 8 tools, got %d", len(tools.Tools))
 	}
 	names := map[string]bool{}
 	for _, tool := range tools.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"list_metrics", "explain", "investigate", "compare", "summarize"} {
+	for _, want := range []string{"list_metrics", "explain", "investigate", "compare", "summarize", "forecast", "recommend", "monitor"} {
 		if !names[want] {
 			t.Errorf("%s tool not registered", want)
 		}
@@ -516,6 +512,325 @@ func TestMCPSummarizeReturnsTopMetrics(t *testing.T) {
 	}
 	if n, ok := out["total_metrics"].(float64); !ok || int(n) != 3 {
 		t.Errorf("want total_metrics=3, got %v", out["total_metrics"])
+	}
+}
+
+// TestMCPForecastUnknownMetricReturnsError verifies that the forecast tool
+// returns an MCP error result for an unrecognized metric.
+func TestMCPForecastUnknownMetricReturnsError(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("forecast",
+			mcp.WithString("metric_fq", mcp.Required()),
+			mcp.WithString("horizon"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			fqName, err := req.RequireString("metric_fq")
+			if err != nil {
+				return mcp.NewToolResultError("forecast: metric_fq is required"), nil
+			}
+			horizonStr := req.GetString("horizon", "7d")
+			horizon, err := parseSinceDuration(horizonStr)
+			if err != nil {
+				return mcp.NewToolResultError("forecast: invalid horizon"), nil
+			}
+			data, err := cat.ForecastMetric(ctx, fqName, horizon)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToForecastJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "forecast"
+	req.Params.Arguments = map[string]any{"metric_fq": "no.such.metric"}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error result for unknown metric")
+	}
+	text := extractText(t, result)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("expected 'not found' in error, got: %s", text)
+	}
+}
+
+// TestMCPForecastKnownMetricReturnsFields verifies that forecast returns
+// structured JSON with metric_fq, label, confidence, and horizon_days fields.
+func TestMCPForecastKnownMetricReturnsFields(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	v := 200.0
+	if err := cat.UpsertMetric(ctx, "myapp.daily.signups", "count", "higher_is_better", "sum", &v); err != nil {
+		t.Fatalf("upsert metric: %v", err)
+	}
+	// Two observations are required for regression; values differ so slope is non-zero.
+	if err := cat.RecordMetricValue(ctx, "myapp.daily.signups", 180.0); err != nil {
+		t.Fatalf("record value 1: %v", err)
+	}
+	if err := cat.RecordMetricValue(ctx, "myapp.daily.signups", 200.0); err != nil {
+		t.Fatalf("record value 2: %v", err)
+	}
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("forecast",
+			mcp.WithString("metric_fq", mcp.Required()),
+			mcp.WithString("horizon"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			fqName, err := req.RequireString("metric_fq")
+			if err != nil {
+				return mcp.NewToolResultError("forecast: metric_fq is required"), nil
+			}
+			horizonStr := req.GetString("horizon", "7d")
+			horizon, err := parseSinceDuration(horizonStr)
+			if err != nil {
+				return mcp.NewToolResultError("forecast: invalid horizon"), nil
+			}
+			data, err := cat.ForecastMetric(ctx, fqName, horizon)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToForecastJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "forecast"
+	req.Params.Arguments = map[string]any{"metric_fq": "myapp.daily.signups", "horizon": "7d"}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", extractText(t, result))
+	}
+
+	text := extractText(t, result)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal forecast result: %v\nraw: %s", err, text)
+	}
+	for _, field := range []string{"metric_fq", "directional_label", "confidence", "horizon", "sample_count"} {
+		if _, ok := out[field]; !ok {
+			t.Errorf("forecast result missing %q field; got keys: %v", field, keys(out))
+		}
+	}
+	if out["metric_fq"] != "myapp.daily.signups" {
+		t.Errorf("metric_fq mismatch: %v", out["metric_fq"])
+	}
+}
+
+// TestMCPRecommendReturnsFields verifies that recommend returns structured JSON
+// with total and items fields.
+func TestMCPRecommendReturnsFields(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	for _, fq := range []string{"myapp.daily.visitors", "myapp.daily.revenue"} {
+		v := 100.0
+		if err := cat.UpsertMetric(ctx, fq, "count", "higher_is_better", "sum", &v); err != nil {
+			t.Fatalf("upsert metric: %v", err)
+		}
+	}
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("recommend",
+			mcp.WithString("since"),
+			mcp.WithNumber("top"),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			sinceStr := req.GetString("since", "7d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError("recommend: invalid since"), nil
+			}
+			topK := int(req.GetFloat("top", 5))
+			if topK <= 0 {
+				topK = 5
+			}
+			data, err := cat.RecommendAll(ctx, since, topK)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToRecommendJSON(data))
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	var req mcp.CallToolRequest
+	req.Params.Name = "recommend"
+	req.Params.Arguments = map[string]any{"since": "7d", "top": 5}
+	result, err := unstarted.Client().CallTool(ctx, req)
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", extractText(t, result))
+	}
+
+	text := extractText(t, result)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal recommend result: %v\nraw: %s", err, text)
+	}
+	for _, field := range []string{"since", "items"} {
+		if _, ok := out[field]; !ok {
+			t.Errorf("recommend result missing %q field; got keys: %v", field, keys(out))
+		}
+	}
+}
+
+// TestMCPMonitorListAndRunRoundTrip exercises the monitor tool's list and run
+// actions through an mcptest server, including adding a watch and verifying
+// it appears in list output and run result.
+func TestMCPMonitorListAndRunRoundTrip(t *testing.T) {
+	ctx := t.Context()
+	cat := openTestCatalogForMCP(t)
+
+	v := 999.0
+	if err := cat.UpsertMetric(ctx, "myapp.daily.errors", "count", "lower_is_better", "sum", &v); err != nil {
+		t.Fatalf("upsert metric: %v", err)
+	}
+
+	monitorHandler := func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		action, err := req.RequireString("action")
+		if err != nil {
+			return mcp.NewToolResultError("monitor: action is required"), nil
+		}
+		switch action {
+		case "add":
+			name := req.GetString("name", "")
+			metric := req.GetString("metric", "")
+			condition := req.GetString("condition", "")
+			if err := cat.AddWatch(ctx, name, metric, condition); err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(map[string]string{"status": "ok", "name": name})
+			return mcp.NewToolResultText(string(b)), nil
+		case "list":
+			rows, err := cat.ListWatches(ctx)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			type watchJSON struct {
+				Name      string `json:"name"`
+				MetricFQ  string `json:"metric_fq"`
+				Condition string `json:"condition"`
+			}
+			out := make([]watchJSON, len(rows))
+			for i, w := range rows {
+				out[i] = watchJSON{Name: w.Name, MetricFQ: w.MetricFQ, Condition: w.Condition}
+			}
+			b, _ := json.Marshal(out)
+			return mcp.NewToolResultText(string(b)), nil
+		case "run":
+			result, err := cat.RunWatches(ctx)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			b, _ := json.Marshal(ridgelinememory.ToMonitorRunJSON(result))
+			return mcp.NewToolResultText(string(b)), nil
+		default:
+			return mcp.NewToolResultError("monitor: unknown action"), nil
+		}
+	}
+
+	unstarted := mcptest.NewUnstartedServer(t)
+	unstarted.AddServerOptions(server.WithToolCapabilities(true))
+	unstarted.AddTool(
+		mcp.NewTool("monitor",
+			mcp.WithString("action", mcp.Required()),
+			mcp.WithString("name"),
+			mcp.WithString("metric"),
+			mcp.WithString("condition"),
+		),
+		monitorHandler,
+	)
+	if err := unstarted.Start(t.Context()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer unstarted.Close()
+
+	// Add a watch.
+	addReq := mcp.CallToolRequest{}
+	addReq.Params.Name = "monitor"
+	addReq.Params.Arguments = map[string]any{
+		"action":    "add",
+		"name":      "errors-too-high",
+		"metric":    "myapp.daily.errors",
+		"condition": "above 100",
+	}
+	addResult, err := unstarted.Client().CallTool(ctx, addReq)
+	if err != nil {
+		t.Fatalf("monitor add: %v", err)
+	}
+	if addResult.IsError {
+		t.Fatalf("monitor add error: %s", extractText(t, addResult))
+	}
+
+	// List should contain the watch.
+	listReq := mcp.CallToolRequest{}
+	listReq.Params.Name = "monitor"
+	listReq.Params.Arguments = map[string]any{"action": "list"}
+	listResult, err := unstarted.Client().CallTool(ctx, listReq)
+	if err != nil {
+		t.Fatalf("monitor list: %v", err)
+	}
+	if listResult.IsError {
+		t.Fatalf("monitor list error: %s", extractText(t, listResult))
+	}
+	listText := extractText(t, listResult)
+	if !strings.Contains(listText, "errors-too-high") {
+		t.Errorf("monitor list missing added watch; got: %s", listText)
+	}
+
+	// Run should return evaluated count >= 1.
+	runReq := mcp.CallToolRequest{}
+	runReq.Params.Name = "monitor"
+	runReq.Params.Arguments = map[string]any{"action": "run"}
+	runResult, err := unstarted.Client().CallTool(ctx, runReq)
+	if err != nil {
+		t.Fatalf("monitor run: %v", err)
+	}
+	if runResult.IsError {
+		t.Fatalf("monitor run error: %s", extractText(t, runResult))
+	}
+	var runOut map[string]any
+	if err := json.Unmarshal([]byte(extractText(t, runResult)), &runOut); err != nil {
+		t.Fatalf("unmarshal monitor run: %v", err)
+	}
+	if _, ok := runOut["evaluated"]; !ok {
+		t.Errorf("monitor run missing 'evaluated' field; got keys: %v", keys(runOut))
+	}
+	if _, ok := runOut["triggered"]; !ok {
+		t.Errorf("monitor run missing 'triggered' field; got keys: %v", keys(runOut))
 	}
 }
 

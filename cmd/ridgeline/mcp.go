@@ -24,17 +24,28 @@ type mcpMetric struct {
 	LastValueAt *string  `json:"last_value_at,omitempty"`
 }
 
-// readOnlyToolAnnotation describes every tool the ridgeline MCP server exposes:
-// each one only reads from the local Business Memory catalog, never mutates
-// state, is safe to call repeatedly with the same arguments, and touches no
-// external systems. Agent clients use these hints to decide whether to prompt
-// the user before invoking a tool.
+// readOnlyToolAnnotation describes read-only tools: they only read from the
+// local Business Memory catalog, never mutate state, are safe to call
+// repeatedly, and touch no external systems.
 func readOnlyToolAnnotation() mcp.ToolAnnotation {
 	t, f := true, false
 	return mcp.ToolAnnotation{
 		ReadOnlyHint:    &t,
 		DestructiveHint: &f,
 		IdempotentHint:  &t,
+		OpenWorldHint:   &f,
+	}
+}
+
+// mutatingToolAnnotation describes tools that write to the local Business
+// Memory catalog (e.g. adding or removing watch rules, appending monitor
+// events). They do not touch external systems and are not destructive.
+func mutatingToolAnnotation() mcp.ToolAnnotation {
+	f := false
+	return mcp.ToolAnnotation{
+		ReadOnlyHint:    &f,
+		DestructiveHint: &f,
+		IdempotentHint:  &f,
 		OpenWorldHint:   &f,
 	}
 }
@@ -225,6 +236,161 @@ func buildMCPServer(cat *ridgelinememory.Catalog, version string) *server.MCPSer
 		},
 	)
 
+	s.AddTool(
+		mcp.NewTool("forecast",
+			mcp.WithDescription("Project a metric's directional trajectory over a future horizon using linear regression on the stored baseline series. Returns a directional label (likely-decline, stable, likely-improvement), a numeric projection band, R-squared fit quality, and a confidence score."),
+			mcp.WithString("metric_fq",
+				mcp.Required(),
+				mcp.Description("Fully-qualified metric name (e.g. plausible.daily.visitors)."),
+			),
+			mcp.WithString("horizon",
+				mcp.Description("Projection horizon (e.g. 7d, 14d, 30d). Defaults to 7d."),
+			),
+			annot,
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			fqName, err := req.RequireString("metric_fq")
+			if err != nil {
+				return mcp.NewToolResultError("forecast: metric_fq is required"), nil
+			}
+			horizonStr := req.GetString("horizon", "7d")
+			horizon, err := parseSinceDuration(horizonStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("forecast: invalid horizon %q: %v", horizonStr, err)), nil
+			}
+			data, err := cat.ForecastMetric(ctx, fqName, horizon)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("forecast: %v", err)), nil
+			}
+			b, err := json.Marshal(ridgelinememory.ToForecastJSON(data))
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("forecast: marshal: %v", err)), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("recommend",
+			mcp.WithDescription("Return a ranked list of actionable focus areas by composing anomaly severity, forecast trajectory, and baseline confidence across all tracked metrics. Answers 'what should I focus on this week?' Each item includes a suggested ridgeline command to investigate further."),
+			mcp.WithString("since",
+				mcp.Description("Time window to analyze (e.g. 7d, 30d). Defaults to 7d."),
+			),
+			mcp.WithNumber("top",
+				mcp.Description("Maximum number of recommendations to return. Defaults to 5."),
+			),
+			annot,
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			sinceStr := req.GetString("since", "7d")
+			since, err := parseSinceDuration(sinceStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("recommend: invalid since %q: %v", sinceStr, err)), nil
+			}
+			topK := int(req.GetFloat("top", 5))
+			if topK <= 0 {
+				topK = 5
+			}
+			data, err := cat.RecommendAll(ctx, since, topK)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("recommend: %v", err)), nil
+			}
+			b, err := json.Marshal(ridgelinememory.ToRecommendJSON(data))
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("recommend: marshal: %v", err)), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		},
+	)
+
+	mutAnnot := mcp.WithToolAnnotation(mutatingToolAnnotation())
+	s.AddTool(
+		mcp.NewTool("monitor",
+			mcp.WithDescription("Manage and evaluate watch rules against Business Memory. action=add: register a new watch rule; action=list: return all registered rules; action=run: evaluate all rules now and emit triggered events to Business Memory; action=rm: remove a rule by name."),
+			mcp.WithString("action",
+				mcp.Required(),
+				mcp.Description("One of: add, list, run, rm."),
+			),
+			mcp.WithString("name",
+				mcp.Description("Watch rule name (required for action=add and action=rm)."),
+			),
+			mcp.WithString("metric",
+				mcp.Description("Fully-qualified metric name for the watch (required for action=add)."),
+			),
+			mcp.WithString("condition",
+				mcp.Description("Condition expression for the watch (required for action=add). Examples: 'above 1000', 'below 50', 'deviates-by 2sigma'."),
+			),
+			mutAnnot,
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			action, err := req.RequireString("action")
+			if err != nil {
+				return mcp.NewToolResultError("monitor: action is required (add|list|run|rm)"), nil
+			}
+			switch action {
+			case "add":
+				name := req.GetString("name", "")
+				metric := req.GetString("metric", "")
+				condition := req.GetString("condition", "")
+				if name == "" || metric == "" || condition == "" {
+					return mcp.NewToolResultError("monitor add: name, metric, and condition are all required"), nil
+				}
+				if err := cat.AddWatch(ctx, name, metric, condition); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("monitor add: %v", err)), nil
+				}
+				b, _ := json.Marshal(map[string]string{"status": "ok", "name": name})
+				return mcp.NewToolResultText(string(b)), nil
+			case "rm":
+				name := req.GetString("name", "")
+				if name == "" {
+					return mcp.NewToolResultError("monitor rm: name is required"), nil
+				}
+				if err := cat.RemoveWatch(ctx, name); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("monitor rm: %v", err)), nil
+				}
+				b, _ := json.Marshal(map[string]string{"status": "ok", "name": name})
+				return mcp.NewToolResultText(string(b)), nil
+			case "list":
+				rows, err := cat.ListWatches(ctx)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("monitor list: %v", err)), nil
+				}
+				type watchJSON struct {
+					Name            string  `json:"name"`
+					MetricFQ        string  `json:"metric_fq"`
+					Condition       string  `json:"condition"`
+					CreatedAt       string  `json:"created_at"`
+					LastTriggeredAt *string `json:"last_triggered_at,omitempty"`
+				}
+				out := make([]watchJSON, len(rows))
+				for i, w := range rows {
+					wj := watchJSON{
+						Name:      w.Name,
+						MetricFQ:  w.MetricFQ,
+						Condition: w.Condition,
+						CreatedAt: w.CreatedAt.Format(time.RFC3339),
+					}
+					if w.LastTriggeredAt != nil {
+						ts := w.LastTriggeredAt.Format(time.RFC3339)
+						wj.LastTriggeredAt = &ts
+					}
+					out[i] = wj
+				}
+				b, _ := json.Marshal(out)
+				return mcp.NewToolResultText(string(b)), nil
+			case "run":
+				result, err := cat.RunWatches(ctx)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("monitor run: %v", err)), nil
+				}
+				b, _ := json.Marshal(ridgelinememory.ToMonitorRunJSON(result))
+				return mcp.NewToolResultText(string(b)), nil
+			default:
+				return mcp.NewToolResultError(fmt.Sprintf("monitor: unknown action %q (want add|list|run|rm)", action)), nil
+			}
+		},
+	)
+
 	return s
 }
 
@@ -247,12 +413,15 @@ func runMCP(ctx context.Context, args []string) error {
 		fmt.Fprintln(fs.Output(), "Usage: ridgeline mcp --config PATH")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Run a Model Context Protocol server over stdio.")
-		fmt.Fprintln(fs.Output(), "Exposes five tools to the connected agent:")
+		fmt.Fprintln(fs.Output(), "Exposes eight tools to the connected agent:")
 		fmt.Fprintln(fs.Output(), "  list_metrics  -- return all metrics in the Business Memory catalog")
 		fmt.Fprintln(fs.Output(), "  explain       -- return a narrative for a metric over a time window")
 		fmt.Fprintln(fs.Output(), "  investigate   -- causal narrative with correlated events and sibling metrics")
 		fmt.Fprintln(fs.Output(), "  compare       -- pairwise comparison of two metrics over the same window")
 		fmt.Fprintln(fs.Output(), "  summarize     -- ranked overview of all tracked metrics")
+		fmt.Fprintln(fs.Output(), "  forecast      -- directional projection for a metric over a future horizon")
+		fmt.Fprintln(fs.Output(), "  recommend     -- ranked focus areas composing anomaly, forecast, and baseline signals")
+		fmt.Fprintln(fs.Output(), "  monitor       -- manage and evaluate watch rules (action: add|list|run|rm)")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Wire ridgeline into Claude Desktop by adding an entry under")
 		fmt.Fprintln(fs.Output(), "\"mcpServers\" in claude_desktop_config.json.")
