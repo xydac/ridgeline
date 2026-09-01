@@ -45,8 +45,8 @@ Every primitive reports a **confidence score** derived from baseline sample
 count, anomaly magnitude, event temporal proximity, and regression fit quality
 (R^2) for forecast projections.
 
-**MCP server.** `ridgeline mcp` exposes five reasoning tools
-(`list_metrics`, `explain`, `investigate`, `compare`, `summarize`) as an MCP
+**MCP server.** `ridgeline mcp` exposes eight reasoning tools
+(`list_metrics`, `explain`, `investigate`, `compare`, `summarize`, `forecast`, `recommend`, `monitor`) as an MCP
 stdio server. Wire it into Claude Desktop to ask questions about your business
 in natural language backed by your own data.
 
@@ -1604,7 +1604,7 @@ TIME                  KIND     DETAIL
 
 Ridgeline exposes its Business Memory to AI agents via a
 [Model Context Protocol](https://spec.modelcontextprotocol.io) server. Once
-configured, an agent can call five tools against your real synced data without
+configured, an agent can call eight tools against your real synced data without
 any custom glue code.
 
 ### Connecting to Claude Desktop
@@ -1653,6 +1653,28 @@ directionality-weighted deviation from baseline (surprise-bad events surface
 first), and returns the top-`top` results as a JSON array. Each entry includes
 the full `explain` payload and a `score`. Use this to answer "what should I
 focus on this week?" `since` defaults to `7d`; `top` defaults to 5.
+
+**`forecast(metric_fq, horizon)`** -- projects a metric's directional
+trajectory over a future horizon using linear regression on the stored
+observation history. Returns `directional_label` (likely-decline, stable, or
+likely-improvement), a numeric `projected_mean` with uncertainty `band_width`,
+regression `r_squared` fit quality, and a `confidence` score. `horizon`
+defaults to `7d`; accepts `Nd` or Go duration strings.
+
+**`recommend(since, top)`** -- composes anomaly severity, forecast trajectory,
+and baseline confidence across all tracked metrics and returns a ranked list of
+actionable focus areas. Each item includes a `reason` sentence and a
+`suggested_command` to investigate further. Use this to answer "what should I
+focus on this week?" alongside `summarize`. `since` defaults to `7d`; `top`
+defaults to 5.
+
+**`monitor(action, ...)`** -- manages and evaluates watch rules against
+Business Memory. `action` is one of:
+- `add` (requires `name`, `metric`, `condition`) -- register a rule; condition
+  grammar: `above N`, `below N`, `deviates-by Nsigma`.
+- `list` -- return all registered rules with last-triggered timestamps.
+- `run` -- evaluate all rules now and emit triggered events to Business Memory.
+- `rm` (requires `name`) -- remove a rule.
 
 ### Example agent transcripts
 
@@ -1716,6 +1738,74 @@ Result:
 }
 ```
 
+**Forecasting a metric:**
+
+```
+User: Is my signup trend improving or declining?
+
+Claude: [calls forecast(metric_fq="myapp.daily.signups", horizon="14d")]
+
+Result:
+{
+  "metric_fq": "myapp.daily.signups",
+  "horizon": "14d",
+  "directional_label": "likely-decline",
+  "projected_mean": 72.4,
+  "band_width": 8.1,
+  "r_squared": 0.81,
+  "confidence": 0.74,
+  "summary": "signups is trending down (likely-decline); projected 14-day mean 72 +/- 8 (current baseline 91)."
+}
+```
+
+**First-user scenario (what to focus on):**
+
+```
+User: What should I focus on this week?
+
+Claude: [calls recommend(since="7d", top=5)]
+
+Result:
+{
+  "since": "7d",
+  "items": [
+    {
+      "metric_fq": "myapp.daily.signups",
+      "connector": "myapp",
+      "score": 3.76,
+      "anomaly_label": "surprise-bad",
+      "forecast_label": "likely-decline",
+      "reason": "Investigate: signups dropped 58% on 2026-08-12 and the 14-day forecast shows continued decline.",
+      "suggested_command": "ridgeline investigate myapp.daily.signups",
+      "confidence": 0.74
+    }
+  ]
+}
+```
+
+**Registering and running a watch rule:**
+
+```
+User: Alert me when daily errors exceed 500.
+
+Claude: [calls monitor(action="add", name="errors-high", metric="myapp.daily.errors", condition="above 500")]
+        [calls monitor(action="run")]
+
+Run result:
+{
+  "evaluated": 3,
+  "triggered": [
+    {
+      "watch_name": "errors-high",
+      "metric_fq": "myapp.daily.errors",
+      "condition": "above 500",
+      "value": 612.0,
+      "at": "2026-09-01T12:00:00Z"
+    }
+  ]
+}
+```
+
 ### Running manually
 
 ```
@@ -1753,7 +1843,7 @@ All diagnostic output goes to stderr so it does not corrupt the transport.
 | `config`                    | YAML loader for ridgeline.yaml (products, connectors, sinks).            |
 | `memory`                    | Business Memory catalog: streams, metrics, baselines, anomaly events, and the `explain` / `compare` / `investigate` / `summarize` reasoning primitives. |
 | `query`                     | In-process DuckDB runner. Backs the `ridgeline query` CLI.               |
-| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `investigate`, `summarize`, `mcp`. |
+| `cmd/ridgeline`             | Binary. `version`, `sync`, `serve`, `status`, `query`, `creds`, `tui`, `schema`, `memory`, `explain`, `compare`, `investigate`, `summarize`, `forecast`, `recommend`, `monitor`, `mcp`. |
 
 The wire format that lets external plugins be written in any language
 is specified in [docs/protocol.md](docs/protocol.md).
