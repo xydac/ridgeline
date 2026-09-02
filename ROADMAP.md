@@ -49,6 +49,7 @@
 - [x] `ridgeline monitor add|list|rm|run` -- register threshold watch rules that persist to `bm_watches`; `monitor run` evaluates rules against current Business Memory state and appends triggered events to `bm_events`; condition grammar: `above N`, `below N`, `deviates-by Nsigma`; `--json` returns structured triggered-event list
 - [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
 - [x] MCP server (`ridgeline mcp`) exposing eight agent tools: `list_metrics`, `explain`, `investigate`, `compare`, `summarize`, `forecast`, `recommend`, and `monitor` (add/list/run/rm via action param)
+- [x] `ridgeline digest --since <window>` -- Markdown narrative composing `summarize` + top-3 `investigate` + `recommend` into "This Week / Why It Moved / What To Do"; `--out auto` writes a date-stamped file; `--webhook URL` POSTs JSON for cron-driven delivery; `--json` returns structured sections for agent consumption
 
 ## Known gaps
 

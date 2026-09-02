@@ -1600,6 +1600,104 @@ TIME                  KIND     DETAIL
 2026-08-09T12:00:00Z  anomaly  plausible.daily.visitors: 724 (-4.32σ, 30d) -- surprise-bad
 ```
 
+## Digest
+
+`ridgeline digest` composes `summarize`, `investigate`, and `recommend` into a
+single narrative document you can read Monday morning without opening any agent
+chat. It is Business Memory delivered as a document rather than a conversation.
+
+```
+ridgeline digest --config ridgeline.yaml --since 7d
+```
+
+Output is a Markdown document with three sections:
+
+- **This Week** -- top-line metric summary: what moved, by how much, and in
+  which direction relative to each metric's 30-day baseline.
+- **Why It Moved** -- causal investigation of the three highest-scoring movers:
+  correlated events, sibling-metric correlation, and confidence scores.
+- **What To Do** -- ranked recommendations with a suggested `ridgeline` command
+  for each focus area.
+
+Sample digest excerpt:
+
+```markdown
+# Business Memory Digest -- 2026-09-02
+
+_Generated 2026-09-02T12:00:00Z | Window: last 7d_
+
+---
+
+## This Week
+
+Business Memory: 4 metric(s) across 2 connector(s) -- last 7d
+
+plausible:
+  plausible.daily.visitors  score=3.2  surprise-bad  confidence=87%
+    dropped from 1,420 avg to 890 on 2026-08-28 (-3.2σ, 30d baseline)
+
+---
+
+## Why It Moved
+
+### plausible.daily.visitors
+
+Anomaly detected: -3.2σ below 30d mean on 2026-08-28 (confidence: 87%).
+
+Correlated events (within 48h before anomaly):
+  2026-08-27 18:30 [deploy]: shipped v2.3 -- routing refactor (12.5h before anomaly)
+
+No sibling metrics with notable correlation found.
+
+---
+
+## What To Do
+
+Focus areas for the last 7d:
+
+1. plausible.daily.visitors [anomaly] (score: 3.2, confidence: 87%)
+   Visitors dropped 3.2σ on 2026-08-28 after a deploy landed 12h earlier.
+   -> ridgeline investigate plausible.daily.visitors --config ridgeline.yaml --since 7d
+```
+
+### Writing to a file
+
+```
+ridgeline digest --config ridgeline.yaml --since 7d --out auto
+# writes digest-2026-09-02.md in the current directory
+
+ridgeline digest --config ridgeline.yaml --out weekly-digest.md
+```
+
+### Posting to a webhook (cron-driven delivery)
+
+```
+ridgeline digest --config ridgeline.yaml --webhook https://hooks.example.com/digest
+```
+
+The webhook receives a JSON body matching the `--json` output shape:
+
+```json
+{
+  "generated_at": "2026-09-02T12:00:00Z",
+  "since": "7d",
+  "sections": [
+    { "title": "This Week",    "content": "..." },
+    { "title": "Why It Moved", "content": "..." },
+    { "title": "What To Do",   "content": "..." }
+  ]
+}
+```
+
+### Structured JSON
+
+```
+ridgeline digest --config ridgeline.yaml --since 7d --json
+```
+
+Returns the same `sections` array as the webhook body, suitable for piping into
+`jq` or feeding to an agent.
+
 ## MCP server
 
 Ridgeline exposes its Business Memory to AI agents via a
