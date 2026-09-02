@@ -162,6 +162,7 @@ func TestCLI_SubcommandHelpFlags_ExitZero(t *testing.T) {
 		{"creds", "put", "--help"},
 		{"tui", "--help"},
 		{"version", "--help"},
+		{"digest", "--help"},
 	}
 	for _, args := range cases {
 		args := args
