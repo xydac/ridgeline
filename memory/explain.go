@@ -25,6 +25,7 @@ type ExplainData struct {
 	PriorSamples  int
 	Anomalies     []EventRow      // all events in the window: anomalies + correlated (deploys, commits, notes)
 	Confidence    ConfidenceScore // derived from baseline sample count
+	Patterns      []PatternRow    // recurring patterns detected for this metric
 }
 
 // ExplainJSON is the structured output format for --json.
@@ -112,6 +113,8 @@ func (c *Catalog) ExplainMetric(ctx context.Context, fqName string, since time.D
 	if d.Baseline != nil {
 		d.Confidence = ScoreBaseline(d.Baseline.SampleCount)
 	}
+
+	d.Patterns, _ = c.ListPatternsForMetric(ctx, fqName)
 
 	return d, nil
 }
@@ -254,6 +257,11 @@ func ComposeNarrative(d *ExplainData) string {
 			}
 			fmt.Fprintf(&sb, "  %s [%s]: %s\n", e.At.Format("2006-01-02"), e.Kind, label)
 		}
+	}
+
+	if len(d.Patterns) > 0 {
+		names := FormatPatternNames(d.Patterns)
+		fmt.Fprintf(&sb, "Recurring patterns: %s -- see 'ridgeline memory patterns'.\n", names)
 	}
 
 	fmt.Fprintf(&sb, "\nSummary: %s\n", composeSummary(d))

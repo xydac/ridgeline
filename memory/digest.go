@@ -96,7 +96,33 @@ func (c *Catalog) GenerateDigest(ctx context.Context, since time.Duration, topK 
 		Content: ComposeRecommendNarrative(rec),
 	})
 
+	// --- Recurring Patterns: named shapes in the data ----------------------
+	patterns, err := c.ListPatterns(ctx)
+	if err == nil && len(patterns) > 0 {
+		d.Sections = append(d.Sections, DigestSection{
+			Title:   "Recurring Patterns",
+			Content: composePatternSection(patterns),
+		})
+	}
+
 	return d, nil
+}
+
+// composePatternSection renders the list of detected recurring patterns for
+// inclusion in the digest.
+func composePatternSection(patterns []PatternRow) string {
+	var sb strings.Builder
+	fmt.Fprintln(&sb, "The following recurring shapes have been detected in your metric history:")
+	fmt.Fprintln(&sb)
+	for _, p := range patterns {
+		fmt.Fprintf(&sb, "- **%s** on `%s` (confidence %.0f%%, evidence %s to %s)\n",
+			p.Pattern, p.FQNAME, p.Confidence*100,
+			p.EvidenceStart.Format("2006-01-02"),
+			p.EvidenceEnd.Format("2006-01-02"))
+	}
+	fmt.Fprintln(&sb)
+	fmt.Fprintln(&sb, "Run `ridgeline memory patterns` for details.")
+	return sb.String()
 }
 
 // ComposeDigestMarkdown renders a Digest as a Markdown document.
