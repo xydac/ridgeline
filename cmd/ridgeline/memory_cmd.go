@@ -22,9 +22,10 @@ import (
 //	memory recompute --config PATH                      recompute all baselines
 //	memory events    --config PATH                      list events (anomalies, deploys, commits)
 //	memory note      --config PATH --kind K --description D  insert a manual event
+//	memory patterns  --config PATH [--detect]           list detected recurring patterns
 func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 	if len(args) == 0 {
-		return usageErrorf("subcommand required (streams, metrics, baselines, recompute, events, note)")
+		return usageErrorf("subcommand required (streams, metrics, baselines, recompute, events, note, patterns)")
 	}
 	switch args[0] {
 	case "streams":
@@ -39,6 +40,8 @@ func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 		return runMemoryEvents(ctx, args[1:], stdout)
 	case "note":
 		return runMemoryNote(ctx, args[1:], stdout)
+	case "patterns":
+		return runMemoryPatterns(ctx, args[1:], stdout)
 	case "help", "--help", "-h":
 		fmt.Fprintln(stdout, "Usage: ridgeline memory streams   --config PATH")
 		fmt.Fprintln(stdout, "       ridgeline memory metrics   --config PATH")
@@ -46,12 +49,64 @@ func runMemory(ctx context.Context, args []string, stdout *os.File) error {
 		fmt.Fprintln(stdout, "       ridgeline memory recompute --config PATH [--since DURATION]")
 		fmt.Fprintln(stdout, "       ridgeline memory events    --config PATH [--since DURATION]")
 		fmt.Fprintln(stdout, "       ridgeline memory note      --config PATH --kind KIND --description TEXT [--at TIME]")
+		fmt.Fprintln(stdout, "       ridgeline memory patterns  --config PATH [--detect]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintln(stdout, "Query and update the Business Memory catalog.")
 		return nil
 	default:
-		return usageErrorf("unknown subcommand %q (streams, metrics, baselines, recompute, events, note)", args[0])
+		return usageErrorf("unknown subcommand %q (streams, metrics, baselines, recompute, events, note, patterns)", args[0])
 	}
+}
+
+func runMemoryPatterns(ctx context.Context, args []string, stdout *os.File) error {
+	fs := flag.NewFlagSet("memory patterns", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	detect := fs.Bool("detect", false, "re-run pattern detection before listing")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory patterns --config PATH [--detect]")
+		fmt.Fprintln(fs.Output(), "")
+		fmt.Fprintln(fs.Output(), "List recurring patterns detected across all tracked metrics.")
+		fmt.Fprintln(fs.Output(), "Use --detect to re-run detection before listing.")
+		fmt.Fprintln(fs.Output(), "")
+		fs.PrintDefaults()
+	}
+	help, err := parseSubcommandFlags(fs, stdout, args)
+	if help || err != nil {
+		return err
+	}
+	if *cfgPath == "" {
+		return usageErrorf("patterns: --config is required")
+	}
+
+	cat, store, err := openCatalogFromConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	if *detect {
+		if err := cat.RedetectAllPatterns(ctx); err != nil {
+			return fmt.Errorf("detect patterns: %w", err)
+		}
+	}
+
+	patterns, err := cat.ListPatterns(ctx)
+	if err != nil {
+		return fmt.Errorf("list patterns: %w", err)
+	}
+	if len(patterns) == 0 {
+		fmt.Fprintln(stdout, "No patterns detected. Run with --detect to analyze your data, or sync more data first.")
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "METRIC\tPATTERN\tCONFIDENCE\tSAMPLES\tEVIDENCE")
+	for _, p := range patterns {
+		evidence := p.EvidenceStart.Format("2006-01-02") + " to " + p.EvidenceEnd.Format("2006-01-02")
+		fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%d\t%s\n",
+			p.FQNAME, p.Pattern, p.Confidence*100, p.SampleCount, evidence)
+	}
+	return tw.Flush()
 }
 
 func runMemoryStreams(ctx context.Context, args []string, stdout *os.File) error {
