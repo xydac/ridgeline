@@ -1069,6 +1069,36 @@ memory:
 Events are never deleted; they accumulate as a historical record of
 surprising business moments. Use `--since 0` to list all events ever recorded.
 
+### Recurring patterns
+
+Beyond anomalies, Ridgeline detects recurring shapes in your metric history and names them. A named pattern carries more meaning than a statistical deviation: knowing that visitors always drop on weekends lets you stop investigating a normal dip and focus on genuine surprises.
+
+Five built-in patterns are detected automatically:
+
+| Pattern | What it means |
+|---|---|
+| `weekend-dip` | Sat/Sun values are consistently 10%+ lower than Mon-Fri across at least 4 weeks |
+| `month-end-spike` | Last 2 days of each month are consistently 15%+ above the monthly mean across 3+ months |
+| `steady-growth` | Linear regression over available history has positive slope, R^2 >= 0.4, and >= 5% growth |
+| `steady-decline` | Same as above but with negative slope and >= 5% decline |
+| `high-volatility` | Standard deviation exceeds twice the mean -- the metric has no stable level |
+
+Patterns require at least 28 daily observations (4 weeks) before detection fires. Run detection with `--detect` and list what was found:
+
+```
+ridgeline memory patterns --config ridgeline.yaml --detect
+```
+
+```
+METRIC                        PATTERN        CONFIDENCE  SAMPLES  EVIDENCE
+----------------------------  -------------  ----------  -------  ---------------------------
+plausible.daily.visitors      weekend-dip    60%         84       2026-06-06 to 2026-09-02
+plausible.daily.visitors      steady-growth  78%         84       2026-06-06 to 2026-09-02
+posthog.events.count          high-volatility  55%       84       2026-06-06 to 2026-09-02
+```
+
+Pattern names appear automatically in `ridgeline explain` output and in the Recurring Patterns section of `ridgeline digest`. The `--detect` flag is idempotent: re-running it updates confidence and evidence windows in place.
+
 ### Reasoning: explain a metric
 
 `ridgeline explain` turns the memory catalog into a plain-text narrative.

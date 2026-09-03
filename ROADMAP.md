@@ -50,6 +50,7 @@
 - [x] Cross-connector event log: deploys, releases, and git commits land in `bm_events`
 - [x] MCP server (`ridgeline mcp`) exposing eight agent tools: `list_metrics`, `explain`, `investigate`, `compare`, `summarize`, `forecast`, `recommend`, and `monitor` (add/list/run/rm via action param)
 - [x] `ridgeline digest --since <window>` -- Markdown narrative composing `summarize` + top-3 `investigate` + `recommend` into "This Week / Why It Moved / What To Do"; `--out auto` writes a date-stamped file; `--webhook URL` POSTs JSON for cron-driven delivery; `--json` returns structured sections for agent consumption
+- [x] Pattern library: five named recurring patterns (`weekend-dip`, `month-end-spike`, `steady-growth`, `steady-decline`, `high-volatility`) detected from 90 days of metric history; persisted to `bm_patterns`; `ridgeline memory patterns --detect` runs detection and lists results; pattern names surface in `ridgeline explain` and `ridgeline digest` narratives
 
 ## Known gaps
 
