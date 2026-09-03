@@ -150,6 +150,22 @@ CREATE TABLE IF NOT EXISTS bm_watches (
 	last_triggered_at TEXT
 ) STRICT;`,
 	},
+	{
+		version: 12,
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_patterns (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	fq_name TEXT NOT NULL,
+	pattern TEXT NOT NULL,
+	confidence REAL NOT NULL,
+	evidence_start TEXT NOT NULL,
+	evidence_end TEXT NOT NULL,
+	sample_count INTEGER NOT NULL,
+	detected_at TEXT NOT NULL,
+	UNIQUE (fq_name, pattern)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_bm_patterns_fq ON bm_patterns (fq_name);`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
