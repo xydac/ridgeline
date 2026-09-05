@@ -166,6 +166,26 @@ CREATE TABLE IF NOT EXISTS bm_patterns (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_bm_patterns_fq ON bm_patterns (fq_name);`,
 	},
+	{
+		version: 13,
+		// Rebuild bm_metric_values with UNIQUE (fq_name, observed_at) so that
+		// per-date backfill inserts are idempotent. Existing duplicate rows
+		// (multiple ingest-time inserts on the same calendar-second) are
+		// collapsed by INSERT OR IGNORE, keeping the first row seen.
+		stmt: `
+CREATE TABLE bm_metric_values_v13 (
+	fq_name TEXT NOT NULL,
+	value REAL NOT NULL,
+	observed_at TEXT NOT NULL,
+	UNIQUE (fq_name, observed_at)
+) STRICT;
+INSERT OR IGNORE INTO bm_metric_values_v13 (fq_name, value, observed_at)
+	SELECT fq_name, value, observed_at FROM bm_metric_values ORDER BY rowid ASC;
+DROP TABLE bm_metric_values;
+ALTER TABLE bm_metric_values_v13 RENAME TO bm_metric_values;
+CREATE INDEX IF NOT EXISTS idx_bm_metric_values_lookup
+	ON bm_metric_values (fq_name, observed_at);`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.

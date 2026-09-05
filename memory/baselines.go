@@ -24,15 +24,26 @@ type BaselineRow struct {
 	LastComputedAt time.Time
 }
 
-// RecordMetricValue appends a timestamped observation to bm_metric_values.
-// This is called on each sync when a new last_value is available for a metric.
+// RecordMetricValue appends an observation to bm_metric_values using the
+// current time as the observation timestamp. Duplicate (fq_name, observed_at)
+// pairs are resolved by updating the stored value.
 func (c *Catalog) RecordMetricValue(ctx context.Context, fqName string, value float64) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	return c.RecordMetricValueAt(ctx, fqName, value, time.Now())
+}
+
+// RecordMetricValueAt appends an observation to bm_metric_values at the
+// specified timestamp. When a row for (fq_name, observed_at) already exists,
+// its value is updated. This allows connectors to backfill historical
+// time-series data at their declared record timestamps rather than the sync
+// ingest time, so baselines accumulate one sample per record day.
+func (c *Catalog) RecordMetricValueAt(ctx context.Context, fqName string, value float64, at time.Time) error {
+	ts := at.UTC().Format(time.RFC3339)
 	_, err := c.db.ExecContext(ctx,
-		`INSERT INTO bm_metric_values (fq_name, value, observed_at) VALUES (?, ?, ?)`,
-		fqName, value, now)
+		`INSERT INTO bm_metric_values (fq_name, value, observed_at) VALUES (?, ?, ?)
+		 ON CONFLICT(fq_name, observed_at) DO UPDATE SET value = excluded.value`,
+		fqName, value, ts)
 	if err != nil {
-		return fmt.Errorf("memory: record metric value %s: %w", fqName, err)
+		return fmt.Errorf("memory: record metric value %s at %s: %w", fqName, ts, err)
 	}
 	return nil
 }

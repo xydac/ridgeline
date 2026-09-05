@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/mcptest"
@@ -577,11 +578,12 @@ func TestMCPForecastKnownMetricReturnsFields(t *testing.T) {
 	if err := cat.UpsertMetric(ctx, "myapp.daily.signups", "count", "higher_is_better", "sum", &v); err != nil {
 		t.Fatalf("upsert metric: %v", err)
 	}
-	// Two observations are required for regression; values differ so slope is non-zero.
-	if err := cat.RecordMetricValue(ctx, "myapp.daily.signups", 180.0); err != nil {
+	// Two observations are required for regression; use distinct daily timestamps.
+	now := time.Now().UTC()
+	if err := cat.RecordMetricValueAt(ctx, "myapp.daily.signups", 180.0, now.Add(-24*time.Hour)); err != nil {
 		t.Fatalf("record value 1: %v", err)
 	}
-	if err := cat.RecordMetricValue(ctx, "myapp.daily.signups", 200.0); err != nil {
+	if err := cat.RecordMetricValueAt(ctx, "myapp.daily.signups", 200.0, now); err != nil {
 		t.Fatalf("record value 2: %v", err)
 	}
 

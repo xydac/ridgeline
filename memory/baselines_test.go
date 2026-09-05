@@ -4,15 +4,18 @@ import (
 	"context"
 	"math"
 	"testing"
+	"time"
 )
 
 func TestRecordMetricValue_andListBaselines(t *testing.T) {
 	ctx := context.Background()
 	cat := openTestCatalog(t)
 
-	// 10 known values: 1..10, mean=5.5, stddev can be computed
+	// 10 distinct hourly observations within the last 7 days.
+	now := time.Now().UTC()
 	for i := 1; i <= 10; i++ {
-		if err := cat.RecordMetricValue(ctx, "app.daily.signups", float64(i)); err != nil {
+		at := now.Add(-time.Duration(10-i) * time.Hour)
+		if err := cat.RecordMetricValueAt(ctx, "app.daily.signups", float64(i), at); err != nil {
 			t.Fatalf("record value %d: %v", i, err)
 		}
 	}
@@ -57,8 +60,10 @@ func TestComputeBaselines_idempotent(t *testing.T) {
 	ctx := context.Background()
 	cat := openTestCatalog(t)
 
+	now := time.Now().UTC()
 	for i := 1; i <= 5; i++ {
-		if err := cat.RecordMetricValue(ctx, "app.mrr", float64(i*100)); err != nil {
+		at := now.Add(-time.Duration(5-i) * 24 * time.Hour)
+		if err := cat.RecordMetricValueAt(ctx, "app.mrr", float64(i*100), at); err != nil {
 			t.Fatalf("record: %v", err)
 		}
 	}
@@ -127,10 +132,12 @@ func TestRecompute(t *testing.T) {
 	ctx := context.Background()
 	cat := openTestCatalog(t)
 
+	now := time.Now().UTC()
 	metrics := []string{"app.a", "app.b"}
 	for _, m := range metrics {
 		for i := 1; i <= 3; i++ {
-			if err := cat.RecordMetricValue(ctx, m, float64(i)); err != nil {
+			at := now.Add(-time.Duration(3-i) * 24 * time.Hour)
+			if err := cat.RecordMetricValueAt(ctx, m, float64(i), at); err != nil {
 				t.Fatalf("record %s: %v", m, err)
 			}
 		}
@@ -168,9 +175,11 @@ func TestSparkline_renders(t *testing.T) {
 	ctx := context.Background()
 	cat := openTestCatalog(t)
 
+	now := time.Now().UTC()
 	vals := []float64{1, 2, 3, 4, 5, 6, 7, 8}
-	for _, v := range vals {
-		if err := cat.RecordMetricValue(ctx, "app.revenue", v); err != nil {
+	for j, v := range vals {
+		at := now.Add(-time.Duration(len(vals)-j) * 24 * time.Hour)
+		if err := cat.RecordMetricValueAt(ctx, "app.revenue", v, at); err != nil {
 			t.Fatalf("record: %v", err)
 		}
 	}
