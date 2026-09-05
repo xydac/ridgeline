@@ -558,6 +558,14 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 			continue
 		}
 		lastRec := res.LastObserved[streamName]
+
+		// Pre-index MetricTimeSeries by column name so the column loop below
+		// can look up per-record observations in O(1) without re-scanning.
+		colPts := map[string][]pipeline.MetricPoint{}
+		for _, pt := range res.MetricTimeSeries[streamName] {
+			colPts[pt.Column] = append(colPts[pt.Column], pt)
+		}
+
 		for _, col := range effectiveSchema.Columns {
 			if col.Semantics == nil {
 				continue
@@ -577,7 +585,21 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 			); err != nil {
 				fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
 			}
-			if lastVal != nil {
+
+			// When the pipeline captured per-record observations with declared
+			// timestamps, record each observation at its actual date so baselines
+			// accumulate one sample per record day. Fall back to recording the
+			// last value at ingest time for streams without declared timestamps.
+			if pts := colPts[col.Name]; len(pts) > 0 {
+				for _, pt := range pts {
+					if err := cat.RecordMetricValueAt(ctx, fqName, pt.Value, pt.At); err != nil {
+						fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
+					}
+				}
+				// Anomaly detection uses the most recent value.
+				latest := pts[len(pts)-1]
+				newObs = append(newObs, metricObs{fqName: fqName, value: latest.Value})
+			} else if lastVal != nil {
 				if err := cat.RecordMetricValue(ctx, fqName, *lastVal); err != nil {
 					fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
 				}
