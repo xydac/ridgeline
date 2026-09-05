@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/xydac/ridgeline/connectors"
 	"github.com/xydac/ridgeline/enrichers"
@@ -75,6 +76,16 @@ type StreamResult struct {
 	Records int
 }
 
+// MetricPoint is one (timestamp, column, value) observation captured from a
+// metric-kind stream during a pipeline run. The timestamp comes from the
+// record's own Timestamp field (set by the connector from its primary key),
+// not the ingest time.
+type MetricPoint struct {
+	At     time.Time
+	Column string
+	Value  float64
+}
+
 // Result summarizes a Run.
 type Result struct {
 	// Records is the total number of records extracted from the connector
@@ -103,6 +114,12 @@ type Result struct {
 	// this to sample metric values without a post-sync storage query.
 	// Nil when no records were observed for that stream.
 	LastObserved map[string]connectors.Record
+	// MetricTimeSeries holds all per-record metric observations for streams
+	// that declare metric columns. Key is stream name. Each MetricPoint
+	// carries the record's declared timestamp (not the ingest time) so the
+	// Business Memory layer can record one observation per record day rather
+	// than one per sync run.
+	MetricTimeSeries map[string][]MetricPoint
 }
 
 // Run drives one extraction from conn through sink, persisting state
@@ -177,9 +194,21 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		return Result{}, fmt.Errorf("pipeline: extract: %w", err)
 	}
 
+	// Build a per-stream index of metric column names so flushStream can
+	// capture per-record observations without re-scanning the spec on each call.
+	metricCols := map[string][]string{}
+	for _, ss := range conn.Spec().Streams {
+		for _, col := range ss.Schema.Columns {
+			if col.Semantics != nil {
+				metricCols[ss.Name] = append(metricCols[ss.Name], col.Name)
+			}
+		}
+	}
+
 	result := Result{
-		PerStream:    map[string]StreamResult{},
-		LastObserved: map[string]connectors.Record{},
+		PerStream:        map[string]StreamResult{},
+		LastObserved:     map[string]connectors.Record{},
+		MetricTimeSeries: map[string][]MetricPoint{},
 	}
 	buffers := map[string][]connectors.Record{}
 
@@ -208,6 +237,28 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 		result.Records += len(batch)
 		result.Persisted += n
 		result.LastObserved[stream] = batch[len(batch)-1]
+
+		// Capture per-record metric observations at each record's own
+		// timestamp so callers can record historical data at its declared
+		// date rather than at ingest time.
+		if cols := metricCols[stream]; len(cols) > 0 {
+			for _, rec := range batch {
+				if rec.Timestamp.IsZero() {
+					continue
+				}
+				for _, col := range cols {
+					v, ok := asFloat64(rec.Data[col])
+					if !ok {
+						continue
+					}
+					result.MetricTimeSeries[stream] = append(
+						result.MetricTimeSeries[stream],
+						MetricPoint{At: rec.Timestamp, Column: col, Value: v},
+					)
+				}
+			}
+		}
+
 		buffers[stream] = buffers[stream][:0]
 		return nil
 	}
@@ -298,4 +349,23 @@ func Run(ctx context.Context, conn connectors.Connector, sink sinks.Sink, store 
 			}
 		}
 	}
+}
+
+// asFloat64 converts common numeric interface values to float64.
+// Returns (value, true) for supported types; (0, false) otherwise.
+// This avoids a dependency on the cmd layer's toFloat64 helper.
+func asFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
 }
