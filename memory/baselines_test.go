@@ -198,6 +198,52 @@ func TestSparkline_renders(t *testing.T) {
 	}
 }
 
+// TestSingleBackfillYieldsMultipleSamples is the regression test for F-143.
+// A single sync that backfills 30 days of data must produce 30 distinct rows
+// in bm_metric_values (one per record day), so the 30d baseline sample_count
+// reflects the full history rather than n=1 at ingest time.
+func TestSingleBackfillYieldsMultipleSamples(t *testing.T) {
+	ctx := context.Background()
+	cat := openTestCatalog(t)
+
+	fq := "plausible.daily.visitors"
+	// Simulate a single-sync 30-day backfill: all 30 records arrive in one
+	// call but each carries its own declared timestamp.
+	now := time.Now().UTC()
+	for i := 0; i < 30; i++ {
+		at := now.Add(-time.Duration(29-i) * 24 * time.Hour)
+		if err := cat.RecordMetricValueAt(ctx, fq, float64(100+i), at); err != nil {
+			t.Fatalf("backfill day %d: %v", i, err)
+		}
+	}
+
+	if err := cat.ComputeBaselines(ctx, fq, []int{30, 90}); err != nil {
+		t.Fatalf("compute baselines: %v", err)
+	}
+
+	rows, err := cat.ListBaselines(ctx, fq)
+	if err != nil {
+		t.Fatalf("list baselines: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("no baseline rows: expected at least one window")
+	}
+
+	// The 30d window must contain at least 28 samples (allow small clock skew).
+	var found bool
+	for _, r := range rows {
+		if r.WindowDays == 30 {
+			found = true
+			if r.SampleCount < 28 {
+				t.Errorf("30d window: want sample_count >= 28 after single backfill, got %d", r.SampleCount)
+			}
+		}
+	}
+	if !found {
+		t.Error("no 30d baseline row found")
+	}
+}
+
 func TestWindowStats_knownValues(t *testing.T) {
 	mean, stddev, min, max := windowStats([]float64{2, 4, 4, 4, 5, 5, 7, 9})
 	if math.Abs(mean-5.0) > 1e-9 {
