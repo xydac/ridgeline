@@ -910,8 +910,8 @@ To inspect what Ridgeline knows about a data source:
 
 ```
 ridgeline schema plausible
-ridgeline schema plausible.daily
-ridgeline schema github.views
+ridgeline schema myapp.stats.daily
+ridgeline schema myapp.traffic.views
 ```
 
 Example output:
@@ -950,10 +950,10 @@ ridgeline memory streams --config ridgeline.yaml
 ```
 
 ```
-CONNECTOR   STREAM    KIND     FIRST SEEN            LAST SEEN             ROWS (LIFETIME)
-----------  --------  -------  --------------------  --------------------  ---------------
-plausible   daily     metric   2026-08-01T12:00:00Z  2026-08-08T12:00:00Z  56
-posthog     events    event    2026-08-01T12:00:00Z  2026-08-08T12:00:00Z  14302
+CONNECTOR        STREAM    KIND     FIRST SEEN            LAST SEEN             ROWS (LIFETIME)
+---------------  --------  -------  --------------------  --------------------  ---------------
+myapp.stats      daily     metric   2026-08-01T12:00:00Z  2026-08-08T12:00:00Z  56
+myapp.analytics  events    event    2026-08-01T12:00:00Z  2026-08-08T12:00:00Z  14302
 ```
 
 `FIRST SEEN` is set on first observation and never overwritten, so
@@ -965,6 +965,15 @@ Metric-typed streams have columns annotated with unit, directionality,
 and aggregation hints. The catalog tracks the last observed value for
 each metric column.
 
+Metrics are identified by a four-part fully-qualified name:
+`<product>.<connector-name>.<stream>.<column>`. This ensures that two
+connectors of the same type (for example, a staging and a production
+Plausible site) produce separate catalog entries. Use this name with
+`explain`, `investigate`, `compare`, `forecast`, `monitor`, and all
+other commands that take a metric argument. Run `memory metrics
+--legacy-fqn` to see the pre-v0.3.0 three-part form alongside the
+current name if you need to migrate existing scripts.
+
 ```
 ridgeline memory metrics --config ridgeline.yaml
 ```
@@ -972,10 +981,10 @@ ridgeline memory metrics --config ridgeline.yaml
 ```
 METRIC                            UNIT     DIRECTION          AGGREGATION  LAST VALUE  LAST SEEN
 --------------------------------  -------  -----------------  -----------  ----------  --------------------
-plausible.daily.bounce_rate       %        lower_is_better    avg          38.2        2026-08-08T12:00:00Z
-plausible.daily.pageviews         users    higher_is_better   sum          4821        2026-08-08T12:00:00Z
-plausible.daily.visit_duration    seconds  neutral            avg          142         2026-08-08T12:00:00Z
-plausible.daily.visitors          users    higher_is_better   sum          1234        2026-08-08T12:00:00Z
+myapp.stats.daily.bounce_rate       %        lower_is_better    avg          38.2        2026-08-08T12:00:00Z
+myapp.stats.daily.pageviews         users    higher_is_better   sum          4821        2026-08-08T12:00:00Z
+myapp.stats.daily.visit_duration    seconds  neutral            avg          142         2026-08-08T12:00:00Z
+myapp.stats.daily.visitors          users    higher_is_better   sum          1234        2026-08-08T12:00:00Z
 ```
 
 The `direction` column records whether higher or lower values are
@@ -989,11 +998,11 @@ computed from every observed `last_value` since tracking began. Three
 windows are computed on each sync: 7-day, 30-day, and 90-day.
 
 ```
-ridgeline memory baselines --config ridgeline.yaml plausible.daily.visitors
+ridgeline memory baselines --config ridgeline.yaml myapp.stats.daily.visitors
 ```
 
 ```
-Metric: plausible.daily.visitors
+Metric: myapp.stats.daily.visitors
 30d sparkline: ▂▃▃▄▅▄▆▇▆▅▆▇▇▆▄▅▆▇▇▇▇▇▆▇▇▇▇▇▇▇
 
 WINDOW    SAMPLES  MEAN      STDDEV    MIN       MAX       COMPUTED
@@ -1042,8 +1051,8 @@ ridgeline memory events --config ridgeline.yaml --since 7d
 ```
 TIME                  METRIC                         WINDOW  OBSERVED    MEAN        DEVIATION  DIRECTION
 -------------------   ----------------------------   ------  ----------  ----------  ---------  ----------------
-2026-08-09T12:00:00Z  plausible.daily.visitors       7d      724         1187        -4.32σ     surprise-bad
-2026-08-07T12:00:00Z  plausible.daily.bounce_rate    30d     61.4        38.2        +5.18σ     surprise-bad
+2026-08-09T12:00:00Z  myapp.stats.daily.visitors       7d      724         1187        -4.32σ     surprise-bad
+2026-08-07T12:00:00Z  myapp.stats.daily.bounce_rate    30d     61.4        38.2        +5.18σ     surprise-bad
 ```
 
 Two knobs control detection sensitivity:
@@ -1062,7 +1071,7 @@ memory:
   anomaly_k: 2.5
   min_samples: 14
   metric_overrides:
-    "plausible.daily.bounce_rate":
+    "myapp.stats.daily.bounce_rate":
       anomaly_k: 3.0
 ```
 
@@ -1092,9 +1101,9 @@ ridgeline memory patterns --config ridgeline.yaml --detect
 ```
 METRIC                        PATTERN        CONFIDENCE  SAMPLES  EVIDENCE
 ----------------------------  -------------  ----------  -------  ---------------------------
-plausible.daily.visitors      weekend-dip    60%         84       2026-06-06 to 2026-09-02
-plausible.daily.visitors      steady-growth  78%         84       2026-06-06 to 2026-09-02
-posthog.events.count          high-volatility  55%       84       2026-06-06 to 2026-09-02
+myapp.stats.daily.visitors      weekend-dip    60%         84       2026-06-06 to 2026-09-02
+myapp.stats.daily.visitors      steady-growth  78%         84       2026-06-06 to 2026-09-02
+myapp.analytics.events.count          high-volatility  55%       84       2026-06-06 to 2026-09-02
 ```
 
 Pattern names appear automatically in `ridgeline explain` output and in the Recurring Patterns section of `ridgeline digest`. The `--detect` flag is idempotent: re-running it updates confidence and evidence windows in place.
@@ -1107,11 +1116,11 @@ baseline, the change from the prior period of the same length, and any anomalies
 detected during sync:
 
 ```
-ridgeline explain plausible.daily.visitors --config ridgeline.yaml --since 7d
+ridgeline explain myapp.stats.daily.visitors --config ridgeline.yaml --since 7d
 ```
 
 ```
-plausible.daily.visitors -- last 7d
+myapp.stats.daily.visitors -- last 7d
 
 Current value: 724 visitors (as of 2026-08-09).
 The 30d baseline is 1187 +/- 105 visitors (higher is better); current is -4.4 sigma from the mean.
@@ -1125,12 +1134,12 @@ Summary: visitors is below baseline (watch), with one surprise-bad spike on 2026
 Add `--json` to get the same content as a structured object for agent consumption:
 
 ```
-ridgeline explain plausible.daily.visitors --config ridgeline.yaml --since 7d --json
+ridgeline explain myapp.stats.daily.visitors --config ridgeline.yaml --since 7d --json
 ```
 
 ```json
 {
-  "metric_fq": "plausible.daily.visitors",
+  "metric_fq": "myapp.stats.daily.visitors",
   "since": "7d",
   "current_value": 724,
   "current_at": "2026-08-09T12:00:00Z",
@@ -1180,7 +1189,7 @@ comparative verdict -- whether they moved together, diverged, and which anomalie
 or correlated events the two windows share:
 
 ```
-ridgeline compare plausible.daily.visitors plausible.daily.pageviews \
+ridgeline compare myapp.stats.daily.visitors myapp.stats.daily.pageviews \
   --config ridgeline.yaml --since 7d
 ```
 
@@ -1209,7 +1218,7 @@ Use `--against RECENT,PRIOR` to compare one metric against a prior window of
 a different length:
 
 ```
-ridgeline compare plausible.daily.visitors --against 7d,14d \
+ridgeline compare myapp.stats.daily.visitors --against 7d,14d \
   --config ridgeline.yaml
 ```
 
@@ -1238,7 +1247,7 @@ proximity, and computes Pearson correlation against sibling metrics in the same
 window.
 
 ```
-ridgeline investigate plausible.daily.visitors --config ridgeline.yaml --since 14d
+ridgeline investigate myapp.stats.daily.visitors --config ridgeline.yaml --since 14d
 ```
 
 ```
@@ -1252,15 +1261,15 @@ Correlated events (within 48h before anomaly):
   2026-08-12 22:30 [commit]: Remove caching layer (22.5h before anomaly at 2026-08-13)
 
 Sibling metric correlation:
-  plausible.daily.pageviews: r=0.94 (moved together, 14 shared days)
-  plausible.daily.bounce_rate: r=-0.81 (moved inversely, 14 shared days)
+  myapp.stats.daily.pageviews: r=0.94 (moved together, 14 shared days)
+  myapp.stats.daily.bounce_rate: r=-0.81 (moved inversely, 14 shared days)
 
 ```
 
 Use `--json` for structured output:
 
 ```
-ridgeline investigate plausible.daily.visitors --config ridgeline.yaml --since 14d --json
+ridgeline investigate myapp.stats.daily.visitors --config ridgeline.yaml --since 14d --json
 ```
 
 The JSON response includes `explain` (the full explain payload), `causal_candidates`
@@ -1285,9 +1294,9 @@ ridgeline summarize --config ridgeline.yaml --since 7d
 Business Memory: 6 metric(s) across 2 connector(s) -- last 7d
 
 [plausible]
-  plausible.daily.visitors: 724 visitors (-4.3 sigma from 30d baseline, surprise-bad)
-  plausible.daily.pageviews: 1891 pageviews (-3.1 sigma from 30d baseline, surprise-bad)
-  plausible.daily.bounce_rate: 62.4% (within baseline range)
+  myapp.stats.daily.visitors: 724 visitors (-4.3 sigma from 30d baseline, surprise-bad)
+  myapp.stats.daily.pageviews: 1891 pageviews (-3.1 sigma from 30d baseline, surprise-bad)
+  myapp.stats.daily.bounce_rate: 62.4% (within baseline range)
 
 [github]
   github.commits.total: 18 commits (+1.2 sigma from 30d baseline, above average)
@@ -1308,7 +1317,7 @@ ridgeline summarize --config ridgeline.yaml --since 7d --top 3 --json
   "total_connectors": 2,
   "top_metrics": [
     {
-      "metric_fq": "plausible.daily.visitors",
+      "metric_fq": "myapp.stats.daily.visitors",
       "connector": "plausible",
       "score": 4.31,
       "confidence": 0.92,
@@ -1558,7 +1567,7 @@ visitors is below baseline (watch), with one downward spike on 2026-08-13
 
 ```json
 {
-  "metric_fq": "plausible.daily.visitors",
+  "metric_fq": "myapp.stats.daily.visitors",
   "confidence": 0.92,
   "summary": "visitors is above baseline (positive) (high confidence: 90-day baseline, n=83)."
 }
@@ -1627,7 +1636,7 @@ TIME                  KIND     DETAIL
 -------------------   ------   -------------------------------------------------
 2026-08-09T14:23:00Z  deploy   shipped v2.1 -- routing refactor
 2026-08-09T13:01:52Z  commit   refactor: replace custom router with stdlib mux
-2026-08-09T12:00:00Z  anomaly  plausible.daily.visitors: 724 (-4.32σ, 30d) -- surprise-bad
+2026-08-09T12:00:00Z  anomaly  myapp.stats.daily.visitors: 724 (-4.32σ, 30d) -- surprise-bad
 ```
 
 ## Digest
@@ -1663,14 +1672,14 @@ _Generated 2026-09-02T12:00:00Z | Window: last 7d_
 Business Memory: 4 metric(s) across 2 connector(s) -- last 7d
 
 plausible:
-  plausible.daily.visitors  score=3.2  surprise-bad  confidence=87%
+  myapp.stats.daily.visitors  score=3.2  surprise-bad  confidence=87%
     dropped from 1,420 avg to 890 on 2026-08-28 (-3.2σ, 30d baseline)
 
 ---
 
 ## Why It Moved
 
-### plausible.daily.visitors
+### myapp.stats.daily.visitors
 
 Anomaly detected: -3.2σ below 30d mean on 2026-08-28 (confidence: 87%).
 
@@ -1685,9 +1694,9 @@ No sibling metrics with notable correlation found.
 
 Focus areas for the last 7d:
 
-1. plausible.daily.visitors [anomaly] (score: 3.2, confidence: 87%)
+1. myapp.stats.daily.visitors [anomaly] (score: 3.2, confidence: 87%)
    Visitors dropped 3.2σ on 2026-08-28 after a deploy landed 12h earlier.
-   -> ridgeline investigate plausible.daily.visitors --config ridgeline.yaml --since 7d
+   -> ridgeline investigate myapp.stats.daily.visitors --config ridgeline.yaml --since 7d
 ```
 
 ### Writing to a file
