@@ -158,11 +158,24 @@ func runMemoryStreams(ctx context.Context, args []string, stdout *os.File) error
 	return w.Flush()
 }
 
+// legacyFQName strips the product prefix from a 4-part FQ name, returning
+// the 3-part form used before v0.3.0. For example,
+// "myapp.prod.daily.visitors" becomes "prod.daily.visitors".
+// This is shown by --legacy-fqn for one release to help users migrate scripts.
+func legacyFQName(fqName string) string {
+	idx := strings.IndexByte(fqName, '.')
+	if idx < 0 {
+		return fqName
+	}
+	return fqName[idx+1:]
+}
+
 func runMemoryMetrics(ctx context.Context, args []string, stdout *os.File) error {
 	fs := flag.NewFlagSet("memory metrics", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to ridgeline.yaml")
+	showLegacy := fs.Bool("legacy-fqn", false, "also show the deprecated 3-part metric name for migration reference")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory metrics --config PATH")
+		fmt.Fprintln(fs.Output(), "Usage: ridgeline memory metrics --config PATH [--legacy-fqn]")
 		fmt.Fprintln(fs.Output(), "")
 		fmt.Fprintln(fs.Output(), "Lists all metrics recorded in the Business Memory catalog.")
 		fmt.Fprintln(fs.Output(), "")
@@ -192,8 +205,13 @@ func runMemoryMetrics(ctx context.Context, args []string, stdout *os.File) error
 	}
 
 	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "METRIC\tUNIT\tDIRECTION\tAGGREGATION\tLAST VALUE\tLAST SEEN")
-	fmt.Fprintln(w, strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 16)+"\t"+strings.Repeat("-", 11)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 19))
+	if *showLegacy {
+		fmt.Fprintln(w, "METRIC\tLEGACY (deprecated)\tUNIT\tDIRECTION\tAGGREGATION\tLAST VALUE\tLAST SEEN")
+		fmt.Fprintln(w, strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 20)+"\t"+strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 16)+"\t"+strings.Repeat("-", 11)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 19))
+	} else {
+		fmt.Fprintln(w, "METRIC\tUNIT\tDIRECTION\tAGGREGATION\tLAST VALUE\tLAST SEEN")
+		fmt.Fprintln(w, strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 16)+"\t"+strings.Repeat("-", 11)+"\t"+strings.Repeat("-", 10)+"\t"+strings.Repeat("-", 19))
+	}
 	for _, r := range rows {
 		lastVal := "-"
 		if r.LastValue != nil {
@@ -203,14 +221,26 @@ func runMemoryMetrics(ctx context.Context, args []string, stdout *os.File) error
 		if r.LastValueAt != nil {
 			lastAt = r.LastValueAt.Format(time.RFC3339)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.FQName,
-			r.Unit,
-			r.Direction,
-			r.Aggregation,
-			lastVal,
-			lastAt,
-		)
+		if *showLegacy {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.FQName,
+				legacyFQName(r.FQName),
+				r.Unit,
+				r.Direction,
+				r.Aggregation,
+				lastVal,
+				lastAt,
+			)
+		} else {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.FQName,
+				r.Unit,
+				r.Direction,
+				r.Aggregation,
+				lastVal,
+				lastAt,
+			)
+		}
 	}
 	return w.Flush()
 }
