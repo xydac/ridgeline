@@ -480,7 +480,7 @@ func runConnectorInstance(ctx context.Context, store pipeline.StateStore, cat *m
 	}
 
 	if cat != nil {
-		updateBusinessMemory(ctx, cat, memCfg, conn, inst, res)
+		updateBusinessMemory(ctx, cat, memCfg, pid, conn, inst, res)
 		if emitter, ok := conn.(connectors.EventEmitter); ok {
 			emitConnectorEvents(ctx, cat, emitter, conn.Spec().Name, inst, preSyncState)
 		}
@@ -517,7 +517,7 @@ func emitConnectorEvents(ctx context.Context, cat *memory.Catalog, emitter conne
 // successful connector run into the Business Memory catalog. Errors are
 // logged to stderr and never propagate to the caller; catalog writes are
 // always best-effort.
-func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg config.MemoryConfig, conn connectors.Connector, inst config.ConnectorInstance, res pipeline.Result) {
+func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg config.MemoryConfig, pid string, conn connectors.Connector, inst config.ConnectorInstance, res pipeline.Result) {
 	spec := conn.Spec()
 	specByName := map[string]connectors.StreamSpec{}
 	type metricObs struct {
@@ -530,6 +530,7 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 	}
 
 	now := time.Now().UTC()
+	connKey := pid + "." + inst.Name
 
 	for _, streamName := range inst.Streams {
 		sr := res.PerStream[streamName]
@@ -550,7 +551,7 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 			known = true
 		}
 
-		if err := cat.UpsertStream(ctx, spec.Name, streamName, effectiveKind.String(), int64(sr.Records)); err != nil {
+		if err := cat.UpsertStream(ctx, connKey, streamName, effectiveKind.String(), int64(sr.Records)); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: business memory: %v\n", err)
 		}
 
@@ -570,7 +571,7 @@ func updateBusinessMemory(ctx context.Context, cat *memory.Catalog, memCfg confi
 			if col.Semantics == nil {
 				continue
 			}
-			fqName := spec.Name + "." + streamName + "." + col.Name
+			fqName := connKey + "." + streamName + "." + col.Name
 			var lastVal *float64
 			if lastRec.Data != nil {
 				if v, ok := lastRec.Data[col.Name]; ok {

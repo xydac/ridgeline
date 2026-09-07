@@ -66,8 +66,8 @@ func TestRunMemoryStreams_AfterSync(t *testing.T) {
 	if !strings.Contains(out, "events") {
 		t.Errorf("output should mention 'events', got:\n%s", out)
 	}
-	if !strings.Contains(out, "testsrc") {
-		t.Errorf("output should mention 'testsrc' connector, got:\n%s", out)
+	if !strings.Contains(out, "myapp.demo") {
+		t.Errorf("output should mention 'myapp.demo' connector key, got:\n%s", out)
 	}
 	// first_seen_at and last_seen_at should appear (RFC3339 timestamps).
 	if !strings.Contains(out, "FIRST SEEN") {
