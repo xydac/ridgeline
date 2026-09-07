@@ -186,6 +186,67 @@ ALTER TABLE bm_metric_values_v13 RENAME TO bm_metric_values;
 CREATE INDEX IF NOT EXISTS idx_bm_metric_values_lookup
 	ON bm_metric_values (fq_name, observed_at);`,
 	},
+	{
+		version: 14,
+		// Expand Business Memory FQ names from the 3-part form
+		// <type>.<stream>.<column> to the 4-part form
+		// <product>.<connector_name>.<stream>.<column>.
+		//
+		// Existing rows used the connector type (e.g. "plausible") as both the
+		// product and connector name, so the migration prepends the type once
+		// more. New syncs supply the configured product ID and connector name
+		// from the ridgeline.yaml, which are distinct even when two connectors
+		// share the same type. Backup tables are created for rollback.
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_streams_pre14 AS SELECT * FROM bm_streams;
+CREATE TABLE IF NOT EXISTS bm_metrics_pre14 AS SELECT * FROM bm_metrics;
+CREATE TABLE IF NOT EXISTS bm_metric_values_pre14 AS SELECT * FROM bm_metric_values;
+CREATE TABLE IF NOT EXISTS bm_baselines_pre14 AS SELECT * FROM bm_baselines;
+CREATE TABLE IF NOT EXISTS bm_watches_pre14 AS SELECT * FROM bm_watches;
+CREATE TABLE IF NOT EXISTS bm_patterns_pre14 AS SELECT * FROM bm_patterns;
+UPDATE bm_streams SET connector =
+	CASE
+		WHEN INSTR(connector, '.') = 0
+		THEN connector || '.' || connector
+		ELSE connector
+	END;
+UPDATE bm_metrics SET fq_name =
+	CASE
+		WHEN (LENGTH(fq_name) - LENGTH(REPLACE(fq_name, '.', ''))) = 2
+		THEN SUBSTR(fq_name, 1, INSTR(fq_name, '.') - 1) || '.' || fq_name
+		ELSE fq_name
+	END;
+UPDATE bm_metric_values SET fq_name =
+	CASE
+		WHEN (LENGTH(fq_name) - LENGTH(REPLACE(fq_name, '.', ''))) = 2
+		THEN SUBSTR(fq_name, 1, INSTR(fq_name, '.') - 1) || '.' || fq_name
+		ELSE fq_name
+	END;
+UPDATE bm_baselines SET fq_name =
+	CASE
+		WHEN (LENGTH(fq_name) - LENGTH(REPLACE(fq_name, '.', ''))) = 2
+		THEN SUBSTR(fq_name, 1, INSTR(fq_name, '.') - 1) || '.' || fq_name
+		ELSE fq_name
+	END;
+UPDATE bm_events SET metric_fq =
+	CASE
+		WHEN metric_fq != '' AND (LENGTH(metric_fq) - LENGTH(REPLACE(metric_fq, '.', ''))) = 2
+		THEN SUBSTR(metric_fq, 1, INSTR(metric_fq, '.') - 1) || '.' || metric_fq
+		ELSE metric_fq
+	END;
+UPDATE bm_watches SET metric_fq =
+	CASE
+		WHEN (LENGTH(metric_fq) - LENGTH(REPLACE(metric_fq, '.', ''))) = 2
+		THEN SUBSTR(metric_fq, 1, INSTR(metric_fq, '.') - 1) || '.' || metric_fq
+		ELSE metric_fq
+	END;
+UPDATE bm_patterns SET fq_name =
+	CASE
+		WHEN (LENGTH(fq_name) - LENGTH(REPLACE(fq_name, '.', ''))) = 2
+		THEN SUBSTR(fq_name, 1, INSTR(fq_name, '.') - 1) || '.' || fq_name
+		ELSE fq_name
+	END;`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
