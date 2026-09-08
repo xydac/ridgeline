@@ -207,6 +207,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "digest: %v\n", err)
 			cmdExit(err)
 		}
+	case "alerts":
+		if err := runAlerts(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "alerts: %v\n", err)
+			cmdExit(err)
+		}
 	case "mcp":
 		if err := runMCP(context.Background(), os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "mcp: %v\n", err)
@@ -250,6 +255,11 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  ridgeline monitor list --config PATH")
 	fmt.Fprintln(w, "  ridgeline monitor rm <name> --config PATH")
 	fmt.Fprintln(w, "  ridgeline monitor run --config PATH [--json]")
+	fmt.Fprintln(w, "  ridgeline alerts config <kind> <target> --config PATH [--name NAME]")
+	fmt.Fprintln(w, "  ridgeline alerts run --config PATH [--since DURATION]")
+	fmt.Fprintln(w, "  ridgeline alerts list --config PATH")
+	fmt.Fprintln(w, "  ridgeline alerts test <channel> --config PATH")
+	fmt.Fprintln(w, "  ridgeline alerts rm <channel> --config PATH")
 	fmt.Fprintln(w, "  ridgeline mcp --config PATH")
 	fmt.Fprintln(w, "  ridgeline help")
 }
