@@ -1737,6 +1737,77 @@ ridgeline digest --config ridgeline.yaml --since 7d --json
 Returns the same `sections` array as the webhook body, suitable for piping into
 `jq` or feeding to an agent.
 
+## Alerts
+
+`ridgeline alerts` is the second proactive delivery channel after Digest. Where
+Digest delivers a periodic narrative on demand, Alerts deliver individual events
+the moment they occur -- surfacing anomalies, watch-rule triggers, and monitor
+events to any combination of webhooks, files, or stderr.
+
+### Register a channel
+
+```
+# Webhook: POST application/json to a URL on each event
+ridgeline alerts config webhook https://hooks.example.com/ridgeline \
+  --config ridgeline.yaml --name prod-webhook
+
+# Append JSON lines to a file
+ridgeline alerts config file /var/log/ridgeline-alerts.jsonl \
+  --config ridgeline.yaml
+
+# Write to stderr (useful inside a Docker container or CI job)
+ridgeline alerts config stderr '' --config ridgeline.yaml --name ci-stderr
+```
+
+### Deliver new events
+
+```
+ridgeline alerts run --config ridgeline.yaml [--since 60m]
+```
+
+`alerts run` evaluates all watch rules first (same as `monitor run`), then
+delivers any `bm_events` from the look-back window that have not been delivered
+to each channel yet. Delivery is idempotent: running twice in a row delivers
+nothing the second time.
+
+**Cron example** (check every 5 minutes):
+
+```
+*/5 * * * * ridgeline alerts run --config /etc/ridgeline/ridgeline.yaml
+```
+
+### Inspect and test channels
+
+```
+# List registered channels and when each last delivered
+ridgeline alerts list --config ridgeline.yaml
+
+# Fire a synthetic test payload to verify a channel is reachable
+ridgeline alerts test prod-webhook --config ridgeline.yaml
+
+# Remove a channel
+ridgeline alerts rm prod-webhook --config ridgeline.yaml
+```
+
+### Delivery payload
+
+Each event is delivered as a single JSON object:
+
+```json
+{
+  "event_id": 42,
+  "kind": "anomaly",
+  "metric_fq": "myapp.demo.pageviews.visitors",
+  "description": "visitors dropped 3.2σ below 30d baseline",
+  "direction": "surprise-bad",
+  "observed_value": 890,
+  "at": "2026-09-08T12:00:00Z"
+}
+```
+
+Webhook channels receive a `POST application/json` with this body. File and
+stderr channels append one JSON line per event.
+
 ## MCP server
 
 Ridgeline exposes its Business Memory to AI agents via a
