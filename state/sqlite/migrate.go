@@ -247,6 +247,29 @@ UPDATE bm_patterns SET fq_name =
 		ELSE fq_name
 	END;`,
 	},
+	{
+		version: 15,
+		// Add alert delivery infrastructure: channels and delivery log.
+		// bm_alert_channels holds registered delivery endpoints (webhook, stderr, file).
+		// bm_alert_deliveries tracks which events have been delivered to which channel
+		// so alerts run is idempotent across invocations.
+		stmt: `
+CREATE TABLE IF NOT EXISTS bm_alert_channels (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	name     TEXT    NOT NULL UNIQUE,
+	kind     TEXT    NOT NULL,
+	target   TEXT    NOT NULL,
+	extra    TEXT    NOT NULL DEFAULT '{}',
+	created_at TEXT  NOT NULL,
+	last_delivered_at TEXT
+) STRICT;
+CREATE TABLE IF NOT EXISTS bm_alert_deliveries (
+	event_id   INTEGER NOT NULL,
+	channel_id INTEGER NOT NULL,
+	delivered_at TEXT NOT NULL,
+	PRIMARY KEY (event_id, channel_id)
+) STRICT;`,
+	},
 }
 
 // migrate ensures every entry in schemaMigrations has been applied.
